@@ -362,16 +362,30 @@ end
 
 Create a lifetime scope for references. References created with this lifetime
 are only valid within the block and are automatically cleaned up when the block exits.
+Can be used with either begin/end blocks or let blocks.
 """
 macro lifetime(name, body)
-    if !Meta.isexpr(body, :block)
-        error("@lifetime requires a begin/end block")
+    if !Meta.isexpr(body, :block) && !Meta.isexpr(body, :let)
+        error("@lifetime requires a begin/end block or let block")
     end
 
+    inner_body = if Meta.isexpr(body, :let)
+        let_expr = body.args[1]
+        let_body = body.args[2]
+        quote
+            let $let_expr
+                $let_body
+            end
+        end
+    else
+        body
+    end
+
+    # Wrap the body in lifetime management
     return esc(quote
         let $(name) = $(Lifetime)()
             try
-                $body
+                $inner_body
             finally
                 $(cleanup!)($(name))
             end

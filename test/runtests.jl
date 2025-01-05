@@ -261,3 +261,17 @@ end
     @test a == [1, 2, 3, 4]
     @test b == [4, 5, 6]
 end
+
+@testitem "Lifetime Let Blocks" begin
+    # Test lifetime with let block
+    @own_mut outer = [1, 2, 3]
+    
+    @lifetime lt let inner = @ref_mut lt outer
+        push!(inner, 4)
+        @test inner == [1, 2, 3, 4]
+    end
+
+    # Test that borrows are cleaned up after let block
+    @test outer.mutable_borrows == 0
+    @test outer == [1, 2, 3, 4]
+end
