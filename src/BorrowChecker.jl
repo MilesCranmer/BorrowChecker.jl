@@ -220,6 +220,7 @@ Base.getindex(r::AllWrappers, i...) = getindex(request_value(r, Val(:read)), i..
 # Forward comparison to the underlying value
 Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
 Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
+Base.:(==)(r::AllWrappers, other::AllWrappers) = request_value(r, Val(:read)) == request_value(other, Val(:read))
 
 # Forward array operations for mutable wrappers
 Base.push!(r::AllWrappers, items...) = (push!(request_value(r, Val(:write)), items...); r)
