@@ -1,4 +1,4 @@
-module BorrowChecker
+module BorrowCheck
 
 using MacroTools
 
