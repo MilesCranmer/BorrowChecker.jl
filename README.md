@@ -125,3 +125,74 @@ julia> array2[1] = 5; # works!
 ```
 
 ### Borrowing
+
+References must be created within a `@lifetime` block. Let's look at
+immutable references first:
+
+```julia
+julia> @own_mut data = [1, 2, 3];
+
+julia> @lifetime lt begin
+           ref = @ref lt data
+           ref
+       end
+Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
+```
+
+Once we have created the reference `ref`, we are no longer allowed to modify
+`data` until the lifetime `lt` ends. This helps prevent data races.
+After the lifetime ends, we can edit `data` again:
+
+```julia
+julia> data[1] = 4; data
+OwnedMut{Vector{Int64}}([4, 2, 3])
+```
+
+Note that we can have multiple _immutable_ references at once:
+
+```julia
+julia> @lifetime lt begin
+           ref1 = @ref lt data
+           ref2 = @ref lt data
+           ref1 == ref2
+       end
+true
+```
+
+For mutable references, we can only have one at a time:
+
+```julia
+julia> @lifetime lt begin
+           mut_ref = @ref_mut lt data
+           mut_ref2 = @ref_mut lt data
+       end
+ERROR: Cannot create mutable reference: value is already mutably borrowed
+```
+
+And we can't mix mutable and immutable references:
+
+```julia
+julia> @lifetime lt begin
+           ref = @ref lt data
+           mut_ref = @ref_mut lt data
+       end
+ERROR: Cannot create mutable reference: value is immutably borrowed
+```
+
+We can also use references to temporarily borrow values in functions:
+
+```julia
+julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need immutable references
+           @assert v == [1, 2, 3]
+       end;
+
+julia> @own vec = [1, 2, 3]
+Owned{Vector{Int64}}([1, 2, 3])
+
+julia> @lifetime lt begin
+           borrow_vector(@ref lt vec)  # Immutable borrow
+       end
+
+julia> vec
+Owned{Vector{Int64}}([1, 2, 3])
+```
