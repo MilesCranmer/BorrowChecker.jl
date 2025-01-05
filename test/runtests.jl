@@ -34,17 +34,6 @@ end
         @test_throws MovedError @ref lt x
     end
 
-    # Alternative move syntax y = @move x
-    @own p = [4, 5, 6]
-    q = @move p
-    @lifetime lt begin
-        ref = @ref lt q
-        @test ref == [4, 5, 6]
-        @test p.moved
-        @test !q.moved
-        @test_throws MovedError @ref lt p
-    end
-
     # Cannot move twice
     @test_throws MovedError @move z = x
 

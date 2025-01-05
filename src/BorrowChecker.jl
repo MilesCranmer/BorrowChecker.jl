@@ -265,26 +265,12 @@ end
 
 """
     @move new = old
-    @move var
 
 Transfer ownership from one variable to another, invalidating the old variable.
-When used with a single variable, returns the value and marks it as moved.
 """
 macro move(expr)
-    if expr isa Symbol
-        # Handle single variable case (e.g., @move x or y = @move x)
-        var = expr
-        value = gensym(:value)
-        # TODO: Should this be a read? Needed to get the value out of the immutable.
-        return esc(quote
-            $value = $(request_value)($var, Val(:read))
-            $(mark_moved!)($var)
-            ($(constructorof)(typeof($var)))($value)
-        end)
-    end
-
     if !Meta.isexpr(expr, :(=))
-        error("@move requires either a variable or an assignment expression")
+        error("@move requires an assignment expression (e.g., @move y = x)")
     end
 
     # Handle assignment case (e.g., @move y = x)
