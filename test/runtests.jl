@@ -1,6 +1,6 @@
 using TestItems
 using TestItemRunner
-using BorrowCheck
+using BorrowChecker
 
 @run_package_tests
 

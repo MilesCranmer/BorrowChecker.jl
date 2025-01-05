@@ -1,6 +1,6 @@
 <div align="center">
 
-# BorrowCheck.jl
+# BorrowChecker.jl
 
 </div>
 
@@ -31,7 +31,7 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 For owned values and references, property access follows these rules:
 
-- Use `@take x` to extract the wrapped value of `x`, exiting the BorrowCheck.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
+- Use `@take x` to extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
 - You can use `getproperty` and `setproperty!` normally on owned values and references. Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
 
 ## Examples
@@ -41,7 +41,7 @@ For owned values and references, property access follows these rules:
 First, let's look at basic ownership.
 
 ```julia
-julia> using BorrowCheck
+julia> using BorrowChecker
 
 julia> @own x = 1
 Owned{Int64}(1)
