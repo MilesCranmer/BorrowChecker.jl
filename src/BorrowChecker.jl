@@ -447,20 +447,22 @@ macro lifetime(name, body)
 end
 
 """
-    @ref lifetime(var = value)
+    @ref var = value in lifetime
 
 Create an immutable reference to an owned value within the given lifetime scope.
 Returns a Borrowed{T} that forwards access to the underlying value.
 """
 macro ref(expr)
-    @assert Meta.isexpr(expr, :call)
-    @assert length(expr.args) == 2
-    @assert Meta.isexpr(expr.args[2], :(kw))
-
-    name = expr.args[1]
-    dest = expr.args[2].args[1]
+    if !Meta.isexpr(expr, :(=))
+        error("@ref requires an assignment expression")
+    end
+    dest = expr.args[1]
+    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
+        error("@ref requires 'in' syntax: @ref var = value in lifetime")
+    end
     src = expr.args[2].args[2]
-    return esc(:($dest = $(create_immutable_ref)($name, $src)))
+    lifetime = expr.args[2].args[3]
+    return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
 end
 
 function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
@@ -480,20 +482,22 @@ function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
 end
 
 """
-    @ref_mut lifetime(var = value)
+    @ref_mut var = value in lifetime
 
 Create a mutable reference to an owned value within the given lifetime scope.
 Returns a BorrowedMut{T} that forwards access to the underlying value.
 """
 macro ref_mut(expr)
-    @assert Meta.isexpr(expr, :call)
-    @assert length(expr.args) == 2
-    @assert Meta.isexpr(expr.args[2], :(kw))
-
-    name = expr.args[1]
-    dest = expr.args[2].args[1]
+    if !Meta.isexpr(expr, :(=))
+        error("@ref_mut requires an assignment expression")
+    end
+    dest = expr.args[1]
+    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
+        error("@ref_mut requires 'in' syntax: @ref_mut var = value in lifetime")
+    end
     src = expr.args[2].args[2]
-    return esc(:($dest = $(BorrowedMut)($src, $name)))
+    lifetime = expr.args[2].args[3]
+    return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
 end
 # --- END MACROS ---
 

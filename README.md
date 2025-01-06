@@ -20,8 +20,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref lt(var = value)`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
-- `@ref_mut lt(var = value)`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref var = value in lt`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref_mut var = value in lt`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
 
 ### Assignment
 
@@ -133,7 +133,7 @@ immutable references first:
 julia> @own_mut data = [1, 2, 3];
 
 julia> @lifetime lt begin
-           @ref lt(ref = data)
+           @ref ref = data in lt
            ref
        end
 Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
@@ -152,8 +152,8 @@ Note that we can have multiple _immutable_ references at once:
 
 ```julia
 julia> @lifetime lt begin
-           @ref lt(ref1 = data)
-           @ref lt(ref2 = data)
+           @ref ref1 = data in lt
+           @ref ref2 = data in lt
            ref1 == ref2
        end
 true
@@ -163,8 +163,8 @@ For mutable references, we can only have one at a time:
 
 ```julia
 julia> @lifetime lt begin
-           @ref_mut lt(mut_ref = data)
-           @ref_mut lt(mut_ref2 = data)
+           @ref_mut mut_ref = data in lt
+           @ref_mut mut_ref2 = data in lt
        end
 ERROR: Cannot create mutable reference: value is already mutably borrowed
 ```
@@ -173,8 +173,8 @@ And we can't mix mutable and immutable references:
 
 ```julia
 julia> @lifetime lt begin
-           @ref lt(ref = data)
-           @ref_mut lt(mut_ref = data)
+           @ref ref = data in lt
+           @ref_mut mut_ref = data in lt
        end
 ERROR: Cannot create mutable reference: value is immutably borrowed
 ```
@@ -190,7 +190,7 @@ julia> @own vec = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin
-           borrow_vector(@ref lt(d = vec))  # Immutable borrow
+           borrow_vector(@ref d = vec in lt)  # Immutable borrow
        end
 
 julia> vec
