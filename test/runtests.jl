@@ -268,3 +268,30 @@ end
     @test outer.mutable_borrows == 0
     @test outer == [1, 2, 3, 4]
 end
+
+@testitem "mutability check works" begin
+    using BorrowChecker: recursive_ismutable
+
+    @test !recursive_ismutable(Int)
+    @test recursive_ismutable(Vector{Int})
+end
+
+@testitem "Borrowed Arrays" begin
+    @own x = [1, 2, 3]
+    @lifetime lt begin
+        @ref lt(ref = x)
+        @test ref == [1, 2, 3]
+        # We can borrow the borrow since it is immutable
+        @ref lt(ref2 = ref)
+        @test ref2 == [1, 2, 3]
+        @test ref2 isa Borrowed{Vector{Int}}
+        @test ref2[2] == 2
+        @test ref2[2] isa Borrowed{Int}
+
+        @test ref2[1:2] isa Borrowed{Vector{Int}}
+
+        # No mutating allowed
+        @test_throws BorrowRuleError push!(ref2, 4)
+    end
+    @test x == [1, 2, 3]
+end

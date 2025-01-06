@@ -273,6 +273,9 @@ function Base.getindex(o::AllOwned{<:AbstractArray{T}}, i...) where {T}
     # Create a new owned object holding the indexed version:
     return constructorof(typeof(o))(getindex(request_value(o, Val(:read)), i...))
 end
+function Base.getindex(r::Borrowed{<:AbstractArray{T}}, i...) where {T}
+    return Borrowed(getindex(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
+end
 
 Base.length(r::AllWrappers) = length(request_value(r, Val(:read)))
 Base.size(r::AllWrappers) = size(request_value(r, Val(:read)))
@@ -496,7 +499,7 @@ end
 
 # --- GENERIC UTILITY FUNCTIONS ---
 @generated function recursive_ismutable(::Union{T,Type{T}}) where {T}
-    return ismutable(T) || any(recursive_ismutable, fieldtypes(T))
+    return ismutabletype(T) || any(recursive_ismutable, fieldtypes(T))
 end
 # --- END GENERIC UTILITY FUNCTIONS ---
 
