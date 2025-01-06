@@ -329,3 +329,11 @@ end
         @test ref.owner.symbol == :y
     end
 end
+
+@testitem "Prevents write on mutable array when referenced" begin
+    @own_mut x = [1, 2, 3]
+    @lifetime lt begin
+        @ref ref = x in lt
+        @test_throws BorrowRuleError x[1] = 5
+    end
+end
