@@ -94,7 +94,8 @@ end
     @own_mut mp = Point(1, 2)
     @lifetime lt begin
         @ref_mut mut_ref_p = mp in lt
-        @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x == 1
+        @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x ==
+            1
         @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
     end
 end
@@ -108,8 +109,7 @@ end
 
         @test_throws BorrowRuleError @ref d = y in lt
         @test_throws(
-            "Cannot create immutable reference: value is mutably borrowed",
-            @ref d = y in lt
+            "Cannot create immutable reference: value is mutably borrowed", @ref d = y in lt
         )
     end
 end
@@ -127,7 +127,7 @@ end
     # Helper function that takes ownership
     function consume_vector(v::Vector{Int})
         push!(v, 4)
-        v
+        return v
     end
 
     # Test taking ownership in function calls
@@ -157,7 +157,7 @@ end
 
     # Test mutable borrowing
     function modify_vector(v)
-        push!(v, 4)
+        return push!(v, 4)
     end
 
     @own_mut z = [1, 2, 3]
@@ -257,7 +257,7 @@ end
 @testitem "Lifetime Let Blocks" begin
     # Test lifetime with let block
     @own_mut outer = [1, 2, 3]
-    
+
     @lifetime lt let
         @ref_mut inner = outer in lt
         push!(inner, 4)

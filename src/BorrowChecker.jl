@@ -18,8 +18,9 @@ struct BorrowRuleError <: BorrowError
     msg::String
 end
 
-Base.showerror(io::IO, e::MovedError) =
-    print(io, "Cannot use $(e.var): value has been moved")
+function Base.showerror(io::IO, e::MovedError)
+    return print(io, "Cannot use $(e.var): value has been moved")
+end
 Base.showerror(io::IO, e::BorrowRuleError) = print(io, e.msg)
 # --- END ERROR TYPES ---
 
@@ -29,8 +30,8 @@ mutable struct Owned{T}
     moved::Bool
     immutable_borrows::Int
 
-    Owned{T}(value::T, moved::Bool = false) where {T} = new{T}(value, moved, 0)
-    Owned(value::T, moved::Bool = false) where {T} = Owned{T}(value, moved)
+    Owned{T}(value::T, moved::Bool=false) where {T} = new{T}(value, moved, 0)
+    Owned(value::T, moved::Bool=false) where {T} = Owned{T}(value, moved)
 end
 
 mutable struct OwnedMut{T}
@@ -39,8 +40,8 @@ mutable struct OwnedMut{T}
     immutable_borrows::Int
     mutable_borrows::Int
 
-    OwnedMut{T}(value::T, moved::Bool = false) where {T} = new{T}(value, moved, 0, 0)
-    OwnedMut(value::T, moved::Bool = false) where {T} = OwnedMut{T}(value, moved)
+    OwnedMut{T}(value::T, moved::Bool=false) where {T} = new{T}(value, moved, 0, 0)
+    OwnedMut(value::T, moved::Bool=false) where {T} = OwnedMut{T}(value, moved)
 end
 
 struct Lifetime
@@ -55,11 +56,17 @@ struct Borrowed{T,O<:Union{Owned,OwnedMut}}
     owner::O
     lifetime::Lifetime
 
-    function Borrowed(value::T, owner::O, lifetime::Lifetime) where {T,O<:Union{Owned,OwnedMut}}
+    function Borrowed(
+        value::T, owner::O, lifetime::Lifetime
+    ) where {T,O<:Union{Owned,OwnedMut}}
         if owner.moved
             throw(MovedError(:owner))
         elseif owner isa OwnedMut && owner.mutable_borrows > 0
-            throw(BorrowRuleError("Cannot create immutable reference: value is mutably borrowed"))
+            throw(
+                BorrowRuleError(
+                    "Cannot create immutable reference: value is mutably borrowed"
+                ),
+            )
         end
 
         owner.immutable_borrows += 1
@@ -77,7 +84,9 @@ struct BorrowedMut{T,O<:OwnedMut}
     owner::O
     lifetime::Lifetime
 
-    function BorrowedMut(value::T, owner::O, lifetime::Lifetime) where {T,O<:Union{Owned,OwnedMut}}
+    function BorrowedMut(
+        value::T, owner::O, lifetime::Lifetime
+    ) where {T,O<:Union{Owned,OwnedMut}}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif owner.moved
@@ -85,13 +94,13 @@ struct BorrowedMut{T,O<:OwnedMut}
         elseif owner.immutable_borrows > 0
             throw(
                 BorrowRuleError(
-                    "Cannot create mutable reference: value is immutably borrowed",
+                    "Cannot create mutable reference: value is immutably borrowed"
                 ),
             )
         elseif owner.mutable_borrows > 0
             throw(
                 BorrowRuleError(
-                    "Cannot create mutable reference: value is already mutably borrowed",
+                    "Cannot create mutable reference: value is already mutably borrowed"
                 ),
             )
         end
@@ -104,7 +113,7 @@ struct BorrowedMut{T,O<:OwnedMut}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
     end
     function BorrowedMut(::Union{Borrowed,BorrowedMut}, ::Lifetime)
-        error("Mutable reference of references not yet implemented.")
+        return error("Mutable reference of references not yet implemented.")
     end
 end
 # --- END CORE TYPES ---
@@ -286,7 +295,9 @@ Base.lastindex(r::AllWrappers) = lastindex(request_value(r, Val(:read)))
 # Forward comparison to the underlying value
 Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
 Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
-Base.:(==)(r::AllWrappers, other::AllWrappers) = request_value(r, Val(:read)) == request_value(other, Val(:read))
+function Base.:(==)(r::AllWrappers, other::AllWrappers)
+    return request_value(r, Val(:read)) == request_value(other, Val(:read))
+end
 
 # Forward array operations for mutable wrappers
 Base.push!(r::AllWrappers, items...) = (push!(request_value(r, Val(:write)), items...); r)
@@ -298,7 +309,6 @@ Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
 # --- END CONTAINER OPERATIONS ---
 
 # TODO: Add other interfaces
-
 
 # --- MACROS ---
 """
@@ -344,13 +354,15 @@ macro move(expr)
     src = expr.args[2]
     value = gensym(:value)
 
-    return esc(quote
-        $value = $(request_value)($src, Val(:read))
-        # Create same type as source
-        $dest = $(constructorof)(typeof($src))($value)
-        $(mark_moved!)($src)
-        $dest
-    end)
+    return esc(
+        quote
+            $value = $(request_value)($src, Val(:read))
+            # Create same type as source
+            $dest = $(constructorof)(typeof($src))($value)
+            $(mark_moved!)($src)
+            $dest
+        end,
+    )
 end
 
 """
@@ -361,11 +373,13 @@ Returns the inner value and marks the original as moved.
 """
 macro take(var)
     value = gensym(:value)
-    return esc(quote
-        $value = $(request_value)($var, $(Val(:read)))
-        $(mark_moved!)($var)
-        $value
-    end)
+    return esc(
+        quote
+            $value = $(request_value)($var, $(Val(:read)))
+            $(mark_moved!)($var)
+            $value
+        end,
+    )
 end
 
 """
@@ -395,7 +409,7 @@ function cleanup!(lifetime::Lifetime)
     for owner in lifetime.mutable_refs
         owner.mutable_borrows -= 1
     end
-    empty!(lifetime.mutable_refs)
+    return empty!(lifetime.mutable_refs)
 end
 
 """
@@ -435,15 +449,17 @@ macro lifetime(name, body)
     end
 
     # Wrap the body in lifetime management
-    return esc(quote
-        let $(name) = $(Lifetime)()
-            try
-                $inner_body
-            finally
-                $(cleanup!)($(name))
+    return esc(
+        quote
+            let $(name) = $(Lifetime)()
+                try
+                    $inner_body
+                finally
+                    $(cleanup!)($(name))
+                end
             end
-        end
-    end)
+        end,
+    )
 end
 
 """
@@ -478,7 +494,11 @@ function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
         )
     end
 
-    is_owner ? Borrowed(owner, lt) : Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
+    if is_owner
+        return Borrowed(owner, lt)
+    else
+        return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
+    end
 end
 
 """
