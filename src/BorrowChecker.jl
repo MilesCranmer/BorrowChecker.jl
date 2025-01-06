@@ -3,7 +3,7 @@ module BorrowChecker
 using MacroTools
 using MacroTools: rmlines
 
-export @own, @own_mut, @move, @ref, @ref_mut, @take, @set, @lifetime
+export @own, @move, @ref, @ref_mut, @take, @set, @lifetime
 export Owned, OwnedMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError
 
@@ -322,31 +322,29 @@ Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
 
 # --- MACROS ---
 """
+    @own const x = value
     @own x = value
 
-Create a new owned immutable value.
+Create a new owned value. If `const` is specified, the value will be immutable.
+Otherwise, the value will be mutable.
 """
 macro own(expr)
-    if !Meta.isexpr(expr, :(=))
+    if Meta.isexpr(expr, :const)
+        # Handle const case
+        if !Meta.isexpr(expr.args[1], :(=))
+            error("@own const requires an assignment expression")
+        end
+        name = expr.args[1].args[1]
+        value = expr.args[1].args[2]
+        return esc(:($(name) = Owned($(value), false, $(QuoteNode(name)))))
+    elseif Meta.isexpr(expr, :(=))
+        # Handle non-const case
+        name = expr.args[1]
+        value = expr.args[2]
+        return esc(:($(name) = OwnedMut($(value), false, $(QuoteNode(name)))))
+    else
         error("@own requires an assignment expression")
     end
-    name = expr.args[1]
-    value = expr.args[2]
-    return esc(:($(name) = Owned($(value), false, $(QuoteNode(name)))))
-end
-
-"""
-    @own_mut x = value
-
-Create a new owned mutable value.
-"""
-macro own_mut(expr)
-    if !Meta.isexpr(expr, :(=))
-        error("@own_mut requires an assignment expression")
-    end
-    name = expr.args[1]
-    value = expr.args[2]
-    return esc(:($(name) = OwnedMut($(value), false, $(QuoteNode(name)))))
 end
 
 """

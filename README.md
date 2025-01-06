@@ -12,8 +12,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ### Ownership
 
-- `@own x = value`: Create a new owned immutable value
-- `@own_mut x = value`: Create a new owned mutable value
+- `@own const x = value`: Create a new owned immutable value
+- `@own x = value`: Create a new owned mutable value
 - `@move new = old`: Transfer ownership from one variable to another, invalidating the old variable
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
@@ -43,7 +43,7 @@ First, let's look at basic ownership.
 ```julia
 julia> using BorrowChecker
 
-julia> @own x = 1
+julia> @own const x = 1
 Owned{Int64}(1)
 ```
 
@@ -73,7 +73,7 @@ ERROR: Cannot use x: value has been moved
 Now, let's look at a mutable value:
 
 ```julia
-julia> @own_mut y = 1
+julia> @own y = 1
 OwnedMut{Int64}(1)
 ```
 
@@ -87,7 +87,7 @@ OwnedMut{Int64}(2)
 Note that we can't do this with immutable values:
 
 ```julia
-julia> @own x = 1;
+julia> @own const x = 1;
 
 julia> @set x = 2
 ERROR: Cannot assign to immutable
@@ -96,13 +96,13 @@ ERROR: Cannot assign to immutable
 This also works with arrays:
 
 ```julia
-julia> @own array = [1, 2, 3]
+julia> @own const array = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
 ERROR: Cannot write to immutable
 
-julia> @own_mut array = [1, 2, 3]
+julia> @own array = [1, 2, 3]
 OwnedMut{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
@@ -130,7 +130,7 @@ References must be created within a `@lifetime` block. Let's look at
 immutable references first:
 
 ```julia
-julia> @own_mut data = [1, 2, 3];
+julia> @own data = [1, 2, 3];
 
 julia> @lifetime lt begin
            @ref ref = data in lt
@@ -186,7 +186,7 @@ julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need im
            @assert v == [1, 2, 3]
        end;
 
-julia> @own vec = [1, 2, 3]
+julia> @own const vec = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin

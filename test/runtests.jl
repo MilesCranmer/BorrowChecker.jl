@@ -6,7 +6,7 @@ using BorrowChecker
 
 @testitem "Basic Ownership" begin
     # Create owned value
-    @own x = 42
+    @own const x = 42
     @lifetime lt begin
         @ref ref = x in lt
         @test ref == 42
@@ -14,7 +14,7 @@ using BorrowChecker
     end
 
     # Create mutable owned value
-    @own_mut y = [1, 2, 3]
+    @own y = [1, 2, 3]
     @lifetime lt begin
         @ref ref = y in lt
         @test ref == [1, 2, 3]
@@ -24,7 +24,7 @@ end
 
 @testitem "Move Semantics" begin
     # Basic move with @move y = x syntax
-    @own x = [1, 2, 3]
+    @own const x = [1, 2, 3]
     @move y = x
     @lifetime lt begin
         @ref ref = y in lt
@@ -38,7 +38,7 @@ end
     @test_throws MovedError @move z = x
 
     # Can move multiple times through chain
-    @own a = [1, 2, 3]
+    @own const a = [1, 2, 3]
     @move b = a
     @move c = b
     @lifetime lt begin
@@ -52,7 +52,7 @@ end
 
 @testitem "Primitive Types" begin
     # Primitives still follow move semantics for consistency
-    @own x = 42
+    @own const x = 42
     @move y = x
     @lifetime lt begin
         @ref ref = y in lt
@@ -78,7 +78,7 @@ end
         x::Int
         y::Int
     end
-    @own p = Point(1, 2)
+    @own const p = Point(1, 2)
     @test p isa Owned{Point}
     @lifetime lt begin
         @ref ref_p = p in lt
@@ -91,7 +91,7 @@ end
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
     end
     @test p.immutable_borrows == 0
-    @own_mut mp = Point(1, 2)
+    @own mp = Point(1, 2)
     @lifetime lt begin
         @ref_mut mut_ref_p = mp in lt
         @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x ==
@@ -101,7 +101,7 @@ end
 end
 
 @testitem "Mutable Property Access" begin
-    @own_mut y = [1, 2, 3]
+    @own y = [1, 2, 3]
     @lifetime lt begin
         @ref_mut mut_ref = y in lt
         @test mut_ref == [1, 2, 3]  # Can read through reference
@@ -115,7 +115,7 @@ end
 end
 
 @testitem "Referencing moved values" begin
-    @own z = [1, 2, 3]
+    @own const z = [1, 2, 3]
     @move w = z
     @lifetime lt begin
         @test_throws MovedError @ref d = z in lt
@@ -147,7 +147,7 @@ end
         @test v == [1, 2, 3]
     end
 
-    @own y = [1, 2, 3]
+    @own const y = [1, 2, 3]
     @lifetime lt begin
         @ref ref = y in lt  # Immutable borrow
         @test !y.moved  # y is still valid
@@ -160,7 +160,7 @@ end
         return push!(v, 4)
     end
 
-    @own_mut z = [1, 2, 3]
+    @own z = [1, 2, 3]
     @lifetime lt begin
         @ref_mut ref = z in lt  # Mutable borrow
         push!(ref, 4)
@@ -174,7 +174,7 @@ end
 
 @testitem "Assignment Syntax" begin
     # Test normal assignment with @set on mutable
-    @own_mut x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
         @ref ref = x in lt
@@ -182,16 +182,16 @@ end
     end
 
     # Test assignment to immutable fails
-    @own y = [1, 2, 3]
+    @own const y = [1, 2, 3]
     @test_throws BorrowRuleError @set y = [4, 5, 6]
 
     # Test assignment after move
-    @own_mut z = [1, 2, 3]
+    @own z = [1, 2, 3]
     @move w = z
     @test_throws MovedError @set z = [4, 5, 6]
 
     # Test assignment with references
-    @own_mut v = [1, 2, 3]
+    @own v = [1, 2, 3]
     @lifetime lt begin
         @ref_mut ref = v in lt
         push!(ref, 4)
@@ -207,7 +207,7 @@ end
 
 @testitem "Lifetime Blocks" begin
     # Test multiple immutable references
-    @own x = [1, 2, 3]
+    @own const x = [1, 2, 3]
     @lifetime lt begin
         @ref ref1 = x in lt
         @ref ref2 = x in lt
@@ -221,8 +221,8 @@ end
     @test x.immutable_borrows == 0  # All borrows cleaned up
 
     # Test mutable reference blocks
-    @own_mut y = [1, 2, 3]
-    @own_mut z = [4, 5, 6]
+    @own y = [1, 2, 3]
+    @own z = [4, 5, 6]
     @lifetime lt begin
         @ref_mut mut_ref1 = y in lt
         # Can't create another mutable reference to y
@@ -241,8 +241,8 @@ end
     @test z == [4, 5, 6, 7]
 
     # Test mixing mutable and immutable references to different variables
-    @own_mut a = [1, 2, 3]
-    @own b = [4, 5, 6]
+    @own a = [1, 2, 3]
+    @own const b = [4, 5, 6]
     @lifetime lt begin
         @ref_mut mut_ref = a in lt
         @ref imm_ref = b in lt
@@ -256,7 +256,7 @@ end
 
 @testitem "Lifetime Let Blocks" begin
     # Test lifetime with let block
-    @own_mut outer = [1, 2, 3]
+    @own outer = [1, 2, 3]
 
     @lifetime lt let
         @ref_mut inner = outer in lt
@@ -277,7 +277,7 @@ end
 end
 
 @testitem "Borrowed Arrays" begin
-    @own x = [1, 2, 3]
+    @own const x = [1, 2, 3]
     @lifetime lt begin
         @ref ref = x in lt
         @test ref == [1, 2, 3]
@@ -298,10 +298,10 @@ end
 
 @testitem "Symbol Tracking" begin
     # Test symbol tracking for owned values
-    @own x = 42
+    @own const x = 42
     @test x.symbol == :x
 
-    @own_mut y = [1, 2, 3]
+    @own y = [1, 2, 3]
     @test y.symbol == :y
 
     # Test symbol tracking through moves
@@ -331,7 +331,7 @@ end
 end
 
 @testitem "Prevents write on mutable array when referenced" begin
-    @own_mut x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @lifetime lt begin
         @ref ref = x in lt
         @test_throws BorrowRuleError x[1] = 5
