@@ -8,7 +8,7 @@ using BorrowChecker
     # Create owned value
     @own const x = 42
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref const ref = x in lt
         @test ref == 42
         @test !x.moved
     end
@@ -16,7 +16,7 @@ using BorrowChecker
     # Create mutable owned value
     @own y = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref const ref = y in lt
         @test ref == [1, 2, 3]
         @test !y.moved
     end
@@ -27,11 +27,11 @@ end
     @own const x = [1, 2, 3]
     @move y = x
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref const ref = y in lt
         @test ref == [1, 2, 3]
         @test x.moved
         @test !y.moved
-        @test_throws MovedError @ref d = x in lt
+        @test_throws MovedError @ref const d = x in lt
     end
 
     # Cannot move twice
@@ -42,11 +42,11 @@ end
     @move b = a
     @move c = b
     @lifetime lt begin
-        @ref ref = c in lt
+        @ref const ref = c in lt
         @test ref == [1, 2, 3]
         @test a.moved && b.moved && !c.moved
-        @test_throws MovedError @ref d = a in lt
-        @test_throws MovedError @ref d = b in lt
+        @test_throws MovedError @ref const d = a in lt
+        @test_throws MovedError @ref const d = b in lt
     end
 end
 
@@ -55,20 +55,20 @@ end
     @own const x = 42
     @move y = x
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref const ref = y in lt
         @test ref == 42
-        @test_throws MovedError @ref d = x in lt
+        @test_throws MovedError @ref const d = x in lt
     end
 end
 
 @testitem "Immutable References" begin
     @own x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref const ref = x in lt
         @test ref == [1, 2, 3]  # Can read through reference
         @test !x.moved  # Reference doesn't move ownership
         @test_throws BorrowRuleError ref[1] = 10  # Can't modify through immutable ref
-        @ref ref2 = x in lt
+        @ref const ref2 = x in lt
         @test ref2 == [1, 2, 3]  # Original unchanged
     end
 end
@@ -81,11 +81,11 @@ end
     @own const p = Point(1, 2)
     @test p isa Owned{Point}
     @lifetime lt begin
-        @ref ref_p = p in lt
+        @ref const ref_p = p in lt
         @test ref_p isa Borrowed{Point}
         @test ref_p.x isa Borrowed{Int}
         # Ref to ref:
-        @ref rrx = ref_p.x in lt
+        @ref const rrx = ref_p.x in lt
         @test rrx == 1
         @test ref_p.x == 1  # Can read properties
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
@@ -93,7 +93,7 @@ end
     @test p.immutable_borrows == 0
     @own mp = Point(1, 2)
     @lifetime lt begin
-        @ref_mut mut_ref_p = mp in lt
+        @ref mut_ref_p = mp in lt
         @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x ==
             1
         @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
@@ -103,13 +103,13 @@ end
 @testitem "Mutable Property Access" begin
     @own y = [1, 2, 3]
     @lifetime lt begin
-        @ref_mut mut_ref = y in lt
+        @ref mut_ref = y in lt
         @test mut_ref == [1, 2, 3]  # Can read through reference
         push!(mut_ref, 4)  # Can modify through mutable reference
 
-        @test_throws BorrowRuleError @ref d = y in lt
+        @test_throws BorrowRuleError @ref const d = y in lt
         @test_throws(
-            "Cannot create immutable reference: value is mutably borrowed", @ref d = y in lt
+            "Cannot create immutable reference: value is mutably borrowed", @ref const d = y in lt
         )
     end
 end
@@ -118,8 +118,8 @@ end
     @own const z = [1, 2, 3]
     @move w = z
     @lifetime lt begin
-        @test_throws MovedError @ref d = z in lt
-        @test_throws BorrowRuleError @ref_mut d = z in lt
+        @test_throws MovedError @ref const d = z in lt
+        @test_throws BorrowRuleError @ref d = z in lt
     end
 end
 
@@ -136,7 +136,7 @@ end
     @test result == [1, 2, 3, 4]
     @test x.moved
     @lifetime lt begin
-        @test_throws MovedError @ref d = x in lt
+        @test_throws MovedError @ref const d = x in lt
     end
 
     # Can't take ownership twice
@@ -149,9 +149,9 @@ end
 
     @own const y = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = y in lt  # Immutable borrow
+        @ref const ref = y in lt  # Immutable borrow
         @test !y.moved  # y is still valid
-        @ref ref2 = y in lt
+        @ref const ref2 = y in lt
         @test ref2 == [1, 2, 3]
     end
 
@@ -162,12 +162,12 @@ end
 
     @own z = [1, 2, 3]
     @lifetime lt begin
-        @ref_mut ref = z in lt  # Mutable borrow
+        @ref ref = z in lt  # Mutable borrow
         push!(ref, 4)
         @test !z.moved  # z is still valid
     end
     @lifetime lt begin
-        @ref ref = z in lt
+        @ref const ref = z in lt
         @test ref == [1, 2, 3, 4]
     end
 end
@@ -177,7 +177,7 @@ end
     @own x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref const ref = x in lt
         @test ref == [4, 5, 6]
     end
 
@@ -193,13 +193,13 @@ end
     # Test assignment with references
     @own v = [1, 2, 3]
     @lifetime lt begin
-        @ref_mut ref = v in lt
+        @ref ref = v in lt
         push!(ref, 4)
         @test_throws("Cannot assign to value while borrowed", @set v = [5, 6, 7])
     end
     @set v = [5, 6, 7]
     @lifetime lt begin
-        @ref ref = v in lt
+        @ref const ref = v in lt
         @test ref == [5, 6, 7]
         @test_throws "Cannot write to immutable reference" ref[1] = [8]
     end
@@ -209,14 +209,14 @@ end
     # Test multiple immutable references
     @own const x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref1 = x in lt
-        @ref ref2 = x in lt
+        @ref const ref1 = x in lt
+        @ref const ref2 = x in lt
         @test ref1 == [1, 2, 3]
         @test ref2 == [1, 2, 3]
         @test x.immutable_borrows == 2
 
         # Can't create mutable reference while immutably borrowed
-        @test_throws BorrowRuleError @ref_mut d = x in lt
+        @test_throws BorrowRuleError @ref d = x in lt
     end
     @test x.immutable_borrows == 0  # All borrows cleaned up
 
@@ -224,14 +224,14 @@ end
     @own y = [1, 2, 3]
     @own z = [4, 5, 6]
     @lifetime lt begin
-        @ref_mut mut_ref1 = y in lt
+        @ref mut_ref1 = y in lt
         # Can't create another mutable reference to y
-        @test_throws BorrowRuleError @ref_mut d = y in lt
-        # Can't create immutable reference to y while mutably borrowed
         @test_throws BorrowRuleError @ref d = y in lt
+        # Can't create immutable reference to y while mutably borrowed
+        @test_throws BorrowRuleError @ref const d = y in lt
 
         # But can create references to different variables
-        @ref_mut mut_ref2 = z in lt
+        @ref mut_ref2 = z in lt
         push!(mut_ref1, 4)
         push!(mut_ref2, 7)
     end
@@ -244,8 +244,8 @@ end
     @own a = [1, 2, 3]
     @own const b = [4, 5, 6]
     @lifetime lt begin
-        @ref_mut mut_ref = a in lt
-        @ref imm_ref = b in lt
+        @ref mut_ref = a in lt
+        @ref const imm_ref = b in lt
         push!(mut_ref, 4)
         @test imm_ref == [4, 5, 6]
         @test_throws "Cannot write to immutable reference" push!(imm_ref, 7)
@@ -259,7 +259,7 @@ end
     @own outer = [1, 2, 3]
 
     @lifetime lt let
-        @ref_mut inner = outer in lt
+        @ref inner = outer in lt
         push!(inner, 4)
         @test inner == [1, 2, 3, 4]
     end
@@ -279,10 +279,10 @@ end
 @testitem "Borrowed Arrays" begin
     @own const x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref const ref = x in lt
         @test ref == [1, 2, 3]
         # We can borrow the borrow since it is immutable
-        @ref ref2 = ref in lt
+        @ref const ref2 = ref in lt
         @test ref2 == [1, 2, 3]
         @test ref2 isa Borrowed{Vector{Int}}
         @test ref2[2] == 2
@@ -324,7 +324,7 @@ end
 
     # Test symbol tracking in references
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref const ref = y in lt
         @test y.symbol == :y  # Original symbol preserved
         @test ref.owner.symbol == :y
     end
@@ -333,7 +333,7 @@ end
 @testitem "Prevents write on mutable array when referenced" begin
     @own x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref const ref = x in lt
         @test_throws BorrowRuleError x[1] = 5
     end
 end

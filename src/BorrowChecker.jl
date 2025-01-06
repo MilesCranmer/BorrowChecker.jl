@@ -3,7 +3,7 @@ module BorrowChecker
 using MacroTools
 using MacroTools: rmlines
 
-export @own, @move, @ref, @ref_mut, @take, @set, @lifetime
+export @own, @move, @ref, @take, @set, @lifetime
 export Owned, OwnedMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError
 
@@ -471,22 +471,39 @@ macro lifetime(name, body)
 end
 
 """
+    @ref const var = value in lifetime
     @ref var = value in lifetime
 
-Create an immutable reference to an owned value within the given lifetime scope.
-Returns a Borrowed{T} that forwards access to the underlying value.
+Create a reference to an owned value within the given lifetime scope.
+If `const` is specified, creates an immutable reference.
+Otherwise, creates a mutable reference.
+Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 """
 macro ref(expr)
-    if !Meta.isexpr(expr, :(=))
+    if Meta.isexpr(expr, :const)
+        # Handle const case
+        if !Meta.isexpr(expr.args[1], :(=))
+            error("@ref const requires an assignment expression")
+        end
+        dest = expr.args[1].args[1]
+        if !Meta.isexpr(expr.args[1].args[2], :call) || expr.args[1].args[2].args[1] != :in
+            error("@ref const requires 'in' syntax: @ref const var = value in lifetime")
+        end
+        src = expr.args[1].args[2].args[2]
+        lifetime = expr.args[1].args[2].args[3]
+        return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
+    elseif Meta.isexpr(expr, :(=))
+        # Handle non-const case
+        dest = expr.args[1]
+        if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
+            error("@ref requires 'in' syntax: @ref var = value in lifetime")
+        end
+        src = expr.args[2].args[2]
+        lifetime = expr.args[2].args[3]
+        return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
+    else
         error("@ref requires an assignment expression")
     end
-    dest = expr.args[1]
-    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
-        error("@ref requires 'in' syntax: @ref var = value in lifetime")
-    end
-    src = expr.args[2].args[2]
-    lifetime = expr.args[2].args[3]
-    return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
 end
 
 function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
@@ -507,25 +524,6 @@ function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
     else
         return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
     end
-end
-
-"""
-    @ref_mut var = value in lifetime
-
-Create a mutable reference to an owned value within the given lifetime scope.
-Returns a BorrowedMut{T} that forwards access to the underlying value.
-"""
-macro ref_mut(expr)
-    if !Meta.isexpr(expr, :(=))
-        error("@ref_mut requires an assignment expression")
-    end
-    dest = expr.args[1]
-    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
-        error("@ref_mut requires 'in' syntax: @ref_mut var = value in lifetime")
-    end
-    src = expr.args[2].args[2]
-    lifetime = expr.args[2].args[3]
-    return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
 end
 # --- END MACROS ---
 
