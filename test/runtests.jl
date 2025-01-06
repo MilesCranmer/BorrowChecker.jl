@@ -56,7 +56,7 @@ end
     @move y = x
     @lifetime lt begin
         @ref lt(ref = y)
-        @test ref[] == 42
+        @test ref == 42
         @test_throws MovedError @ref lt(d = x)
     end
 end

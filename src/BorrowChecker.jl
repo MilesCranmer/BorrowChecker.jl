@@ -214,9 +214,29 @@ end
 # --- END CONVENIENCE FUNCTIONS ---
 
 # --- CONTAINER OPERATIONS ---
-Base.setindex!(r::AllWrappers, value, i...) = (setindex!(request_value(r, Val(:write)), value, i...); r)
-Base.getindex(r::AllWrappers, i...) = getindex(request_value(r, Val(:read)), i...)
-# TODO: This will return a naked array. Is that what we want?
+function Base.setindex!(r::AllWrappers, value, i...)
+    setindex!(request_value(r, Val(:write)), value, i...)
+    # TODO: This is not good Julia style, but otherwise we would
+    #       need to return a new owned object. We have to break
+    #       a lot of conventions here for safety.
+    return nothing
+end
+function Base.getindex(o::AllOwned{<:AbstractArray{T}}, i...) where {T}
+    # We mark_moved! if the elements of this array are mutable,
+    # because we can't be sure whether the elements will get mutated
+    # or not.
+    if recursive_ismutable(T)
+        mark_moved!(o)
+    end
+    # Create a new owned object holding the indexed version:
+    return constructorof(typeof(o))(getindex(request_value(o, Val(:read)), i...))
+end
+
+Base.length(r::AllWrappers) = length(request_value(r, Val(:read)))
+Base.size(r::AllWrappers) = size(request_value(r, Val(:read)))
+Base.axes(r::AllWrappers) = axes(request_value(r, Val(:read)))
+Base.firstindex(r::AllWrappers) = firstindex(request_value(r, Val(:read)))
+Base.lastindex(r::AllWrappers) = lastindex(request_value(r, Val(:read)))
 
 # Forward comparison to the underlying value
 Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
