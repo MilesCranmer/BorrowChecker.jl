@@ -77,7 +77,7 @@ struct BorrowedMut{T,O<:OwnedMut}
     owner::O
     lifetime::Lifetime
 
-    function BorrowedMut(value::T, owner::O, lifetime::Lifetime) where {T,O<:AllOwned}
+    function BorrowedMut(value::T, owner::O, lifetime::Lifetime) where {T,O<:Union{Owned,OwnedMut}}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif owner.moved
@@ -100,10 +100,10 @@ struct BorrowedMut{T,O<:OwnedMut}
 
         return new{T,O}(value, owner, lifetime)
     end
-    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:AllOwned}
+    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:Union{Owned,OwnedMut}}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
     end
-    function BorrowedMut(::AllBorrowed, ::Lifetime)
+    function BorrowedMut(::Union{Borrowed,BorrowedMut}, ::Lifetime)
         error("Mutable reference of references not yet implemented.")
     end
 end
