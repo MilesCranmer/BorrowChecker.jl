@@ -94,7 +94,7 @@ end
     @own_mut mp = Point(1, 2)
     @lifetime lt begin
         @ref_mut lt(mut_ref_p = mp)
-        @test mut_ref_p.x == 1  # Can read properties
+        @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x == 1
         @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
     end
 end
@@ -119,7 +119,7 @@ end
     @move w = z
     @lifetime lt begin
         @test_throws MovedError @ref lt(d = z)
-        @test_throws MovedError @ref_mut lt(d = z)
+        @test_throws BorrowRuleError @ref_mut lt(d = z)
     end
 end
 

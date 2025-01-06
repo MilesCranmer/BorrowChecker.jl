@@ -43,27 +43,65 @@ mutable struct OwnedMut{T}
     OwnedMut(value::T, moved::Bool = false) where {T} = OwnedMut{T}(value, moved)
 end
 
+struct Lifetime
+    immutable_refs::Vector{Any}
+    mutable_refs::Vector{Any}
+
+    Lifetime() = new([], [])
+end
+
 struct Borrowed{T,O<:Union{Owned,OwnedMut}}
     value::T
     owner::O
+    lifetime::Lifetime
 
-    function Borrowed(value::T, owner::O) where {T,O<:Union{Owned,OwnedMut}}
-        return new{T,O}(value, owner)
+    function Borrowed(value::T, owner::O, lifetime::Lifetime) where {T,O<:Union{Owned,OwnedMut}}
+        if owner.moved
+            throw(MovedError(:owner))
+        elseif owner isa OwnedMut && owner.mutable_borrows > 0
+            throw(BorrowRuleError("Cannot create immutable reference: value is mutably borrowed"))
+        end
+
+        owner.immutable_borrows += 1
+        push!(lifetime.immutable_refs, owner)
+
+        return new{T,O}(value, owner, lifetime)
     end
-    function Borrowed(owner::O) where {O<:Union{Owned,OwnedMut}}
-        return Borrowed(unsafe_get_value(owner), owner)
+    function Borrowed(owner::O, lifetime::Lifetime) where {O<:Union{Owned,OwnedMut}}
+        return Borrowed(unsafe_get_value(owner), owner, lifetime)
     end
 end
 
 struct BorrowedMut{T,O<:OwnedMut}
     value::T
     owner::O
+    lifetime::Lifetime
 
-    function BorrowedMut(value::T, owner::O) where {T,O<:OwnedMut}
-        return new{T,O}(value, owner)
+    function BorrowedMut(value::T, owner::O, lifetime::Lifetime) where {T,O<:AllOwned}
+        if !is_mutable(owner)
+            throw(BorrowRuleError("Cannot create mutable reference of immutable"))
+        elseif owner.moved
+            throw(MovedError(:owner))
+        elseif owner.immutable_borrows > 0
+            throw(
+                BorrowRuleError(
+                    "Cannot create mutable reference: value is immutably borrowed",
+                ),
+            )
+        elseif owner.mutable_borrows > 0
+            throw(
+                BorrowRuleError(
+                    "Cannot create mutable reference: value is already mutably borrowed",
+                ),
+            )
+        end
+        owner.mutable_borrows += 1
+        push!(lifetime.mutable_refs, owner)
+
+        return new{T,O}(value, owner, lifetime)
     end
-    function BorrowedMut(owner::O) where {O<:OwnedMut}
-        return BorrowedMut(unsafe_get_value(owner), owner)
+    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:AllOwned}
+        return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
     end
 end
 # --- END CORE TYPES ---
@@ -176,15 +214,16 @@ end
 function Base.getproperty(r::AllBorrowed, name::Symbol)
     if name == :owner
         return getfield(r, :owner)
+    elseif name == :lifetime
+        return getfield(r, :lifetime)
     end
     value = getproperty(request_value(r, Val(:read)), name)
-    owner = r.owner
-    return constructorof(typeof(r))(value, owner)
+    return constructorof(typeof(r))(value, r.owner, r.lifetime)
 end
 function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
     name == :owner && error("Cannot modify reference ownership")
     result = setproperty!(request_value(r, Val(:write)), name, value)
-    return constructorof(typeof(r))(result, r.owner)
+    return constructorof(typeof(r))(result, r.owner, r.lifetime)
 end
 # --- END PUBLIC GETTERS AND SETTERS ---
 
@@ -339,13 +378,6 @@ macro set(expr)
     return esc(:($(set_value!)($dest, $value)))
 end
 
-struct Lifetime
-    immutable_refs::Vector{Any}
-    mutable_refs::Vector{Any}
-
-    Lifetime() = new([], [])
-end
-
 function cleanup!(lifetime::Lifetime)
     # Clean up immutable references
     for owner in lifetime.immutable_refs
@@ -422,21 +454,14 @@ macro ref(expr)
     name = expr.args[1]
     dest = expr.args[2].args[1]
     src = expr.args[2].args[2]
-    return esc(:($dest = $(create_immutable_ref)($name, $src, $(QuoteNode(src)))))
+    return esc(:($dest = $(create_immutable_ref)($name, $src)))
 end
 
-function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers, s_var)
+function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
     is_owner = ref_or_owner isa AllOwned
     owner = is_owner ? ref_or_owner : ref_or_owner.owner
-    if owner.moved
-        throw(MovedError(s_var))
-    elseif owner isa OwnedMut && owner.mutable_borrows > 0
-        throw(BorrowRuleError("Cannot create immutable reference: value is mutably borrowed"))
-    end
-    owner.immutable_borrows += 1
-    return_ref = is_owner ? Borrowed(owner) : Borrowed(request_value(ref_or_owner, Val(:read)), owner)
-    push!(lt.immutable_refs, owner)
-    return_ref
+
+    is_owner ? Borrowed(owner, lt) : Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
 end
 
 """
@@ -453,34 +478,16 @@ macro ref_mut(expr)
     name = expr.args[1]
     dest = expr.args[2].args[1]
     src = expr.args[2].args[2]
-    return esc(:($dest = $(create_mutable_ref)($name, $src, $(QuoteNode(src)))))
+    return esc(:($dest = $(create_mutable_ref)($name, $src)))
 end
 
-function create_mutable_ref(::Lifetime, ::AllBorrowed, _)
+function create_mutable_ref(::Lifetime, ::AllBorrowed)
     error("Mutable reference of references not yet implemented.")
 end
-function create_mutable_ref(lt::Lifetime, owner::AllOwned, s_var)
-    if owner.moved
-        throw(MovedError(s_var))
-    elseif owner.immutable_borrows > 0
-        throw(
-            BorrowRuleError(
-                "Cannot create mutable reference: value is immutably borrowed",
-            ),
-        )
-    elseif owner.mutable_borrows > 0
-        throw(
-            BorrowRuleError(
-                "Cannot create mutable reference: value is already mutably borrowed",
-            ),
-        )
-    end
-    owner.mutable_borrows += 1
-    return_ref = BorrowedMut(owner)
-    push!(lt.mutable_refs, owner)
-    return_ref
+function create_mutable_ref(lt::Lifetime, owner::AllOwned)
+    return BorrowedMut(owner, lt)
 end
-function create_mutable_ref(::Lifetime, ::AllBorrowed, s_var)
+function create_mutable_ref(::Lifetime, ::AllBorrowed)
     error("References of references are not yet implemented using `@ref_mut`")
 end
 # --- END MACROS ---
