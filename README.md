@@ -19,9 +19,9 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ### References and Lifetimes
 
-- `@lifetime name begin ... end`: Create a scope for references whose lifetimes are the duration of the block
-- `@ref lifetime(var = value)`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope
-- `@ref_mut lifetime(var = value)`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope
+- `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
+- `@ref lt(var = value)`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref_mut lt(var = value)`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
 
 ### Assignment
 
