@@ -157,9 +157,9 @@ function Base.getproperty(o::AllOwned, name::Symbol)
         if recursive_ismutable(value)
             # TODO: This is kind of where rust would check
             #       the Copy trait. What should we do?
+            mark_moved!(o)
             return constructorof(typeof(o))(getproperty(value, name))
         else
-            mark_moved!(o)
             return constructorof(typeof(o))(getproperty(value, name))
         end
     end
