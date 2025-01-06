@@ -8,7 +8,7 @@ using BorrowChecker
     # Create owned value
     @own x = 42
     @lifetime lt begin
-        ref = @ref lt x
+        @ref lt(ref = x)
         @test ref == 42
         @test !x.moved
     end
@@ -16,7 +16,7 @@ using BorrowChecker
     # Create mutable owned value
     @own_mut y = [1, 2, 3]
     @lifetime lt begin
-        ref = @ref lt y
+        @ref lt(ref = y)
         @test ref == [1, 2, 3]
         @test !y.moved
     end
@@ -27,11 +27,11 @@ end
     @own x = [1, 2, 3]
     @move y = x
     @lifetime lt begin
-        ref = @ref lt y
+        @ref lt(ref = y)
         @test ref == [1, 2, 3]
         @test x.moved
         @test !y.moved
-        @test_throws MovedError @ref lt x
+        @test_throws MovedError @ref lt(d = x)
     end
 
     # Cannot move twice
@@ -42,11 +42,11 @@ end
     @move b = a
     @move c = b
     @lifetime lt begin
-        ref = @ref lt c
+        @ref lt(ref = c)
         @test ref == [1, 2, 3]
         @test a.moved && b.moved && !c.moved
-        @test_throws MovedError @ref lt a
-        @test_throws MovedError @ref lt b
+        @test_throws MovedError @ref lt(d = a)
+        @test_throws MovedError @ref lt(d = b)
     end
 end
 
@@ -55,20 +55,20 @@ end
     @own x = 42
     @move y = x
     @lifetime lt begin
-        ref = @ref lt y
+        @ref lt(ref = y)
         @test ref[] == 42
-        @test_throws MovedError @ref lt x
+        @test_throws MovedError @ref lt(d = x)
     end
 end
 
 @testitem "Immutable References" begin
     @own x = [1, 2, 3]
     @lifetime lt begin
-        ref = @ref lt x
+        @ref lt(ref = x)
         @test ref == [1, 2, 3]  # Can read through reference
         @test !x.moved  # Reference doesn't move ownership
         @test_throws BorrowRuleError ref[1] = 10  # Can't modify through immutable ref
-        ref2 = @ref lt x
+        @ref lt(ref2 = x)
         @test ref2 == [1, 2, 3]  # Original unchanged
     end
 end
@@ -81,16 +81,19 @@ end
     @own p = Point(1, 2)
     @test p isa Owned{Point}
     @lifetime lt begin
-        ref_p = @ref lt p
+        @ref lt(ref_p = p)
         @test ref_p isa Borrowed{Point}
         @test ref_p.x isa Borrowed{Int}
-        rx = ref_p.x
+        # Ref to ref:
+        @ref lt(rrx = ref_p.x)
+        @test rrx == 1
         @test ref_p.x == 1  # Can read properties
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
     end
+    @test p.immutable_borrows == 0
     @own_mut mp = Point(1, 2)
     @lifetime lt begin
-        mut_ref_p = @ref_mut lt mp
+        @ref_mut lt(mut_ref_p = mp)
         @test mut_ref_p.x == 1  # Can read properties
         @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
     end
@@ -99,14 +102,14 @@ end
 @testitem "Mutable Property Access" begin
     @own_mut y = [1, 2, 3]
     @lifetime lt begin
-        mut_ref = @ref_mut lt y
+        @ref_mut lt(mut_ref = y)
         @test mut_ref == [1, 2, 3]  # Can read through reference
         push!(mut_ref, 4)  # Can modify through mutable reference
 
-        @test_throws BorrowRuleError @ref lt y
+        @test_throws BorrowRuleError @ref lt(d = y)
         @test_throws(
             "Cannot create immutable reference: value is mutably borrowed",
-            @ref lt y
+            @ref lt(d = y)
         )
     end
 end
@@ -115,8 +118,8 @@ end
     @own z = [1, 2, 3]
     @move w = z
     @lifetime lt begin
-        @test_throws MovedError @ref lt z
-        @test_throws MovedError @ref_mut lt z
+        @test_throws MovedError @ref lt(d = z)
+        @test_throws MovedError @ref_mut lt(d = z)
     end
 end
 
@@ -133,7 +136,7 @@ end
     @test result == [1, 2, 3, 4]
     @test x.moved
     @lifetime lt begin
-        @test_throws MovedError @ref lt x
+        @test_throws MovedError @ref lt(d = x)
     end
 
     # Can't take ownership twice
@@ -146,10 +149,10 @@ end
 
     @own y = [1, 2, 3]
     @lifetime lt begin
-        borrow_vector(@ref lt y)  # Immutable borrow
+        @ref lt(ref = y)  # Immutable borrow
         @test !y.moved  # y is still valid
-        ref = @ref lt y
-        @test ref == [1, 2, 3]
+        @ref lt(ref2 = y)
+        @test ref2 == [1, 2, 3]
     end
 
     # Test mutable borrowing
@@ -159,11 +162,12 @@ end
 
     @own_mut z = [1, 2, 3]
     @lifetime lt begin
-        modify_vector(@ref_mut lt z)  # Mutable borrow
+        @ref_mut lt(ref = z)  # Mutable borrow
+        push!(ref, 4)
         @test !z.moved  # z is still valid
     end
     @lifetime lt begin
-        ref = @ref lt z
+        @ref lt(ref = z)
         @test ref == [1, 2, 3, 4]
     end
 end
@@ -173,7 +177,7 @@ end
     @own_mut x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
-        ref = @ref lt x
+        @ref lt(ref = x)
         @test ref == [4, 5, 6]
     end
 
@@ -189,13 +193,13 @@ end
     # Test assignment with references
     @own_mut v = [1, 2, 3]
     @lifetime lt begin
-        ref = @ref_mut lt v
+        @ref_mut lt(ref = v)
         push!(ref, 4)
         @test_throws("Cannot assign to value while borrowed", @set v = [5, 6, 7])
     end
     @set v = [5, 6, 7]
     @lifetime lt begin
-        ref = @ref lt v
+        @ref lt(ref = v)
         @test ref == [5, 6, 7]
         @test_throws "Cannot write to immutable reference" ref[1] = [8]
     end
@@ -205,14 +209,14 @@ end
     # Test multiple immutable references
     @own x = [1, 2, 3]
     @lifetime lt begin
-        ref1 = @ref lt x
-        ref2 = @ref lt x
+        @ref lt(ref1 = x)
+        @ref lt(ref2 = x)
         @test ref1 == [1, 2, 3]
         @test ref2 == [1, 2, 3]
         @test x.immutable_borrows == 2
 
         # Can't create mutable reference while immutably borrowed
-        @test_throws BorrowRuleError @ref_mut lt x
+        @test_throws BorrowRuleError @ref_mut lt(d = x)
     end
     @test x.immutable_borrows == 0  # All borrows cleaned up
 
@@ -220,14 +224,14 @@ end
     @own_mut y = [1, 2, 3]
     @own_mut z = [4, 5, 6]
     @lifetime lt begin
-        mut_ref1 = @ref_mut lt y
+        @ref_mut lt(mut_ref1 = y)
         # Can't create another mutable reference to y
-        @test_throws BorrowRuleError @ref_mut lt y
+        @test_throws BorrowRuleError @ref_mut lt(d = y)
         # Can't create immutable reference to y while mutably borrowed
-        @test_throws BorrowRuleError @ref lt y
+        @test_throws BorrowRuleError @ref lt(d = y)
 
         # But can create references to different variables
-        mut_ref2 = @ref_mut lt z
+        @ref_mut lt(mut_ref2 = z)
         push!(mut_ref1, 4)
         push!(mut_ref2, 7)
     end
@@ -236,13 +240,12 @@ end
     @test y == [1, 2, 3, 4]  # Modifications persisted
     @test z == [4, 5, 6, 7]
 
-
     # Test mixing mutable and immutable references to different variables
     @own_mut a = [1, 2, 3]
     @own b = [4, 5, 6]
     @lifetime lt begin
-        mut_ref = @ref_mut lt a
-        imm_ref = @ref lt b
+        @ref_mut lt(mut_ref = a)
+        @ref lt(imm_ref = b)
         push!(mut_ref, 4)
         @test imm_ref == [4, 5, 6]
         @test_throws "Cannot write to immutable reference" push!(imm_ref, 7)
@@ -255,7 +258,8 @@ end
     # Test lifetime with let block
     @own_mut outer = [1, 2, 3]
     
-    @lifetime lt let inner = @ref_mut lt outer
+    @lifetime lt let
+        @ref_mut lt(inner = outer)
         push!(inner, 4)
         @test inner == [1, 2, 3, 4]
     end

@@ -20,8 +20,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 ### References and Lifetimes
 
 - `@lifetime name begin ... end`: Create a scope for references whose lifetimes are the duration of the block
-- `@ref lifetime var`: Create an immutable reference to owned value `var` within the given lifetime scope
-- `@ref_mut lifetime var`: Create a mutable reference to owned mutable value `var` within the given lifetime scope
+- `@ref lifetime(var = value)`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope
+- `@ref_mut lifetime(var = value)`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope
 
 ### Assignment
 
@@ -133,7 +133,7 @@ immutable references first:
 julia> @own_mut data = [1, 2, 3];
 
 julia> @lifetime lt begin
-           ref = @ref lt data
+           @ref lt(ref = data)
            ref
        end
 Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
@@ -152,8 +152,8 @@ Note that we can have multiple _immutable_ references at once:
 
 ```julia
 julia> @lifetime lt begin
-           ref1 = @ref lt data
-           ref2 = @ref lt data
+           @ref lt(ref1 = data)
+           @ref lt(ref2 = data)
            ref1 == ref2
        end
 true
@@ -163,8 +163,8 @@ For mutable references, we can only have one at a time:
 
 ```julia
 julia> @lifetime lt begin
-           mut_ref = @ref_mut lt data
-           mut_ref2 = @ref_mut lt data
+           @ref_mut lt(mut_ref = data)
+           @ref_mut lt(mut_ref2 = data)
        end
 ERROR: Cannot create mutable reference: value is already mutably borrowed
 ```
@@ -173,8 +173,8 @@ And we can't mix mutable and immutable references:
 
 ```julia
 julia> @lifetime lt begin
-           ref = @ref lt data
-           mut_ref = @ref_mut lt data
+           @ref lt(ref = data)
+           @ref_mut lt(mut_ref = data)
        end
 ERROR: Cannot create mutable reference: value is immutably borrowed
 ```
@@ -190,7 +190,7 @@ julia> @own vec = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin
-           borrow_vector(@ref lt vec)  # Immutable borrow
+           borrow_vector(@ref lt(d = vec))  # Immutable borrow
        end
 
 julia> vec

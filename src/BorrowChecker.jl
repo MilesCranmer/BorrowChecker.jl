@@ -1,6 +1,7 @@
 module BorrowChecker
 
 using MacroTools
+using MacroTools: rmlines
 
 export @own, @own_mut, @move, @ref, @ref_mut, @take, @set, @lifetime
 export Owned, OwnedMut, Borrowed, BorrowedMut
@@ -341,8 +342,8 @@ end
 
 """
     @lifetime name begin
-        rx = @ref name x
-        ry = @ref_mut name y
+        @ref name(rx = x)
+        @ref_mut name(ry = y)
         # use refs here
     end
 
@@ -358,9 +359,17 @@ macro lifetime(name, body)
     inner_body = if Meta.isexpr(body, :let)
         let_expr = body.args[1]
         let_body = body.args[2]
-        quote
-            let $let_expr
-                $let_body
+        if isempty(rmlines(let_expr).args)
+            quote
+                let
+                    $let_body
+                end
+            end
+        else
+            quote
+                let $let_expr
+                    $let_body
+                end
             end
         end
     else
@@ -380,35 +389,55 @@ macro lifetime(name, body)
 end
 
 """
-    @ref lifetime x
+    @ref lifetime(var = value)
 
 Create an immutable reference to an owned value within the given lifetime scope.
 Returns a Borrowed{T} that forwards access to the underlying value.
 """
-macro ref(name, var)
-    return esc(:($(create_immutable_ref)($(name), $(var), $(QuoteNode(var)))))
+macro ref(expr)
+    @assert Meta.isexpr(expr, :call)
+    @assert length(expr.args) == 2
+    @assert Meta.isexpr(expr.args[2], :(kw))
+
+    name = expr.args[1]
+    dest = expr.args[2].args[1]
+    src = expr.args[2].args[2]
+    return esc(:($dest = $(create_immutable_ref)($name, $src, $(QuoteNode(src)))))
 end
 
-function create_immutable_ref(lt::Lifetime, owner::AllOwned, s_var)
+function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers, s_var)
+    is_owner = ref_or_owner isa AllOwned
+    owner = is_owner ? ref_or_owner : ref_or_owner.owner
     if owner.moved
         throw(MovedError(s_var))
     elseif owner isa OwnedMut && owner.mutable_borrows > 0
         throw(BorrowRuleError("Cannot create immutable reference: value is mutably borrowed"))
     end
     owner.immutable_borrows += 1
-    return_ref = Borrowed(owner)
+    return_ref = is_owner ? Borrowed(owner) : Borrowed(request_value(ref_or_owner, Val(:read)), owner)
     push!(lt.immutable_refs, owner)
     return_ref
 end
 
 """
-    @ref_mut lifetime x
+    @ref_mut lifetime(var = value)
 
 Create a mutable reference to an owned value within the given lifetime scope.
 Returns a BorrowedMut{T} that forwards access to the underlying value.
 """
-macro ref_mut(lifetime, var)
-    return esc(:($(create_mutable_ref)($(lifetime), $(var), $(QuoteNode(var)))))
+macro ref_mut(expr)
+    @assert Meta.isexpr(expr, :call)
+    @assert length(expr.args) == 2
+    @assert Meta.isexpr(expr.args[2], :(kw))
+
+    name = expr.args[1]
+    dest = expr.args[2].args[1]
+    src = expr.args[2].args[2]
+    return esc(:($dest = $(create_mutable_ref)($name, $src, $(QuoteNode(src)))))
+end
+
+function create_mutable_ref(::Lifetime, ::AllBorrowed, _)
+    error("Mutable reference of references not yet implemented.")
 end
 function create_mutable_ref(lt::Lifetime, owner::AllOwned, s_var)
     if owner.moved
