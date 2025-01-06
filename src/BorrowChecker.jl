@@ -103,6 +103,9 @@ struct BorrowedMut{T,O<:OwnedMut}
     function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:AllOwned}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
     end
+    function BorrowedMut(::AllBorrowed, ::Lifetime)
+        error("Mutable reference of references not yet implemented.")
+    end
 end
 # --- END CORE TYPES ---
 
@@ -478,17 +481,7 @@ macro ref_mut(expr)
     name = expr.args[1]
     dest = expr.args[2].args[1]
     src = expr.args[2].args[2]
-    return esc(:($dest = $(create_mutable_ref)($name, $src)))
-end
-
-function create_mutable_ref(::Lifetime, ::AllBorrowed)
-    error("Mutable reference of references not yet implemented.")
-end
-function create_mutable_ref(lt::Lifetime, owner::AllOwned)
-    return BorrowedMut(owner, lt)
-end
-function create_mutable_ref(::Lifetime, ::AllBorrowed)
-    error("References of references are not yet implemented using `@ref_mut`")
+    return esc(:($dest = $(BorrowedMut)($src, $name)))
 end
 # --- END MACROS ---
 
