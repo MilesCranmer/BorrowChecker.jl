@@ -67,7 +67,7 @@ julia> x
 [moved]
 
 julia> x == 2
-ERROR: Cannot use value: value has been moved
+ERROR: Cannot use x: value has been moved
 ```
 
 Now, let's look at a mutable value:
@@ -119,7 +119,7 @@ julia> array
 [moved]
 
 julia> array[1] = 5
-ERROR: Cannot use value: value has been moved
+ERROR: Cannot use array: value has been moved
 
 julia> array2[1] = 5; # works!
 ```

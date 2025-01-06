@@ -29,9 +29,14 @@ mutable struct Owned{T}
     const value::T
     moved::Bool
     immutable_borrows::Int
+    symbol::Symbol
 
-    Owned{T}(value::T, moved::Bool=false) where {T} = new{T}(value, moved, 0)
-    Owned(value::T, moved::Bool=false) where {T} = Owned{T}(value, moved)
+    function Owned{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return new{T}(value, moved, 0, symbol)
+    end
+    function Owned(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return Owned{T}(value, moved, symbol)
+    end
 end
 
 mutable struct OwnedMut{T}
@@ -39,9 +44,14 @@ mutable struct OwnedMut{T}
     moved::Bool
     immutable_borrows::Int
     mutable_borrows::Int
+    symbol::Symbol
 
-    OwnedMut{T}(value::T, moved::Bool=false) where {T} = new{T}(value, moved, 0, 0)
-    OwnedMut(value::T, moved::Bool=false) where {T} = OwnedMut{T}(value, moved)
+    function OwnedMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return new{T}(value, moved, 0, 0, symbol)
+    end
+    function OwnedMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return OwnedMut{T}(value, moved, symbol)
+    end
 end
 
 struct Lifetime
@@ -60,7 +70,7 @@ struct Borrowed{T,O<:Union{Owned,OwnedMut}}
         value::T, owner::O, lifetime::Lifetime
     ) where {T,O<:Union{Owned,OwnedMut}}
         if owner.moved
-            throw(MovedError(:owner))
+            throw(MovedError(owner.symbol))
         elseif owner isa OwnedMut && owner.mutable_borrows > 0
             throw(
                 BorrowRuleError(
@@ -90,7 +100,7 @@ struct BorrowedMut{T,O<:OwnedMut}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif owner.moved
-            throw(MovedError(:owner))
+            throw(MovedError(owner.symbol))
         elseif owner.immutable_borrows > 0
             throw(
                 BorrowRuleError(
@@ -154,7 +164,7 @@ end
 function request_value(r::AllOwned, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
     if r.moved
-        throw(MovedError(:value))
+        throw(MovedError(r.symbol))
     elseif is_mutable(r) && r.mutable_borrows > 0
         throw(BorrowRuleError("Cannot access original while mutably borrowed"))
     elseif mode == :write
@@ -170,7 +180,7 @@ function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
     owner = r.owner
     if owner.moved
-        throw(MovedError(:owner))
+        throw(MovedError(owner.symbol))
     elseif mode == :write && !is_mutable(r)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
@@ -184,7 +194,7 @@ function set_value!(r::AllOwned, value)
     if !is_mutable(r)
         throw(BorrowRuleError("Cannot assign to immutable"))
     elseif r.moved
-        throw(MovedError(:value))
+        throw(MovedError(r.symbol))
     elseif r.mutable_borrows > 0 || r.immutable_borrows > 0
         throw(BorrowRuleError("Cannot assign to value while borrowed"))
     end
@@ -200,7 +210,7 @@ function Base.getproperty(o::AllOwned, name::Symbol)
     if name == :value
         error("Use `@take` to directly access the value of an owned variable")
     end
-    if name in (:moved, :immutable_borrows, :mutable_borrows)
+    if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
         return getfield(o, name)
     else
         value = request_value(o, Val(:read))
@@ -322,7 +332,7 @@ macro own(expr)
     end
     name = expr.args[1]
     value = expr.args[2]
-    return esc(:($(name) = Owned($(value))))
+    return esc(:($(name) = Owned($(value), false, $(QuoteNode(name)))))
 end
 
 """
@@ -336,7 +346,7 @@ macro own_mut(expr)
     end
     name = expr.args[1]
     value = expr.args[2]
-    return esc(:($(name) = OwnedMut($(value))))
+    return esc(:($(name) = OwnedMut($(value), false, $(QuoteNode(name)))))
 end
 
 """
@@ -357,8 +367,8 @@ macro move(expr)
     return esc(
         quote
             $value = $(request_value)($src, Val(:read))
-            # Create same type as source
-            $dest = $(constructorof)(typeof($src))($value)
+            # Create same type as source with new symbol
+            $dest = $(constructorof)(typeof($src))($value, false, $(QuoteNode(dest)))
             $(mark_moved!)($src)
             $dest
         end,

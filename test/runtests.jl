@@ -295,3 +295,37 @@ end
     end
     @test x == [1, 2, 3]
 end
+
+@testitem "Symbol Tracking" begin
+    # Test symbol tracking for owned values
+    @own x = 42
+    @test x.symbol == :x
+
+    @own_mut y = [1, 2, 3]
+    @test y.symbol == :y
+
+    # Test symbol tracking through moves
+    @move z = x
+    # Gets new symbol when moved
+    @test z.symbol == :z
+    @test x.symbol == :x
+    @test !z.moved
+    @test x.moved
+
+    # Test error messages include the correct symbol
+    err = try
+        @move w = x
+        nothing
+    catch e
+        e
+    end
+    @test err isa MovedError
+    @test err.var === :x
+
+    # Test symbol tracking in references
+    @lifetime lt begin
+        @ref ref = y in lt
+        @test y.symbol == :y  # Original symbol preserved
+        @test ref.owner.symbol == :y
+    end
+end
