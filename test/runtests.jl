@@ -25,7 +25,7 @@ end
 @testitem "Move Semantics" begin
     # Basic move with @move y = x syntax
     @own const x = [1, 2, 3]
-    @move y = x
+    @move const y = x  # Move to immutable
     @lifetime lt begin
         @ref const ref = y in lt
         @test ref == [1, 2, 3]
@@ -39,21 +39,21 @@ end
 
     # Can move multiple times through chain
     @own const a = [1, 2, 3]
-    @move b = a
-    @move c = b
+    @move y = a  # Move to mutable
+    @move const z = y  # Move to immutable
     @lifetime lt begin
-        @ref const ref = c in lt
+        @ref const ref = z in lt
         @test ref == [1, 2, 3]
-        @test a.moved && b.moved && !c.moved
+        @test a.moved && y.moved && !z.moved
         @test_throws MovedError @ref const d = a in lt
-        @test_throws MovedError @ref const d = b in lt
+        @test_throws MovedError @ref const d = y in lt
     end
 end
 
 @testitem "Primitive Types" begin
     # Primitives still follow move semantics for consistency
     @own const x = 42
-    @move y = x
+    @move const y = x
     @lifetime lt begin
         @ref const ref = y in lt
         @test ref == 42
@@ -336,4 +336,33 @@ end
         @ref const ref = x in lt
         @test_throws BorrowRuleError x[1] = 5
     end
+end
+
+@testitem "Mutability changes through moves" begin
+    # Test moving from immutable to mutable
+    @own const x = [1, 2, 3]
+    @test_throws BorrowRuleError push!(x, 4)  # Can't modify immutable
+    @move y = x  # Move to mutable
+    push!(y, 4)  # Can modify after move
+    @test y == [1, 2, 3, 4]
+    @test x.moved
+
+    # Test moving from mutable to immutable
+    @own z = [1, 2, 3]
+    push!(z, 4)  # Can modify mutable
+    @move const w = z  # Move to immutable
+    @test_throws BorrowRuleError push!(w, 5)  # Can't modify after move to immutable
+    @test z.moved
+    @test w == [1, 2, 3, 4]
+
+    # Test chain of mutability changes
+    @own const a = [1]
+    @move b = a  # immutable -> mutable
+    push!(b, 2)
+    @move const c = b  # mutable -> immutable
+    @test_throws BorrowRuleError push!(c, 3)
+    @move d = c  # immutable -> mutable
+    push!(d, 3)
+    @test d == [1, 2, 3]
+    @test a.moved && b.moved && c.moved && !d.moved
 end

@@ -348,29 +348,48 @@ macro own(expr)
 end
 
 """
+    @move const new = old
     @move new = old
 
 Transfer ownership from one variable to another, invalidating the old variable.
+If `const` is specified, the destination will be immutable.
+Otherwise, the destination will be mutable.
 """
 macro move(expr)
-    if !Meta.isexpr(expr, :(=))
-        error("@move requires an assignment expression (e.g., @move y = x)")
+    if Meta.isexpr(expr, :const)
+        # Handle const case
+        if !Meta.isexpr(expr.args[1], :(=))
+            error("@move const requires an assignment expression")
+        end
+        dest = expr.args[1].args[1]
+        src = expr.args[1].args[2]
+        value = gensym(:value)
+
+        return esc(
+            quote
+                $value = $(request_value)($src, Val(:read))
+                $dest = Owned($value, false, $(QuoteNode(dest)))
+                $(mark_moved!)($src)
+                $dest
+            end,
+        )
+    elseif Meta.isexpr(expr, :(=))
+        # Handle non-const case
+        dest = expr.args[1]
+        src = expr.args[2]
+        value = gensym(:value)
+
+        return esc(
+            quote
+                $value = $(request_value)($src, Val(:read))
+                $dest = OwnedMut($value, false, $(QuoteNode(dest)))
+                $(mark_moved!)($src)
+                $dest
+            end,
+        )
+    else
+        error("@move requires an assignment expression")
     end
-
-    # Handle assignment case (e.g., @move y = x)
-    dest = expr.args[1]
-    src = expr.args[2]
-    value = gensym(:value)
-
-    return esc(
-        quote
-            $value = $(request_value)($src, Val(:read))
-            # Create same type as source with new symbol
-            $dest = $(constructorof)(typeof($src))($value, false, $(QuoteNode(dest)))
-            $(mark_moved!)($src)
-            $dest
-        end,
-    )
 end
 
 """

@@ -15,7 +15,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 - `@own const x = value`: Create a new owned immutable value
 - `@own x = value`: Create a new owned mutable value
-- `@move new = old`: Transfer ownership from one variable to another, invalidating the old variable
+- `@move const new = old`: Transfer ownership from one variable to another, creating an immutable destination
+- `@move new = old`: Transfer ownership from one variable to another, creating a mutable destination
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
 ### References and Lifetimes
@@ -113,7 +114,7 @@ OwnedMut{Vector{Int64}}([1, 2, 3, 4])
 Just like with immutable values, we can move ownership:
 
 ```julia
-julia> @move array2 = array
+julia> @move const array2 = array
 Owned{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array
@@ -122,7 +123,13 @@ julia> array
 julia> array[1] = 5
 ERROR: Cannot use array: value has been moved
 
-julia> array2[1] = 5; # works!
+julia> array2[1] = 5
+ERROR: Cannot write to immutable
+
+julia> @move array3 = array2  # Move to mutable
+OwnedMut{Vector{Int64}}([1, 2, 3, 4])
+
+julia> array3[1] = 5  # Now we can modify it
 ```
 
 ### Borrowing
