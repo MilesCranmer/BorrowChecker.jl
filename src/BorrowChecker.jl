@@ -461,8 +461,17 @@ macro ref(expr)
 end
 
 function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
+    # TODO: Put this in `Borrowed`
+
     is_owner = ref_or_owner isa AllOwned
     owner = is_owner ? ref_or_owner : ref_or_owner.owner
+
+    if !is_owner
+        @assert(
+            ref_or_owner.lifetime === lt,
+            "Lifetime mismatch! Nesting lifetimes is not allowed."
+        )
+    end
 
     is_owner ? Borrowed(owner, lt) : Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
 end
