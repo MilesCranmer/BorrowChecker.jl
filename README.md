@@ -4,8 +4,11 @@
 
 </div>
 
-> ⚠️ **Warning**: This is a highly experimental demonstration of Rust-like ownership semantics in Julia. It is not intended for production use and should not be depended upon in any project. The borrow checking is performed at runtime, not compile time.
-> NOTE: The syntax in this package can change at any time until it is registered.
+> [!CAUTION]
+> This is a highly experimental _demonstration_ of Rust-like ownership semantics in Julia. It is not intended for production use.
+
+> [!WARNING]
+> NOTE: This package is under active development and the syntax has not stabilized. Expect it to change significantly between versions.
 
 This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks.
 
