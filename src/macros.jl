@@ -233,4 +233,49 @@ function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
     end
 end
 
+"""
+    @clone new = old
+    @clone @mut new = old
+
+Create a deep copy of a value, without moving the source.
+If `@mut` is not specified, the destination will be immutable.
+Otherwise, the destination will be mutable.
+"""
+macro clone(expr)
+    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
+        # Handle mutable case
+        if !Meta.isexpr(expr.args[3], :(=))
+            error("@clone @mut requires an assignment expression")
+        end
+        dest = expr.args[3].args[1]
+        src = expr.args[3].args[2]
+        value = gensym(:value)
+
+        return esc(
+            quote
+                # Get the value from either a reference or owned value:
+                $value = deepcopy($(request_value)($src, Val(:read)))
+                $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
+                $dest
+            end,
+        )
+    elseif Meta.isexpr(expr, :(=))
+        # Handle immutable case
+        dest = expr.args[1]
+        src = expr.args[2]
+        value = gensym(:value)
+
+        return esc(
+            quote
+                # Get the value from either a reference or owned value:
+                $value = deepcopy($(request_value)($src, Val(:read)))
+                $dest = $(Bound)($value, false, $(QuoteNode(dest)))
+                $dest
+            end,
+        )
+    else
+        error("@clone requires an assignment expression")
+    end
+end
+
 end

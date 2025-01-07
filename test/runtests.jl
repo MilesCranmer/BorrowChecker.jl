@@ -548,3 +548,98 @@ end
         end
     end
 end
+
+@testitem "Basic clone semantics" begin
+    using BorrowChecker: is_moved
+
+    @bind x = [1, 2, 3]
+    @clone y = x  # Clone to immutable
+    @test y == [1, 2, 3]
+    @test !is_moved(x)  # Original not moved
+    @test x == [1, 2, 3]  # Original unchanged
+    @test_throws BorrowRuleError push!(y, 4)  # Can't modify immutable clone
+end
+
+@testitem "Clone to mutable" begin
+    using BorrowChecker: is_moved
+    @bind x = [1, 2, 3]
+    @clone @mut z = x
+    push!(z, 4)  # Can modify mutable clone
+    @test z == [1, 2, 3, 4]
+    @test x == [1, 2, 3]  # Original unchanged
+    @test !is_moved(x)  # Original not moved
+end
+
+@testitem "Clone of mutable value" begin
+    using BorrowChecker: is_moved
+
+    @bind @mut a = [1, 2, 3]
+    push!(a, 4)
+    @clone b = a  # Clone to immutable
+    @test b == [1, 2, 3, 4]
+    @test !is_moved(a)  # Original not moved
+    push!(a, 5)  # Can still modify original
+    @test a == [1, 2, 3, 4, 5]
+    @test b == [1, 2, 3, 4]  # Clone unchanged
+end
+
+@testitem "Clone of nested structures" begin
+    using BorrowChecker: is_moved
+
+    struct Point
+        x::Vector{Int}
+        y::Vector{Int}
+    end
+
+    @bind @mut p = Point([1], [2])
+    @clone @mut q = p
+    @lifetime lt begin
+        # Get references to all fields we'll need
+        @ref @mut p_x = p.x in lt
+        @ref @mut q_x = q.x in lt
+
+        # We can't yet get mutable references
+        # to the fields simultaneously:
+        @test_throws MovedError @ref @mut p_y = p.y in lt
+        @test_throws MovedError @ref @mut q_y = q.y in lt
+        # TODO: ^Fix this
+
+        # Test modifying original's x
+        push!(p_x, 3)
+        @test p_x == [1, 3]  # Original's x modified
+        @test q_x == [1]  # Clone's x unchanged
+
+        # Test modifying clone's y
+        push!(q_x, 4)
+        @test p_x == [1, 3]  # Original's x unchanged
+        @test q_x == [1, 4]  # Clone's x modified
+
+        @test is_moved(p)
+        @test is_moved(q)
+    end
+
+    @test_skip !is_moved(p)
+    @test_skip !is_moved(q)
+    # TODO: ^Fix this
+end
+
+@testitem "Clone of borrowed value" begin
+    using BorrowChecker: is_moved
+
+    @bind @mut v = [1, 2, 3]
+    @lifetime lt begin
+        @ref ref = v in lt
+        @clone w = ref  # Clone from reference
+        @test w isa Bound{Vector{Int}}
+        @test w == [1, 2, 3]
+        @test !is_moved(v)  # Original not moved
+    end
+    @test !is_moved(v)
+    push!(v, 4)  # Can modify original after clone
+    @test v == [1, 2, 3, 4]
+
+    # Clone of moved value should fail
+    @bind x = [1, 2, 3]
+    @move y = x
+    @test_throws MovedError @clone z = x
+end

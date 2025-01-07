@@ -12,9 +12,9 @@ include("overloads.jl")
 
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError
 using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut
-using .MacrosModule: @bind, @move, @ref, @take, @set, @lifetime
+using .MacrosModule: @bind, @move, @ref, @take, @set, @lifetime, @clone
 
-export @bind, @move, @ref, @take, @set, @lifetime
+export @bind, @move, @ref, @take, @set, @lifetime, @clone
 export Bound, BoundMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError
 

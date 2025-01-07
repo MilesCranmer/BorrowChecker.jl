@@ -20,6 +20,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 - `@bind @mut x = value`: Create a new owned mutable value
 - `@move new = old`: Transfer ownership from one variable to another, creating an immutable destination
 - `@move @mut new = old`: Transfer ownership from one variable to another, creating a mutable destination
+- `@clone new = old`: Create a deep copy of a value without moving the source, creating an immutable destination
+- `@clone @mut new = old`: Create a deep copy of a value without moving the source, creating a mutable destination
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
 ### References and Lifetimes
@@ -135,6 +137,16 @@ BoundMut{Vector{Int64}}([1, 2, 3, 4])
 julia> array3[1] = 5  # Now we can modify it
 ```
 
+You can also clone values using `@clone`, which calls `deepcopy` under the hood:
+
+```julia
+julia> @bind x = [1, 2, 3]
+Bound{Vector{Int64}}([1, 2, 3])
+
+julia> @clone @mut y = x  # Create mutable clone
+BoundMut{Vector{Int64}}([1, 2, 3])
+```
+
 ### Borrowing
 
 References must be created within a `@lifetime` block. Let's look at
@@ -206,4 +218,20 @@ julia> @lifetime lt begin
 
 julia> vec
 Bound{Vector{Int64}}([1, 2, 3])
+```
+
+We are also able to clone from reference:
+
+```julia
+julia> @bind @mut data = [1, 2, 3]
+BoundMut{Vector{Int64}}([1, 2, 3])
+
+julia> @lifetime lt begin
+           @ref ref = data in lt
+           @clone @mut clone = ref
+           clone[2] = 4
+           @show clone ref
+       end;
+clone = BoundMut{Vector{Int64}}([1, 4, 3])
+ref = Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
 ```
