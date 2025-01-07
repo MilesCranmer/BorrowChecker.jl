@@ -5,7 +5,7 @@
 </div>
 
 > [!CAUTION]
-> This is a highly experimental _demonstration_ of Rust-like ownership semantics in Julia. It is not intended for production use.
+> This is a highly experimental _demonstration_ of Rust-like ownership semantics in Julia. It is not yet intended for active use in libraries.
 
 > [!WARNING]
 > NOTE: This package is under active development and the syntax has not stabilized. Expect it to change significantly between versions.
