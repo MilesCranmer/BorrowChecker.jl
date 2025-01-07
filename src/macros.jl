@@ -21,12 +21,12 @@ macro own(expr)
         end
         name = expr.args[1].args[1]
         value = expr.args[1].args[2]
-        return esc(:($(name) = Owned($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(Owned)($(value), false, $(QuoteNode(name)))))
     elseif Meta.isexpr(expr, :(=))
         # Handle non-const case
         name = expr.args[1]
         value = expr.args[2]
-        return esc(:($(name) = OwnedMut($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(OwnedMut)($(value), false, $(QuoteNode(name)))))
     else
         error("@own requires an assignment expression")
     end
@@ -53,7 +53,7 @@ macro move(expr)
         return esc(
             quote
                 $value = $(request_value)($src, Val(:move))
-                $dest = Owned($value, false, $(QuoteNode(dest)))
+                $dest = $(Owned)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,
@@ -67,7 +67,7 @@ macro move(expr)
         return esc(
             quote
                 $value = $(request_value)($src, Val(:move))
-                $dest = OwnedMut($value, false, $(QuoteNode(dest)))
+                $dest = $(OwnedMut)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,
