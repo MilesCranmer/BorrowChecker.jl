@@ -12,18 +12,17 @@ using ..TypesModule:
     AllImmutable,
     constructorof,
     is_mutable,
+    mark_moved!,
+    is_moved,
     unsafe_get_value
 using ..ErrorsModule: MovedError, BorrowRuleError
 using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
-function mark_moved!(r::AllOwned)
-    return setfield!(r, :moved, true)
-end
 
 function request_value(r::AllOwned, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
-    if r.moved
+    if is_moved(r)
         throw(MovedError(r.symbol))
     elseif is_mutable(r) && r.mutable_borrows > 0
         throw(BorrowRuleError("Cannot access original while mutably borrowed"))
@@ -39,7 +38,7 @@ end
 function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
     owner = r.owner
-    if owner.moved
+    if is_moved(owner)
         throw(MovedError(owner.symbol))
     elseif mode == :write && !is_mutable(r)
         throw(BorrowRuleError("Cannot write to immutable reference"))
@@ -53,7 +52,7 @@ end
 function set_value!(r::AllOwned, value)
     if !is_mutable(r)
         throw(BorrowRuleError("Cannot assign to immutable"))
-    elseif r.moved
+    elseif is_moved(r)
         throw(MovedError(r.symbol))
     elseif r.mutable_borrows > 0 || r.immutable_borrows > 0
         throw(BorrowRuleError("Cannot assign to value while borrowed"))
@@ -112,7 +111,7 @@ function Base.propertynames(o::AllWrappers)
     return propertynames(unsafe_get_value(o))
 end
 function Base.show(io::IO, o::AllOwned)
-    if o.moved
+    if is_moved(o)
         print(io, "[moved]")
     else
         constructor = constructorof(typeof(o))
@@ -121,7 +120,7 @@ function Base.show(io::IO, o::AllOwned)
     end
 end
 function Base.show(io::IO, r::AllBorrowed)
-    if r.owner.moved
+    if is_moved(r)
         print(io, "[reference to moved value]")
     else
         constructor = constructorof(typeof(r))

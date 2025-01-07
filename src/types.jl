@@ -4,7 +4,8 @@ using ..ErrorsModule: MovedError, BorrowRuleError
 
 # Forward declarations
 function unsafe_get_value end
-
+function mark_moved! end
+function is_moved end
 mutable struct Owned{T}
     const value::T
     moved::Bool
@@ -49,7 +50,7 @@ struct Borrowed{T,O<:Union{Owned,OwnedMut}}
     function Borrowed(
         value::T, owner::O, lifetime::Lifetime
     ) where {T,O<:Union{Owned,OwnedMut}}
-        if owner.moved
+        if is_moved(owner)
             throw(MovedError(owner.symbol))
         elseif owner isa OwnedMut && owner.mutable_borrows > 0
             throw(
@@ -79,7 +80,7 @@ struct BorrowedMut{T,O<:OwnedMut}
     ) where {T,O<:Union{Owned,OwnedMut}}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
-        elseif owner.moved
+        elseif is_moved(owner)
             throw(MovedError(owner.symbol))
         elseif owner.immutable_borrows > 0
             throw(
@@ -129,6 +130,16 @@ function unsafe_get_value(r::AllBorrowed)
     else
         return raw_value
     end
+end
+
+function mark_moved!(r::AllOwned)
+    return setfield!(r, :moved, true)
+end
+function is_moved(r::AllOwned)
+    return getfield(r, :moved)
+end
+function is_moved(r::AllBorrowed)
+    return is_moved(r.owner)
 end
 
 # Constructor utilities

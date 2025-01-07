@@ -5,12 +5,14 @@ using BorrowChecker
 @run_package_tests
 
 @testitem "Basic Ownership" begin
+    using BorrowChecker: is_moved
+
     # Create owned value
     @own const x = 42
     @lifetime lt begin
         @ref const ref = x in lt
         @test ref == 42
-        @test !x.moved
+        @test !is_moved(x)
     end
 
     # Create mutable owned value
@@ -18,19 +20,21 @@ using BorrowChecker
     @lifetime lt begin
         @ref const ref = y in lt
         @test ref == [1, 2, 3]
-        @test !y.moved
+        @test !is_moved(y)
     end
 end
 
 @testitem "Move Semantics" begin
+    using BorrowChecker: is_moved
+
     # Basic move with @move y = x syntax
     @own const x = [1, 2, 3]
     @move const y = x  # Move to immutable
     @lifetime lt begin
         @ref const ref = y in lt
         @test ref == [1, 2, 3]
-        @test x.moved
-        @test !y.moved
+        @test is_moved(x)
+        @test !is_moved(y)
         @test_throws MovedError @ref const d = x in lt
     end
 
@@ -44,7 +48,7 @@ end
     @lifetime lt begin
         @ref const ref = z in lt
         @test ref == [1, 2, 3]
-        @test a.moved && y.moved && !z.moved
+        @test is_moved(a) && is_moved(y) && !is_moved(z)
         @test_throws MovedError @ref const d = a in lt
         @test_throws MovedError @ref const d = y in lt
     end
@@ -62,11 +66,13 @@ end
 end
 
 @testitem "Immutable References" begin
+    using BorrowChecker: is_moved
+
     @own x = [1, 2, 3]
     @lifetime lt begin
         @ref const ref = x in lt
         @test ref == [1, 2, 3]  # Can read through reference
-        @test !x.moved  # Reference doesn't move ownership
+        @test !is_moved(x)  # Reference doesn't move ownership
         @test_throws BorrowRuleError ref[1] = 10  # Can't modify through immutable ref
         @ref const ref2 = x in lt
         @test ref2 == [1, 2, 3]  # Original unchanged
@@ -125,6 +131,8 @@ end
 end
 
 @testitem "Function Ownership" begin
+    using BorrowChecker: is_moved
+
     # Helper function that takes ownership
     function consume_vector(v::Vector{Int})
         push!(v, 4)
@@ -135,7 +143,7 @@ end
     @own x = [1, 2, 3]
     @own result = consume_vector(@take x)
     @test result == [1, 2, 3, 4]
-    @test x.moved
+    @test is_moved(x)
     @lifetime lt begin
         @test_throws MovedError @ref const d = x in lt
     end
@@ -151,7 +159,7 @@ end
     @own const y = [1, 2, 3]
     @lifetime lt begin
         @ref const ref = y in lt  # Immutable borrow
-        @test !y.moved  # y is still valid
+        @test !is_moved(y)  # y is still valid
         @ref const ref2 = y in lt
         @test ref2 == [1, 2, 3]
     end
@@ -165,7 +173,7 @@ end
     @lifetime lt begin
         @ref ref = z in lt  # Mutable borrow
         push!(ref, 4)
-        @test !z.moved  # z is still valid
+        @test !is_moved(z)  # z is still valid
     end
     @lifetime lt begin
         @ref const ref = z in lt
@@ -298,6 +306,8 @@ end
 end
 
 @testitem "Symbol Tracking" begin
+    using BorrowChecker: is_moved
+
     # Test symbol tracking for owned values
     @own const x = 42
     @test x.symbol == :x
@@ -310,8 +320,8 @@ end
     # Gets new symbol when moved
     @test z.symbol == :z
     @test x.symbol == :x
-    @test !z.moved
-    @test x.moved
+    @test !is_moved(z)
+    @test is_moved(x)
 
     # Test error messages include the correct symbol
     err = try
@@ -340,20 +350,22 @@ end
 end
 
 @testitem "Mutability changes through moves" begin
+    using BorrowChecker: is_moved
+
     # Test moving from immutable to mutable
     @own const x = [1, 2, 3]
     @test_throws BorrowRuleError push!(x, 4)  # Can't modify immutable
     @move y = x  # Move to mutable
     push!(y, 4)  # Can modify after move
     @test y == [1, 2, 3, 4]
-    @test x.moved
+    @test is_moved(x)
 
     # Test moving from mutable to immutable
     @own z = [1, 2, 3]
     push!(z, 4)  # Can modify mutable
     @move const w = z  # Move to immutable
     @test_throws BorrowRuleError push!(w, 5)  # Can't modify after move to immutable
-    @test z.moved
+    @test is_moved(z)
     @test w == [1, 2, 3, 4]
 
     # Test chain of mutability changes
@@ -365,7 +377,7 @@ end
     @move d = c  # immutable -> mutable
     push!(d, 3)
     @test d == [1, 2, 3]
-    @test a.moved && b.moved && c.moved && !d.moved
+    @test is_moved(a) && is_moved(b) && is_moved(c) && !is_moved(d)
 end
 
 @testitem "Math Operations" begin
