@@ -10,7 +10,7 @@ export MovedError, BorrowError, BorrowRuleError
 include("utils.jl")
 include("types.jl")
 include("errors.jl")
-include("base_operations.jl")
+include("semantics.jl")
 include("macros.jl")
 include("overloads.jl")
 
