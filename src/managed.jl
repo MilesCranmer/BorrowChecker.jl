@@ -6,7 +6,7 @@ passed to functions, without requiring explicit `@take` calls.
 module ManagedModule
 
 using Cassette: Cassette
-using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut
+using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take
 
@@ -17,6 +17,7 @@ function maybe_take!(x)
     return x
 end
 function maybe_take!(arg::AllBound)
+    is_moved(arg) && throw(MovedError(arg.symbol))
     value = unsafe_get_value(arg)
     mark_moved!(arg)
     return value
