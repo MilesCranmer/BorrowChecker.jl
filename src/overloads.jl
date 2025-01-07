@@ -44,18 +44,17 @@ function Base.getindex(r::BorrowedMut{<:AbstractArray{T}}, i...) where {T}
     return return_value
 end
 
+#! format: off
+
+# --- COLLECTION OPERATIONS ---
+# Basic collection operations
 Base.length(r::AllWrappers) = length(request_value(r, Val(:read)))
 Base.size(r::AllWrappers) = size(request_value(r, Val(:read)))
+Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
 Base.axes(r::AllWrappers) = axes(request_value(r, Val(:read)))
 Base.firstindex(r::AllWrappers) = firstindex(request_value(r, Val(:read)))
 Base.lastindex(r::AllWrappers) = lastindex(request_value(r, Val(:read)))
-
-# Forward comparison to the underlying value
-Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
-Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
-function Base.:(==)(r::AllWrappers, other::AllWrappers)
-    return request_value(r, Val(:read)) == request_value(other, Val(:read))
-end
+Base.eachindex(r::AllWrappers) = eachindex(request_value(r, Val(:read)))
 
 # Forward array operations for mutable wrappers
 Base.push!(r::AllWrappers, items...) = (push!(request_value(r, Val(:write)), items...); r)
@@ -64,9 +63,15 @@ Base.pop!(r::AllWrappers) = (pop!(request_value(r, Val(:write))); r)
 Base.popfirst!(r::AllWrappers) = (popfirst!(request_value(r, Val(:write))); r)
 Base.empty!(r::AllWrappers) = (empty!(request_value(r, Val(:write))); r)
 Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
+# --- END COLLECTION OPERATIONS ---
 
-# Number operations
-#! format: off
+# --- COMPARISON OPERATIONS ---
+Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
+Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
+Base.:(==)(r::AllWrappers, other::AllWrappers) = request_value(r, Val(:read)) == request_value(other, Val(:read))
+# --- END COMPARISON OPERATIONS ---
+
+# --- NUMBER OPERATIONS ---
 # 1 arg
 for op in (
     :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos,
@@ -131,6 +136,8 @@ for op in (:(:), :clamp, :fma, :muladd)
         end
     end
 end
+# --- END NUMBER OPERATIONS ---
+
 #! format: on
 
 end
