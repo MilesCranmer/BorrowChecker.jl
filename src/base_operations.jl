@@ -1,0 +1,134 @@
+# Type-specific utilities
+constructorof(::Type{<:Owned}) = Owned
+constructorof(::Type{<:OwnedMut}) = OwnedMut
+constructorof(::Type{<:Borrowed}) = Borrowed
+constructorof(::Type{<:BorrowedMut}) = BorrowedMut
+
+is_mutable(r::AllMutable) = true
+is_mutable(r::AllImmutable) = false 
+
+# Internal getters and setters
+function unsafe_get_value(r::AllOwned)
+    return getfield(r, :value)
+end
+function unsafe_get_value(r::AllBorrowed)
+    raw_value = getfield(r, :value)
+    if raw_value === r.owner
+        return unsafe_get_value(r.owner)
+    else
+        return raw_value
+    end
+end
+function mark_moved!(r::AllOwned)
+    return setfield!(r, :moved, true)
+end
+
+function request_value(r::AllOwned, ::Val{mode}) where {mode}
+    @assert mode in (:read, :write)
+    if r.moved
+        throw(MovedError(r.symbol))
+    elseif is_mutable(r) && r.mutable_borrows > 0
+        throw(BorrowRuleError("Cannot access original while mutably borrowed"))
+    elseif mode == :write
+        if !is_mutable(r)
+            throw(BorrowRuleError("Cannot write to immutable"))
+        elseif r.immutable_borrows > 0
+            throw(BorrowRuleError("Cannot write to original while immutably borrowed"))
+        end
+    end
+    return unsafe_get_value(r)
+end
+function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
+    @assert mode in (:read, :write)
+    owner = r.owner
+    if owner.moved
+        throw(MovedError(owner.symbol))
+    elseif mode == :write && !is_mutable(r)
+        throw(BorrowRuleError("Cannot write to immutable reference"))
+    end
+    return unsafe_get_value(r)
+end
+
+function unsafe_set_value!(r::OwnedMut, value)
+    return setfield!(r, :value, value)
+end
+function set_value!(r::AllOwned, value)
+    if !is_mutable(r)
+        throw(BorrowRuleError("Cannot assign to immutable"))
+    elseif r.moved
+        throw(MovedError(r.symbol))
+    elseif r.mutable_borrows > 0 || r.immutable_borrows > 0
+        throw(BorrowRuleError("Cannot assign to value while borrowed"))
+    end
+    return unsafe_set_value!(r, value)
+end
+function set_value!(::AllBorrowed, value)
+    throw(BorrowRuleError("Cannot assign to borrowed"))
+end
+
+# Public getters and setters
+function Base.getproperty(o::AllOwned, name::Symbol)
+    if name == :value
+        error("Use `@take` to directly access the value of an owned variable")
+    end
+    if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
+        return getfield(o, name)
+    else
+        value = request_value(o, Val(:read))
+        if recursive_ismutable(value)
+            # TODO: This is kind of where rust would check
+            #       the Copy trait. What should we do?
+            mark_moved!(o)
+            return constructorof(typeof(o))(getproperty(value, name))
+        else
+            return constructorof(typeof(o))(getproperty(value, name))
+        end
+    end
+end
+function Base.setproperty!(o::AllOwned, name::Symbol, v)
+    if name in (:moved, :immutable_borrows, :mutable_borrows)
+        setfield!(o, name, v)
+    else
+        value = request_value(o, Val(:write))
+        setproperty!(value, name, v)
+    end
+    return o
+end
+function Base.getproperty(r::AllBorrowed, name::Symbol)
+    if name == :owner
+        return getfield(r, :owner)
+    elseif name == :lifetime
+        return getfield(r, :lifetime)
+    end
+    value = getproperty(request_value(r, Val(:read)), name)
+    return constructorof(typeof(r))(value, r.owner, r.lifetime)
+end
+function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
+    name == :owner && error("Cannot modify reference ownership")
+    result = setproperty!(request_value(r, Val(:write)), name, value)
+    return constructorof(typeof(r))(result, r.owner, r.lifetime)
+end
+
+# Convenience functions
+function Base.propertynames(o::AllWrappers)
+    return propertynames(unsafe_get_value(o))
+end
+function Base.show(io::IO, o::AllOwned)
+    if o.moved
+        print(io, "[moved]")
+    else
+        constructor = constructorof(typeof(o))
+        value = request_value(o, Val(:read))
+        print(io, "$(constructor){$(typeof(value))}($(value))")
+    end
+end
+function Base.show(io::IO, r::AllBorrowed)
+    if r.owner.moved
+        print(io, "[reference to moved value]")
+    else
+        constructor = constructorof(typeof(r))
+        value = request_value(r, Val(:read))
+        owner = r.owner
+        print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value))")
+    end
+end 
