@@ -318,27 +318,10 @@ Base.empty!(r::AllWrappers) = (empty!(request_value(r, Val(:write))); r)
 Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
 # --- END CONTAINER OPERATIONS ---
 
-# --- MATH OPERATIONS ---
+# --- NUMBER OPERATIONS ---
 
-# Binary operators
 #! format: off
-for op in (
-    :*, :/, :+, :-, :^, :÷, :mod, :log,
-    :atan, :atand, :copysign, :flipsign,
-    :&, :|, :⊻, ://, :\,
-)
-    @eval begin
-        function Base.$(op)(l::Number, r::AllWrappers{<:Number})
-            return Base.$(op)(l, request_value(r, Val(:read)))
-        end
-        function Base.$(op)(l::AllWrappers{<:Number}, r::Number)
-            return Base.$(op)(request_value(l, Val(:read)), r)
-        end
-        function Base.$(op)(l::AllWrappers{<:Number}, r::AllWrappers{<:Number})
-            return Base.$(op)(request_value(l, Val(:read)), request_value(r, Val(:read)))
-        end
-    end
-end
+# 1 arg
 for op in (
     :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos,
     :asinh, :acosh, :atanh, :sec, :csc, :cot, :asec, :acsc, :acot, :sech, :csch,
@@ -353,6 +336,53 @@ for op in (
 )
     @eval function Base.$(op)(r::AllWrappers{<:Number})
         return Base.$(op)(request_value(r, Val(:read)))
+    end
+end
+# 2 args
+for op in (
+    :*, :/, :+, :-, :^, :÷, :mod, :log,
+    :atan, :atand, :copysign, :flipsign,
+    :&, :|, :⊻, ://, :\, :(:)
+)
+    @eval begin
+        function Base.$(op)(l::Number, r::AllWrappers{<:Number})
+            return Base.$(op)(l, request_value(r, Val(:read)))
+        end
+        function Base.$(op)(l::AllWrappers{<:Number}, r::Number)
+            return Base.$(op)(request_value(l, Val(:read)), r)
+        end
+        function Base.$(op)(l::AllWrappers{<:Number}, r::AllWrappers{<:Number})
+            return Base.$(op)(request_value(l, Val(:read)), request_value(r, Val(:read)))
+        end
+    end
+end
+# 3 args
+for op in (:(:), :clamp, :fma, :muladd)
+    @eval begin
+        # all
+        function Base.$(op)(l::AllWrappers{<:Number}, m::AllWrappers{<:Number}, r::AllWrappers{<:Number})
+            return Base.$(op)(request_value(l, Val(:read)), request_value(m, Val(:read)), request_value(r, Val(:read)))
+        end
+        # 2 args
+        function Base.$(op)(l::AllWrappers{<:Number}, m::AllWrappers{<:Number}, r::Number)
+            return Base.$(op)(request_value(l, Val(:read)), request_value(m, Val(:read)), r)
+        end
+        function Base.$(op)(l::AllWrappers{<:Number}, m::Number, r::AllWrappers{<:Number})
+            return Base.$(op)(request_value(l, Val(:read)), m, request_value(r, Val(:read)))
+        end
+        function Base.$(op)(l::Number, m::AllWrappers{<:Number}, r::AllWrappers{<:Number})
+            return Base.$(op)(l, request_value(m, Val(:read)), request_value(r, Val(:read)))
+        end
+        # 1 arg
+        function Base.$(op)(l::AllWrappers{<:Number}, m::Number, r::Number)
+            return Base.$(op)(request_value(l, Val(:read)), m, r)
+        end
+        function Base.$(op)(l::Number, m::AllWrappers{<:Number}, r::Number)
+            return Base.$(op)(l, request_value(m, Val(:read)), r)
+        end
+        function Base.$(op)(l::Number, m::Number, r::AllWrappers{<:Number})
+            return Base.$(op)(l, m, request_value(r, Val(:read)))
+        end
     end
 end
 #! format: on
