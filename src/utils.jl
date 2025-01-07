@@ -5,4 +5,7 @@ module UtilsModule
     return ismutabletype(T) || any(recursive_ismutable, fieldtypes(T))
 end
 
+# Analogous to `nothing` but never used to mean something
+struct Unused end
+
 end

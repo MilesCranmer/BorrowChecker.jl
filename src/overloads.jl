@@ -11,7 +11,7 @@ using ..TypesModule:
     constructorof
 using ..SemanticsModule: request_value, mark_moved!
 using ..ErrorsModule: BorrowRuleError
-using ..UtilsModule: recursive_ismutable
+using ..UtilsModule: recursive_ismutable, Unused
 
 # Container operations
 function Base.setindex!(r::AllWrappers, value, i...)
@@ -72,6 +72,18 @@ for op in (:pop!, :popfirst!, :empty!, :resize!)
 end
 for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); r)
+end
+function Base.iterate(::AllOwned)
+    error("Cannot yet iterate over owned arrays. Iterate over a `@ref const` instead.")
+end
+function Base.iterate(r::Borrowed, state=Unused())
+    out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
+    out === nothing && return nothing
+    (iter, state) = out
+    return (Borrowed(iter, r.owner, r.lifetime), state)
+end
+function Base.iterate(::BorrowedMut{<:AbstractArray{T}}) where {T}
+    error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref const` instead.")
 end
 # --- END COLLECTION OPERATIONS ---
 

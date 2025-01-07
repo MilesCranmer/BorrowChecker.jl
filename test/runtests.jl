@@ -525,11 +525,27 @@ end
     # Test that symbol checking works for @take
     @own x = 42
     y = x  # This is illegal - should use @move
-    @test_throws "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values." @take y
+    @test_throws(
+        "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
+        @take y
+    )
 
     # Test that symbol checking works for @move
     @own a = [1, 2, 3]
     b = a  # This is illegal - should use @move
-    @test_throws "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values." @move c =
-        b
+    @test_throws(
+        "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
+        @move c = b
+    )
+end
+
+@testitem "Iteration" begin
+    @own x = [1, 2, 3]
+    @lifetime lt begin
+        @ref const ref = x in lt
+        for (i, xi) in enumerate(ref)
+            @test xi isa Borrowed{Int}
+            @test xi == x[i]
+        end
+    end
 end
