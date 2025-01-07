@@ -1,11 +1,13 @@
 module TypesModule
 
 using ..ErrorsModule: MovedError, BorrowRuleError
+using ..UtilsModule: recursive_ismutable
 
 # Forward declarations
 function unsafe_get_value end
 function mark_moved! end
 function is_moved end
+
 mutable struct Owned{T}
     const value::T
     moved::Bool
@@ -147,5 +149,20 @@ constructorof(::Type{<:Owned}) = Owned
 constructorof(::Type{<:OwnedMut}) = OwnedMut
 constructorof(::Type{<:Borrowed}) = Borrowed
 constructorof(::Type{<:BorrowedMut}) = BorrowedMut
+
+# Thread safety traits
+"""
+    can_sync(T)
+    can_send(T)
+
+Determines if a type can be safely sent between threads.
+By default, something is sendable if lacks interior mutability.
+
+We try to replicate the behavior of Rust's Sync trait.
+"""
+can_sync(::Type{T}) where {T} = !recursive_ismutable(T)
+can_sync(::Type{<:AllBorrowed{T}}) where {T} = can_sync(T)
+can_send(::Type{<:Borrowed{T}}) where {T} = can_sync(T)
+can_send(::Type{<:BorrowedMut{T}}) where {T} = can_send(T)
 
 end
