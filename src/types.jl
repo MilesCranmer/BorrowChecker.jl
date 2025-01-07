@@ -165,4 +165,9 @@ can_sync(::Type{<:AllBorrowed{T}}) where {T} = can_sync(T)
 can_send(::Type{<:Borrowed{T}}) where {T} = can_sync(T)
 can_send(::Type{<:BorrowedMut{T}}) where {T} = can_send(T)
 
+# TODO: We want to include Atomic types in the Sync trait.
+#       However, Julia doesn't yet have a mechanism for checking
+#       if a type is Atomic.
+
+
 end
