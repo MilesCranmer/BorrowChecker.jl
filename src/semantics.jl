@@ -87,6 +87,24 @@ function set_value!(::AllBorrowed, value)
 end
 
 # Public getters and setters
+function wrapped_getter(f::F, o::AllOwned, k) where {F}
+    value = request_value(o, Val(:read))
+    if recursive_ismutable(value)
+        # TODO: This is kind of where rust would check
+        #       the Copy trait. What should we do?
+        mark_moved!(o)
+    end
+    return constructorof(typeof(o))(f(value, k))
+end
+function wrapped_getter(f::F, r::AllBorrowed, k) where {F}
+    value = f(request_value(r, Val(:read)), k)
+    return constructorof(typeof(r))(value, r.owner, r.lifetime)
+end
+function wrapped_setter(f::F, o::AllWrappers, k, v) where {F}
+    value = request_value(o, Val(:write))
+    return f(value, k, v)
+end
+
 function Base.getproperty(o::AllOwned, name::Symbol)
     if name == :value
         error("Use `@take` to directly access the value of an owned variable")
@@ -94,38 +112,31 @@ function Base.getproperty(o::AllOwned, name::Symbol)
     if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
         return getfield(o, name)
     else
-        value = request_value(o, Val(:read))
-        if recursive_ismutable(value)
-            # TODO: This is kind of where rust would check
-            #       the Copy trait. What should we do?
-            mark_moved!(o)
-            return constructorof(typeof(o))(getproperty(value, name))
-        else
-            return constructorof(typeof(o))(getproperty(value, name))
-        end
+        return wrapped_getter(getproperty, o, name)
     end
-end
-function Base.setproperty!(o::AllOwned, name::Symbol, v)
-    if name in (:moved, :immutable_borrows, :mutable_borrows)
-        setfield!(o, name, v)
-    else
-        value = request_value(o, Val(:write))
-        setproperty!(value, name, v)
-    end
-    return o
 end
 function Base.getproperty(r::AllBorrowed, name::Symbol)
     if name == :owner
         return getfield(r, :owner)
     elseif name == :lifetime
         return getfield(r, :lifetime)
+    else
+        return wrapped_getter(getproperty, r, name)
     end
-    value = getproperty(request_value(r, Val(:read)), name)
-    return constructorof(typeof(r))(value, r.owner, r.lifetime)
+end
+function Base.setproperty!(o::AllOwned, name::Symbol, v)
+    if name in (:moved, :immutable_borrows, :mutable_borrows)
+        setfield!(o, name, v)
+    else
+        wrapped_setter(setproperty!, o, name, v)
+    end
+    return o
 end
 function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
     name == :owner && error("Cannot modify reference ownership")
-    result = setproperty!(request_value(r, Val(:write)), name, value)
+    result = wrapped_setter(setproperty!, r, name, value)
+    # TODO: I think we should return `nothing` here instead, or
+    #       some other marker.
     return constructorof(typeof(r))(result, r.owner, r.lifetime)
 end
 
