@@ -318,6 +318,46 @@ Base.empty!(r::AllWrappers) = (empty!(request_value(r, Val(:write))); r)
 Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
 # --- END CONTAINER OPERATIONS ---
 
+# --- MATH OPERATIONS ---
+
+# Binary operators
+#! format: off
+for op in (
+    :*, :/, :+, :-, :^, :÷, :mod, :log,
+    :atan, :atand, :copysign, :flipsign,
+    :&, :|, :⊻, ://, :\,
+)
+    @eval begin
+        function Base.$(op)(l::Number, r::AllWrappers{<:Number})
+            return Base.$(op)(l, request_value(r, Val(:read)))
+        end
+        function Base.$(op)(l::AllWrappers{<:Number}, r::Number)
+            return Base.$(op)(request_value(l, Val(:read)), r)
+        end
+        function Base.$(op)(l::AllWrappers{<:Number}, r::AllWrappers{<:Number})
+            return Base.$(op)(request_value(l, Val(:read)), request_value(r, Val(:read)))
+        end
+    end
+end
+for op in (
+    :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos,
+    :asinh, :acosh, :atanh, :sec, :csc, :cot, :asec, :acsc, :acot, :sech, :csch,
+    :coth, :asech, :acsch, :acoth, :sinc, :cosc, :cosd, :cotd, :cscd, :secd,
+    :sinpi, :cospi, :sind, :tand, :acosd, :acotd, :acscd, :asecd, :asind,
+    :log, :log2, :log10, :log1p, :exp, :exp2, :exp10, :expm1, :frexp, :exponent,
+    :float, :abs, :real, :imag, :conj, :unsigned,
+    :nextfloat, :prevfloat, :transpose, :significand,
+    :modf, :rem, :floor, :ceil, :round, :trunc,
+    :inv, :sqrt, :cbrt, :abs2, :angle, :factorial,
+    :(!), :-, :+, :sign, :identity,
+)
+    @eval function Base.$(op)(r::AllWrappers{<:Number})
+        return Base.$(op)(request_value(r, Val(:read)))
+    end
+end
+#! format: on
+# --- END MATH OPERATIONS ---
+
 # TODO: Add other interfaces
 
 # --- MACROS ---

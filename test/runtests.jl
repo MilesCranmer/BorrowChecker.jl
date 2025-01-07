@@ -109,7 +109,8 @@ end
 
         @test_throws BorrowRuleError @ref const d = y in lt
         @test_throws(
-            "Cannot create immutable reference: value is mutably borrowed", @ref const d = y in lt
+            "Cannot create immutable reference: value is mutably borrowed",
+            @ref const d = y in lt
         )
     end
 end
@@ -365,4 +366,46 @@ end
     push!(d, 3)
     @test d == [1, 2, 3]
     @test a.moved && b.moved && c.moved && !d.moved
+end
+
+@testitem "Math Operations" begin
+    # Test binary operations with owned values
+    @own const x = 2
+    @own y = 3
+
+    # Test owned op number
+    @test x + 1 == 3
+    @test y * 2 == 6
+
+    # Test number op owned
+    @test 1 + x == 3
+    @test 2 * y == 6
+
+    # Test owned op owned
+    @test x + y == 5
+    @test x * y == 6
+
+    # Test unary operations
+    @test -x == -2
+    @test abs(x) == 2
+    @test sin(y) == sin(3)
+
+    # Test operations preserve ownership rules
+    @move z = y
+    @test_throws MovedError y + 1
+
+    # Test operations through references
+    @lifetime lt begin
+        @ref const rx = x in lt
+        @ref const rz = z in lt  # Changed to const reference
+
+        # Test all combinations with references
+        @test rx + 1 == 3  # ref op number
+        @test 1 + rx == 3  # number op ref
+        @test rx + rz == 5  # ref op ref
+        @test -rx == -2    # unary op ref
+
+        # Test we can't modify through immutable ref
+        @test_throws BorrowRuleError @set rx = rx + 1
+    end
 end
