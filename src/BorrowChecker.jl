@@ -342,7 +342,7 @@ end
 for op in (
     :*, :/, :+, :-, :^, :÷, :mod, :log,
     :atan, :atand, :copysign, :flipsign,
-    :&, :|, :⊻, ://, :\, :(:)
+    :&, :|, :⊻, ://, :\, :(:), :rem
 )
     @eval begin
         function Base.$(op)(l::Number, r::AllWrappers{<:Number})
