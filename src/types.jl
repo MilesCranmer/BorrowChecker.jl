@@ -121,6 +121,7 @@ const AllWrappers{T} = Union{AllBorrowed{T},AllOwned{T}}
 
 # Type-specific utilities
 is_same_thread(r::AllOwned) = Threads.threadid() == getfield(r, :threadid)
+is_same_thread(r::AllBorrowed) = is_same_thread(r.owner)
 is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
 

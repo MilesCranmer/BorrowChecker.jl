@@ -463,47 +463,45 @@ end
 end
 
 @testitem "Thread safety" begin
-    using BorrowChecker: BorrowRuleError, is_moved
+    using BorrowChecker: BorrowRuleError
+
+    @test Threads.nthreads() > 1
 
     # Create owned value in main thread
     @own x = [1, 2, 3]
     @test x[1] == 1
 
     # Try to access owned value directly in another thread (should fail)
-    t = Threads.@spawn begin
-        @test_throws BorrowRuleError x[1]  # Test the exception type
-        # The error message is tested in other test cases
+    Threads.@threads :static for i in 1:5
+        if Threads.threadid() != getfield(x, :threadid)
+            @test_throws BorrowRuleError x[1]  # Test the exception type
+        end
     end
-    fetch(t)
 
-    # References are fine though
+    # Immutable references are fine though
     @lifetime lt begin
         @ref const ref = x in lt
-        t = Threads.@spawn begin
+        Threads.@threads :static for i in 1:5
             @test ref[1] == 1
         end
-        fetch(t)
     end
+end
 
-    # Mutable references are fine too, so long
-    # as its ownly one and we don't modify the
-    # original data.
+@testitem "Mutable references in threads" begin
+    @own x = [1, 2, 3]
     @lifetime lt begin
         @ref ref2 = x in lt
-        t = Threads.@spawn begin
-            push!(ref2, 4)
-
-            # We can take individual values,
-            # so long as they're mutable
-            @test ref2[end] == 4
-
-            # But can't create slices!
-            @test_throws BorrowRuleError ref2[1:2]
+        Threads.@threads :static for i in 1:5
+            if Threads.threadid() != getfield(x, :threadid)
+                @test_throws BorrowRuleError ref2[1] == 1
+            end
         end
-        fetch(t)
     end
+end
 
-    # Properly transfer ownership using @take
+@testitem "Properly transfer ownership using @take" begin
+    using BorrowChecker: is_moved
+
     @own x = [1, 2, 3]
     t = Threads.@spawn begin
         # Create new owned value in this thread

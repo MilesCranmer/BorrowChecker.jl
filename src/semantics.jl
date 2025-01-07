@@ -43,7 +43,13 @@ end
 function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
     owner = r.owner
-    if is_moved(owner)
+    if r isa BorrowedMut && !is_same_thread(r)
+        throw(
+            BorrowRuleError(
+                "Cannot access mutable borrowed value from a different thread than where it was created",
+            ),
+        )
+    elseif is_moved(owner)
         throw(MovedError(owner.symbol))
     elseif mode == :write && !is_mutable(r)
         throw(BorrowRuleError("Cannot write to immutable reference"))
