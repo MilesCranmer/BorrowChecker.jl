@@ -17,8 +17,8 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 ### Ownership
 
 - `@own const x = value`: Create a new owned immutable value
-- `@own x = value`: Create a new owned mutable value
 - `@move const new = old`: Transfer ownership from one variable to another, creating an immutable destination
+- `@own x = value`: Create a new owned mutable value
 - `@move new = old`: Transfer ownership from one variable to another, creating a mutable destination
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
