@@ -16,10 +16,16 @@ using ..TypesModule:
     is_moved,
     unsafe_get_value,
     is_same_thread
-using ..ErrorsModule: MovedError, BorrowRuleError
+using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError
 using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
+
+function validate_symbol(r::AllOwned, expected_symbol::Symbol)
+    if expected_symbol != r.symbol
+        throw(SymbolMismatchError(r.symbol, expected_symbol))
+    end
+end
 
 function request_value(r::AllOwned, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)

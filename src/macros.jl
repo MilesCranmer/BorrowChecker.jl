@@ -4,7 +4,7 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllOwned
-using ..SemanticsModule: request_value, mark_moved!, set_value!
+using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
 
 """
     @own const x = value
@@ -52,6 +52,7 @@ macro move(expr)
 
         return esc(
             quote
+                $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
                 $dest = $(Owned)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
@@ -66,6 +67,7 @@ macro move(expr)
 
         return esc(
             quote
+                $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
                 $dest = $(OwnedMut)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
@@ -87,7 +89,8 @@ macro take(var)
     value = gensym(:value)
     return esc(
         quote
-            $value = $(request_value)($var, $(Val(:move)))
+            $(validate_symbol)($var, $(QuoteNode(var)))
+            $value = $(request_value)($var, Val(:move))
             $(mark_moved!)($var)
             $value
         end,

@@ -518,3 +518,18 @@ end
     @test result == [1, 2, 3, 4]
     @test is_moved(x)  # Original value was moved
 end
+
+@testitem "Symbol Checking" begin
+    using BorrowChecker: is_moved
+
+    # Test that symbol checking works for @take
+    @own x = 42
+    y = x  # This is illegal - should use @move
+    @test_throws "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values." @take y
+
+    # Test that symbol checking works for @move
+    @own a = [1, 2, 3]
+    b = a  # This is illegal - should use @move
+    @test_throws "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values." @move c =
+        b
+end
