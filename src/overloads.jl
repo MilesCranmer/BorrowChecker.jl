@@ -1,8 +1,8 @@
 module OverloadsModule
 
 using ..TypesModule:
-    Owned,
-    OwnedMut,
+    Bound,
+    BoundMut,
     Borrowed,
     BorrowedMut,
     AllOwned,

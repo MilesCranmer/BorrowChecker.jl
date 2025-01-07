@@ -85,7 +85,7 @@ end
         y::Int
     end
     @bind p = Point(1, 2)
-    @test p isa Owned{Point}
+    @test p isa Bound{Point}
     @lifetime lt begin
         @ref ref_p = p in lt
         @test ref_p isa Borrowed{Point}

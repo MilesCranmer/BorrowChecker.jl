@@ -49,7 +49,7 @@ First, let's look at basic ownership.
 julia> using BorrowChecker
 
 julia> @bind x = 1
-Owned{Int64}(1)
+Bound{Int64}(1)
 ```
 
 This is meant to emulate `let x = 42` in Rust.
@@ -79,14 +79,14 @@ Now, let's look at a mutable value:
 
 ```julia
 julia> @bind @mut y = 1
-OwnedMut{Int64}(1)
+BoundMut{Int64}(1)
 ```
 
 We change the contents of this variable using `@set`:
 
 ```julia
 julia> @set y = 2
-OwnedMut{Int64}(2)
+BoundMut{Int64}(2)
 ```
 
 Note that we can't do this with immutable values:
@@ -102,23 +102,23 @@ This also works with arrays:
 
 ```julia
 julia> @bind array = [1, 2, 3]
-Owned{Vector{Int64}}([1, 2, 3])
+Bound{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
 ERROR: Cannot write to immutable
 
 julia> @bind @mut array = [1, 2, 3]
-OwnedMut{Vector{Int64}}([1, 2, 3])
+BoundMut{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
-OwnedMut{Vector{Int64}}([1, 2, 3, 4])
+BoundMut{Vector{Int64}}([1, 2, 3, 4])
 ```
 
 Just like with immutable values, we can move ownership:
 
 ```julia
 julia> @move array2 = array
-Owned{Vector{Int64}}([1, 2, 3, 4])
+Bound{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array
 [moved]
@@ -130,7 +130,7 @@ julia> array2[1] = 5
 ERROR: Cannot write to immutable
 
 julia> @move @mut array3 = array2  # Move to mutable
-OwnedMut{Vector{Int64}}([1, 2, 3, 4])
+BoundMut{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array3[1] = 5  # Now we can modify it
 ```
@@ -147,7 +147,7 @@ julia> @lifetime lt begin
            @ref ref = data in lt
            ref
        end
-Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
+Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
 ```
 
 Once we have created the reference `ref`, we are no longer allowed to modify
@@ -156,7 +156,7 @@ After the lifetime ends, we can edit `data` again:
 
 ```julia
 julia> data[1] = 4; data
-OwnedMut{Vector{Int64}}([4, 2, 3])
+BoundMut{Vector{Int64}}([4, 2, 3])
 ```
 
 Note that we can have multiple _immutable_ references at once:
@@ -198,12 +198,12 @@ julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need im
        end;
 
 julia> @bind vec = [1, 2, 3]
-Owned{Vector{Int64}}([1, 2, 3])
+Bound{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin
            borrow_vector(@ref d = vec in lt)  # Immutable borrow
        end
 
 julia> vec
-Owned{Vector{Int64}}([1, 2, 3])
+Bound{Vector{Int64}}([1, 2, 3])
 ```

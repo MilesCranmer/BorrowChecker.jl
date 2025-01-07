@@ -3,7 +3,7 @@ module MacrosModule
 using MacroTools
 using MacroTools: rmlines
 
-using ..TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllOwned
+using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllOwned
 using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
 
 """
@@ -21,12 +21,12 @@ macro bind(expr)
         end
         name = expr.args[3].args[1]
         value = expr.args[3].args[2]
-        return esc(:($(name) = $(OwnedMut)($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(BoundMut)($(value), false, $(QuoteNode(name)))))
     elseif Meta.isexpr(expr, :(=))
         # Handle immutable case
         name = expr.args[1]
         value = expr.args[2]
-        return esc(:($(name) = $(Owned)($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(Bound)($(value), false, $(QuoteNode(name)))))
     else
         error("@bind requires an assignment expression")
     end
@@ -54,7 +54,7 @@ macro move(expr)
             quote
                 $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
-                $dest = $(OwnedMut)($value, false, $(QuoteNode(dest)))
+                $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,
@@ -69,7 +69,7 @@ macro move(expr)
             quote
                 $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
-                $dest = $(Owned)($value, false, $(QuoteNode(dest)))
+                $dest = $(Bound)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,

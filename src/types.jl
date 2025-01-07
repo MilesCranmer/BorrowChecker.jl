@@ -8,22 +8,22 @@ function unsafe_get_value end
 function mark_moved! end
 function is_moved end
 
-mutable struct Owned{T}
+mutable struct Bound{T}
     const value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
     const symbol::Symbol
     const threadid::Int
 
-    function Owned{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+    function Bound{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return new{T}(value, moved, 0, symbol, Threads.threadid())
     end
-    function Owned(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return Owned{T}(value, moved, symbol)
+    function Bound(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return Bound{T}(value, moved, symbol)
     end
 end
 
-mutable struct OwnedMut{T}
+mutable struct BoundMut{T}
     @atomic value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
@@ -31,11 +31,11 @@ mutable struct OwnedMut{T}
     const symbol::Symbol
     const threadid::Int
 
-    function OwnedMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+    function BoundMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return new{T}(value, moved, 0, 0, symbol, Threads.threadid())
     end
-    function OwnedMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return OwnedMut{T}(value, moved, symbol)
+    function BoundMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return BoundMut{T}(value, moved, symbol)
     end
 end
 
@@ -46,17 +46,17 @@ struct Lifetime
     Lifetime() = new([], [])
 end
 
-struct Borrowed{T,O<:Union{Owned,OwnedMut}}
+struct Borrowed{T,O<:Union{Bound,BoundMut}}
     value::T
     owner::O
     lifetime::Lifetime
 
     function Borrowed(
         value::T, owner::O, lifetime::Lifetime
-    ) where {T,O<:Union{Owned,OwnedMut}}
+    ) where {T,O<:Union{Bound,BoundMut}}
         if is_moved(owner)
             throw(MovedError(owner.symbol))
-        elseif owner isa OwnedMut && owner.mutable_borrows > 0
+        elseif owner isa BoundMut && owner.mutable_borrows > 0
             throw(
                 BorrowRuleError(
                     "Cannot create immutable reference: value is mutably borrowed"
@@ -69,19 +69,19 @@ struct Borrowed{T,O<:Union{Owned,OwnedMut}}
 
         return new{T,O}(value, owner, lifetime)
     end
-    function Borrowed(owner::O, lifetime::Lifetime) where {O<:Union{Owned,OwnedMut}}
+    function Borrowed(owner::O, lifetime::Lifetime) where {O<:Union{Bound,BoundMut}}
         return Borrowed(unsafe_get_value(owner), owner, lifetime)
     end
 end
 
-struct BorrowedMut{T,O<:OwnedMut}
+struct BorrowedMut{T,O<:BoundMut}
     value::T
     owner::O
     lifetime::Lifetime
 
     function BorrowedMut(
         value::T, owner::O, lifetime::Lifetime
-    ) where {T,O<:Union{Owned,OwnedMut}}
+    ) where {T,O<:Union{Bound,BoundMut}}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif is_moved(owner)
@@ -104,7 +104,7 @@ struct BorrowedMut{T,O<:OwnedMut}
 
         return new{T,O}(value, owner, lifetime)
     end
-    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:Union{Owned,OwnedMut}}
+    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:Union{Bound,BoundMut}}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
     end
     function BorrowedMut(::Union{Borrowed,BorrowedMut}, ::Lifetime)
@@ -114,9 +114,9 @@ end
 
 # Type aliases and traits
 const AllBorrowed{T} = Union{Borrowed{T},BorrowedMut{T}}
-const AllOwned{T} = Union{Owned{T},OwnedMut{T}}
-const AllImmutable{T} = Union{Borrowed{T},Owned{T}}
-const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
+const AllOwned{T} = Union{Bound{T},BoundMut{T}}
+const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
+const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
 const AllWrappers{T} = Union{AllBorrowed{T},AllOwned{T}}
 
 # Type-specific utilities
@@ -126,8 +126,8 @@ is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
 
 # Internal getters and setters
-unsafe_get_value(r::OwnedMut) = getfield(r, :value, :sequentially_consistent)
-unsafe_get_value(r::Owned) = getfield(r, :value)
+unsafe_get_value(r::BoundMut) = getfield(r, :value, :sequentially_consistent)
+unsafe_get_value(r::Bound) = getfield(r, :value)
 function unsafe_get_value(r::AllBorrowed)
     raw_value = getfield(r, :value)
     if raw_value === r.owner
@@ -148,8 +148,8 @@ function is_moved(r::AllBorrowed)
 end
 
 # Constructor utilities
-constructorof(::Type{<:Owned}) = Owned
-constructorof(::Type{<:OwnedMut}) = OwnedMut
+constructorof(::Type{<:Bound}) = Bound
+constructorof(::Type{<:BoundMut}) = BoundMut
 constructorof(::Type{<:Borrowed}) = Borrowed
 constructorof(::Type{<:BorrowedMut}) = BorrowedMut
 

@@ -11,11 +11,11 @@ include("macros.jl")
 include("overloads.jl")
 
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError
-using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut
+using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut
 using .MacrosModule: @bind, @move, @ref, @take, @set, @lifetime
 
 export @bind, @move, @ref, @take, @set, @lifetime
-export Owned, OwnedMut, Borrowed, BorrowedMut
+export Bound, BoundMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError
 
 # Not exported but still available

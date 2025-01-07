@@ -1,8 +1,8 @@
 module SemanticsModule
 
 using ..TypesModule:
-    Owned,
-    OwnedMut,
+    Bound,
+    BoundMut,
     Borrowed,
     BorrowedMut,
     AllOwned,
@@ -63,7 +63,7 @@ function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
     return unsafe_get_value(r)
 end
 
-function unsafe_set_value!(r::OwnedMut, value)
+function unsafe_set_value!(r::BoundMut, value)
     return setfield!(r, :value, value, :sequentially_consistent)
 end
 function set_value!(r::AllOwned, value)
