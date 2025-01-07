@@ -6,7 +6,7 @@ passed to functions, without requiring explicit `@take` calls.
 module ManagedModule
 
 using Cassette: Cassette
-using ..TypesModule: AllBound
+using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take
 
@@ -22,9 +22,26 @@ function maybe_take!(arg::AllBound)
     return value
 end
 
-# Overdub all method calls to automatically take ownership of Bound/BoundMut arguments
+#! format: off
+const SKIP_METHODS = (
+    Base.getindex, Base.setindex!, Base.getproperty,
+    Base.setproperty!, Base.getfield, Base.setfield!
+)
+#! format: on
+function skip_method(f)
+    # Don't modify our own methods!
+    own_function = parentmodule(parentmodule(f)) == parentmodule(@__MODULE__)
+    return own_function || f in SKIP_METHODS
+end
+
+# Overdub all method calls, other than the ones defined in our library,
+# to automatically take ownership of Bound/BoundMut arguments
 function Cassette.overdub(ctx::ManagedCtx, f, args...)
-    return Cassette.recurse(ctx, f, map(maybe_take!, args)...)
+    if skip_method(f)
+        return Cassette.fallback(ctx, f, args...)
+    else
+        return Cassette.recurse(ctx, f, map(maybe_take!, args)...)
+    end
 end
 
 """
