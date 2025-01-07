@@ -643,3 +643,28 @@ end
     @move y = x
     @test_throws MovedError @clone z = x
 end
+
+@testitem "Managed ownership transfer" begin
+    using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
+
+    # Define a function that expects a raw Int
+    function add_one(x::Int)
+        return x + 1
+    end
+
+    # Test with ownership context
+    @bind x = 1
+    # Regular call will hit a MethodError
+    @test_throws MethodError add_one(x)
+
+    # With ownership context, it will automatically convert!
+    result = BorrowChecker.managed() do
+        add_one(x)
+    end
+
+    # Correct calculation:
+    @test result == 2
+
+    # Was automatically moved:
+    @test is_moved(x)
+end

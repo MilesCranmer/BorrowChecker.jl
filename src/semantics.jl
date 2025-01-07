@@ -5,7 +5,7 @@ using ..TypesModule:
     BoundMut,
     Borrowed,
     BorrowedMut,
-    AllOwned,
+    AllBound,
     AllBorrowed,
     AllWrappers,
     AllMutable,
@@ -21,13 +21,13 @@ using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
 
-function validate_symbol(r::AllOwned, expected_symbol::Symbol)
+function validate_symbol(r::AllBound, expected_symbol::Symbol)
     if expected_symbol != r.symbol
         throw(SymbolMismatchError(r.symbol, expected_symbol))
     end
 end
 
-function request_value(r::AllOwned, ::Val{mode}) where {mode}
+function request_value(r::AllBound, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)
     if !is_same_thread(r) && mode != :move
         throw(
@@ -66,7 +66,7 @@ end
 function unsafe_set_value!(r::BoundMut, value)
     return setfield!(r, :value, value, :sequentially_consistent)
 end
-function set_value!(r::AllOwned, value)
+function set_value!(r::AllBound, value)
     if !is_same_thread(r)
         throw(
             BorrowRuleError(
@@ -87,7 +87,7 @@ function set_value!(::AllBorrowed, value)
 end
 
 # Public getters and setters
-function wrapped_getter(f::F, o::AllOwned, k) where {F}
+function wrapped_getter(f::F, o::AllBound, k) where {F}
     value = request_value(o, Val(:read))
     if recursive_ismutable(value)
         # TODO: This is kind of where rust would check
@@ -105,7 +105,7 @@ function wrapped_setter(f::F, o::AllWrappers, k, v) where {F}
     return f(value, k, v)
 end
 
-function Base.getproperty(o::AllOwned, name::Symbol)
+function Base.getproperty(o::AllBound, name::Symbol)
     if name == :value
         error("Use `@take` to directly access the value of an owned variable")
     end
@@ -124,7 +124,7 @@ function Base.getproperty(r::AllBorrowed, name::Symbol)
         return wrapped_getter(getproperty, r, name)
     end
 end
-function Base.setproperty!(o::AllOwned, name::Symbol, v)
+function Base.setproperty!(o::AllBound, name::Symbol, v)
     if name in (:moved, :immutable_borrows, :mutable_borrows)
         setfield!(o, name, v, :sequentially_consistent)
     else
@@ -144,7 +144,7 @@ end
 function Base.propertynames(o::AllWrappers)
     return propertynames(unsafe_get_value(o))
 end
-function Base.show(io::IO, o::AllOwned)
+function Base.show(io::IO, o::AllBound)
     if is_moved(o)
         print(io, "[moved]")
     else

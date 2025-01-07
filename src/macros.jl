@@ -3,7 +3,7 @@ module MacrosModule
 using MacroTools
 using MacroTools: rmlines
 
-using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllOwned
+using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllBound
 using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
 
 """
@@ -216,7 +216,7 @@ end
 function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
     # TODO: Put this in `Borrowed`
 
-    is_owner = ref_or_owner isa AllOwned
+    is_owner = ref_or_owner isa AllBound
     owner = is_owner ? ref_or_owner : ref_or_owner.owner
 
     if !is_owner

@@ -114,13 +114,13 @@ end
 
 # Type aliases and traits
 const AllBorrowed{T} = Union{Borrowed{T},BorrowedMut{T}}
-const AllOwned{T} = Union{Bound{T},BoundMut{T}}
+const AllBound{T} = Union{Bound{T},BoundMut{T}}
 const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
 const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
-const AllWrappers{T} = Union{AllBorrowed{T},AllOwned{T}}
+const AllWrappers{T} = Union{AllBorrowed{T},AllBound{T}}
 
 # Type-specific utilities
-is_same_thread(r::AllOwned) = Threads.threadid() == getfield(r, :threadid)
+is_same_thread(r::AllBound) = Threads.threadid() == getfield(r, :threadid)
 is_same_thread(r::AllBorrowed) = is_same_thread(r.owner)
 is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
@@ -137,10 +137,10 @@ function unsafe_get_value(r::AllBorrowed)
     end
 end
 
-function mark_moved!(r::AllOwned)
+function mark_moved!(r::AllBound)
     return setfield!(r, :moved, true, :sequentially_consistent)
 end
-function is_moved(r::AllOwned)
+function is_moved(r::AllBound)
     return getfield(r, :moved, :sequentially_consistent)
 end
 function is_moved(r::AllBorrowed)

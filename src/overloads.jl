@@ -5,7 +5,7 @@ using ..TypesModule:
     BoundMut,
     Borrowed,
     BorrowedMut,
-    AllOwned,
+    AllBound,
     AllBorrowed,
     AllWrappers,
     constructorof
@@ -21,7 +21,9 @@ function Base.setindex!(r::AllWrappers, value, i...)
     #       a lot of conventions here for safety.
     return nothing
 end
-function Base.getindex(o::AllOwned{<:AbstractArray{T}}, i...) where {T}
+function Base.getindex(
+    o::AllBound{A}, i...
+) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
     # We mark_moved! if the elements of this array are mutable,
     # because we can't be sure whether the elements will get mutated
     # or not.
@@ -31,10 +33,14 @@ function Base.getindex(o::AllOwned{<:AbstractArray{T}}, i...) where {T}
     # Create a new owned object holding the indexed version:
     return constructorof(typeof(o))(getindex(request_value(o, Val(:read)), i...))
 end
-function Base.getindex(r::Borrowed{<:AbstractArray{T}}, i...) where {T}
+function Base.getindex(
+    r::Borrowed{A}, i...
+) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
     return Borrowed(getindex(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
 end
-function Base.getindex(r::BorrowedMut{<:AbstractArray{T}}, i...) where {T}
+function Base.getindex(
+    r::BorrowedMut{A}, i...
+) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
     if recursive_ismutable(T) ||
         !((return_value = getindex(request_value(r, Val(:read)), i...)) isa T)
         # TODO: Make this more generic
@@ -73,7 +79,7 @@ end
 for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); r)
 end
-function Base.iterate(::AllOwned)
+function Base.iterate(::AllBound)
     error("Cannot yet iterate over owned arrays. Iterate over a `@ref const` instead.")
 end
 function Base.iterate(r::Borrowed, state=Unused())
