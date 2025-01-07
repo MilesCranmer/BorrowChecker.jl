@@ -64,7 +64,7 @@ function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
 end
 
 function unsafe_set_value!(r::OwnedMut, value)
-    return setfield!(r, :value, value)
+    return setfield!(r, :value, value, :sequentially_consistent)
 end
 function set_value!(r::AllOwned, value)
     if !is_same_thread(r)
@@ -126,7 +126,7 @@ function Base.getproperty(r::AllBorrowed, name::Symbol)
 end
 function Base.setproperty!(o::AllOwned, name::Symbol, v)
     if name in (:moved, :immutable_borrows, :mutable_borrows)
-        setfield!(o, name, v)
+        setfield!(o, name, v, :sequentially_consistent)
     else
         wrapped_setter(setproperty!, o, name, v)
     end

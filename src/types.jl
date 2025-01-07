@@ -10,8 +10,8 @@ function is_moved end
 
 mutable struct Owned{T}
     const value::T
-    moved::Bool
-    immutable_borrows::Int
+    @atomic moved::Bool
+    @atomic immutable_borrows::Int
     const symbol::Symbol
     const threadid::Int
 
@@ -24,10 +24,10 @@ mutable struct Owned{T}
 end
 
 mutable struct OwnedMut{T}
-    value::T
-    moved::Bool
-    immutable_borrows::Int
-    mutable_borrows::Int
+    @atomic value::T
+    @atomic moved::Bool
+    @atomic immutable_borrows::Int
+    @atomic mutable_borrows::Int
     const symbol::Symbol
     const threadid::Int
 
@@ -126,9 +126,8 @@ is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
 
 # Internal getters and setters
-function unsafe_get_value(r::AllOwned)
-    return getfield(r, :value)
-end
+unsafe_get_value(r::OwnedMut) = getfield(r, :value, :sequentially_consistent)
+unsafe_get_value(r::Owned) = getfield(r, :value)
 function unsafe_get_value(r::AllBorrowed)
     raw_value = getfield(r, :value)
     if raw_value === r.owner
@@ -139,10 +138,10 @@ function unsafe_get_value(r::AllBorrowed)
 end
 
 function mark_moved!(r::AllOwned)
-    return setfield!(r, :moved, true)
+    return setfield!(r, :moved, true, :sequentially_consistent)
 end
 function is_moved(r::AllOwned)
-    return getfield(r, :moved)
+    return getfield(r, :moved, :sequentially_consistent)
 end
 function is_moved(r::AllBorrowed)
     return is_moved(r.owner)
