@@ -1,24 +1,22 @@
-# Type-specific utilities
-constructorof(::Type{<:Owned}) = Owned
-constructorof(::Type{<:OwnedMut}) = OwnedMut
-constructorof(::Type{<:Borrowed}) = Borrowed
-constructorof(::Type{<:BorrowedMut}) = BorrowedMut
+module SemanticsModule
 
-is_mutable(r::AllMutable) = true
-is_mutable(r::AllImmutable) = false 
+using ..TypesModule:
+    Owned,
+    OwnedMut,
+    Borrowed,
+    BorrowedMut,
+    AllOwned,
+    AllBorrowed,
+    AllWrappers,
+    AllMutable,
+    AllImmutable,
+    constructorof,
+    is_mutable,
+    unsafe_get_value
+using ..ErrorsModule: MovedError, BorrowRuleError
+using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
-function unsafe_get_value(r::AllOwned)
-    return getfield(r, :value)
-end
-function unsafe_get_value(r::AllBorrowed)
-    raw_value = getfield(r, :value)
-    if raw_value === r.owner
-        return unsafe_get_value(r.owner)
-    else
-        return raw_value
-    end
-end
 function mark_moved!(r::AllOwned)
     return setfield!(r, :moved, true)
 end
@@ -131,4 +129,6 @@ function Base.show(io::IO, r::AllBorrowed)
         owner = r.owner
         print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value))")
     end
-end 
+end
+
+end

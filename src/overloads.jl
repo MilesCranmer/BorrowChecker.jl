@@ -1,3 +1,17 @@
+module OverloadsModule
+
+using ..TypesModule:
+    Owned,
+    OwnedMut,
+    Borrowed,
+    BorrowedMut,
+    AllOwned,
+    AllBorrowed,
+    AllWrappers,
+    constructorof
+using ..SemanticsModule: request_value, mark_moved!
+using ..UtilsModule: recursive_ismutable
+
 # Container operations
 function Base.setindex!(r::AllWrappers, value, i...)
     setindex!(request_value(r, Val(:write)), value, i...)
@@ -107,4 +121,6 @@ for op in (:(:), :clamp, :fma, :muladd)
         end
     end
 end
-#! format: on 
+#! format: on
+
+end

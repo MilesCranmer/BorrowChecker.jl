@@ -1,3 +1,11 @@
+module MacrosModule
+
+using MacroTools
+using MacroTools: rmlines
+
+using ..TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllOwned
+using ..SemanticsModule: request_value, mark_moved!, set_value!
+
 """
     @own const x = value
     @own x = value
@@ -220,4 +228,6 @@ function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
     else
         return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
     end
-end 
+end
+
+end

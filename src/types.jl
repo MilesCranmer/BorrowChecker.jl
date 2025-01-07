@@ -1,3 +1,10 @@
+module TypesModule
+
+using ..ErrorsModule: MovedError, BorrowRuleError
+
+# Forward declarations
+function unsafe_get_value end
+
 mutable struct Owned{T}
     const value::T
     moved::Bool
@@ -106,3 +113,28 @@ const AllOwned{T} = Union{Owned{T},OwnedMut{T}}
 const AllImmutable{T} = Union{Borrowed{T},Owned{T}}
 const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
 const AllWrappers{T} = Union{AllBorrowed{T},AllOwned{T}}
+
+# Type-specific utilities
+is_mutable(r::AllMutable) = true
+is_mutable(r::AllImmutable) = false
+
+# Internal getters and setters
+function unsafe_get_value(r::AllOwned)
+    return getfield(r, :value)
+end
+function unsafe_get_value(r::AllBorrowed)
+    raw_value = getfield(r, :value)
+    if raw_value === r.owner
+        return unsafe_get_value(r.owner)
+    else
+        return raw_value
+    end
+end
+
+# Constructor utilities
+constructorof(::Type{<:Owned}) = Owned
+constructorof(::Type{<:OwnedMut}) = OwnedMut
+constructorof(::Type{<:Borrowed}) = Borrowed
+constructorof(::Type{<:BorrowedMut}) = BorrowedMut
+
+end
