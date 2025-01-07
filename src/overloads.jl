@@ -46,30 +46,51 @@ end
 
 #! format: off
 
-# --- COLLECTION OPERATIONS ---
-# Basic collection operations
-Base.length(r::AllWrappers) = length(request_value(r, Val(:read)))
-Base.size(r::AllWrappers) = size(request_value(r, Val(:read)))
-Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
-Base.axes(r::AllWrappers) = axes(request_value(r, Val(:read)))
-Base.firstindex(r::AllWrappers) = firstindex(request_value(r, Val(:read)))
-Base.lastindex(r::AllWrappers) = lastindex(request_value(r, Val(:read)))
-Base.eachindex(r::AllWrappers) = eachindex(request_value(r, Val(:read)))
-
-# Forward array operations for mutable wrappers
-Base.push!(r::AllWrappers, items...) = (push!(request_value(r, Val(:write)), items...); r)
-Base.append!(r::AllWrappers, items) = (append!(request_value(r, Val(:write)), items); r)
-Base.pop!(r::AllWrappers) = (pop!(request_value(r, Val(:write))); r)
-Base.popfirst!(r::AllWrappers) = (popfirst!(request_value(r, Val(:write))); r)
-Base.empty!(r::AllWrappers) = (empty!(request_value(r, Val(:write))); r)
-Base.resize!(r::AllWrappers, n) = (resize!(request_value(r, Val(:write)), n); r)
-# --- END COLLECTION OPERATIONS ---
-
-# --- COMPARISON OPERATIONS ---
+# --- BASIC OPERATIONS ---
+Base.haskey(r::AllWrappers, key) = haskey(request_value(r, Val(:read)), key)
 Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
 Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
 Base.:(==)(r::AllWrappers, other::AllWrappers) = request_value(r, Val(:read)) == request_value(other, Val(:read))
-# --- END COMPARISON OPERATIONS ---
+for op in (:hash, :string)
+    @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
+end
+function Base.promote_rule(::Type{<:AllWrappers}, ::Type)
+    # We never want to convert an owned or borrowed object, so
+    # we refuse to define a common promotion rule.
+    return Any
+end
+# --- END BASIC OPERATIONS ---
+
+# --- COLLECTION OPERATIONS ---
+# Basic collection operations
+for op in (:length, :isempty, :size, :axes, :firstindex, :lastindex, :eachindex)
+    @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
+end
+Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
+for op in (:pop!, :popfirst!, :empty!, :resize!)
+    @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); r)
+end
+for op in (:push!, :append!)
+    @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); r)
+end
+# --- END COLLECTION OPERATIONS ---
+
+# --- DICTIONARY OPERATIONS ---
+
+# --- END DICTIONARY OPERATIONS ---
+
+# --- STRING OPERATIONS ---
+Base.ncodeunits(r::AllWrappers{<:AbstractString}) = ncodeunits(request_value(r, Val(:read)))
+for op in (:startswith, :endswith)
+    @eval begin
+        # both args
+        Base.$(op)(r::AllWrappers{<:AbstractString}, s::AllWrappers{<:AbstractString}) = $(op)(request_value(r, Val(:read)), request_value(s, Val(:read)))
+        # one arg
+        Base.$(op)(r::AllWrappers{<:AbstractString}, s) = $(op)(request_value(r, Val(:read)), s)
+        Base.$(op)(r::AbstractString, s::AllWrappers{<:AbstractString}) = $(op)(r, request_value(s, Val(:read)))
+    end
+end
+# --- END STRING OPERATIONS ---
 
 # --- NUMBER OPERATIONS ---
 # 1 arg
@@ -93,7 +114,7 @@ end
 for op in (
     :*, :/, :+, :-, :^, :÷, :mod, :log,
     :atan, :atand, :copysign, :flipsign,
-    :&, :|, :⊻, ://, :\, :(:), :rem
+    :&, :|, :⊻, ://, :\, :(:), :rem, :cmp,
 )
     @eval begin
         function Base.$(op)(l::Number, r::AllWrappers{<:Number})
