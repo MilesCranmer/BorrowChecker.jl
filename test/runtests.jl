@@ -476,21 +476,35 @@ end
     end
     fetch(t)
 
-    # References are not safe
-    # @lifetime lt begin
-    #     @ref const ref = x in lt
-    #     t = Threads.@spawn begin
-    #         @test_throws BorrowRuleError ref[1]
-    #     end
-    #     fetch(t)
-    #     @ref ref2 = ref in lt
-    #     t = Threads.@spawn begin
-    #         @test_throws BorrowRuleError ref2[1]
-    #     end
-    #     fetch(t)
-    # end
+    # References are fine though
+    @lifetime lt begin
+        @ref const ref = x in lt
+        t = Threads.@spawn begin
+            @test ref[1] == 1
+        end
+        fetch(t)
+    end
+
+    # Mutable references are fine too, so long
+    # as its ownly one and we don't modify the
+    # original data.
+    @lifetime lt begin
+        @ref ref2 = x in lt
+        t = Threads.@spawn begin
+            push!(ref2, 4)
+
+            # We can take individual values,
+            # so long as they're mutable
+            @test ref2[end] == 4
+
+            # But can't create slices!
+            @test_throws BorrowRuleError ref2[1:2]
+        end
+        fetch(t)
+    end
 
     # Properly transfer ownership using @take
+    @own x = [1, 2, 3]
     t = Threads.@spawn begin
         # Create new owned value in this thread
         @own y = @take(x)

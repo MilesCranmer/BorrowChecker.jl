@@ -10,6 +10,7 @@ using ..TypesModule:
     AllWrappers,
     constructorof
 using ..SemanticsModule: request_value, mark_moved!
+using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: recursive_ismutable
 
 # Container operations
@@ -32,6 +33,15 @@ function Base.getindex(o::AllOwned{<:AbstractArray{T}}, i...) where {T}
 end
 function Base.getindex(r::Borrowed{<:AbstractArray{T}}, i...) where {T}
     return Borrowed(getindex(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
+end
+function Base.getindex(r::BorrowedMut{<:AbstractArray{T}}, i...) where {T}
+    if recursive_ismutable(T) ||
+        !((return_value = getindex(request_value(r, Val(:read)), i...)) isa T)
+        # TODO: Make this more generic
+        throw(BorrowRuleError("Cannot create slice of a mutable borrowed array"))
+    end
+    # Only allowed to return single immutable values
+    return return_value
 end
 
 Base.length(r::AllWrappers) = length(request_value(r, Val(:read)))
