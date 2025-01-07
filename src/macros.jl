@@ -7,60 +7,60 @@ using ..TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, AllWrappe
 using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
 
 """
-    @own const x = value
-    @own x = value
+    @bind x = value
+    @bind @mut x = value
 
-Create a new owned value. If `const` is specified, the value will be immutable.
-Otherwise, the value will be mutable.
+Create a new owned value. If `@mut` is specified, the value will be mutable.
+Otherwise, the value will be immutable.
 """
-macro own(expr)
-    if Meta.isexpr(expr, :const)
-        # Handle const case
-        if !Meta.isexpr(expr.args[1], :(=))
-            error("@own const requires an assignment expression")
+macro bind(expr)
+    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
+        # Handle mutable case
+        if !Meta.isexpr(expr.args[3], :(=))
+            error("@bind @mut requires an assignment expression")
         end
-        name = expr.args[1].args[1]
-        value = expr.args[1].args[2]
-        return esc(:($(name) = $(Owned)($(value), false, $(QuoteNode(name)))))
+        name = expr.args[3].args[1]
+        value = expr.args[3].args[2]
+        return esc(:($(name) = $(OwnedMut)($(value), false, $(QuoteNode(name)))))
     elseif Meta.isexpr(expr, :(=))
-        # Handle non-const case
+        # Handle immutable case
         name = expr.args[1]
         value = expr.args[2]
-        return esc(:($(name) = $(OwnedMut)($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(Owned)($(value), false, $(QuoteNode(name)))))
     else
-        error("@own requires an assignment expression")
+        error("@bind requires an assignment expression")
     end
 end
 
 """
-    @move const new = old
     @move new = old
+    @move @mut new = old
 
 Transfer ownership from one variable to another, invalidating the old variable.
-If `const` is specified, the destination will be immutable.
+If `@mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
 """
 macro move(expr)
-    if Meta.isexpr(expr, :const)
-        # Handle const case
-        if !Meta.isexpr(expr.args[1], :(=))
-            error("@move const requires an assignment expression")
+    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
+        # Handle mutable case
+        if !Meta.isexpr(expr.args[3], :(=))
+            error("@move @mut requires an assignment expression")
         end
-        dest = expr.args[1].args[1]
-        src = expr.args[1].args[2]
+        dest = expr.args[3].args[1]
+        src = expr.args[3].args[2]
         value = gensym(:value)
 
         return esc(
             quote
                 $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
-                $dest = $(Owned)($value, false, $(QuoteNode(dest)))
+                $dest = $(OwnedMut)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,
         )
     elseif Meta.isexpr(expr, :(=))
-        # Handle non-const case
+        # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
         value = gensym(:value)
@@ -69,7 +69,7 @@ macro move(expr)
             quote
                 $(validate_symbol)($src, $(QuoteNode(src)))
                 $value = $(request_value)($src, Val(:move))
-                $dest = $(OwnedMut)($value, false, $(QuoteNode(dest)))
+                $dest = $(Owned)($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
             end,
@@ -178,36 +178,36 @@ macro lifetime(name, body)
 end
 
 """
-    @ref const var = value in lifetime
     @ref var = value in lifetime
+    @ref @mut var = value in lifetime
 
 Create a reference to an owned value within the given lifetime scope.
-If `const` is specified, creates an immutable reference.
+If `@mut` is not specified, creates an immutable reference.
 Otherwise, creates a mutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 """
 macro ref(expr)
-    if Meta.isexpr(expr, :const)
-        # Handle const case
-        if !Meta.isexpr(expr.args[1], :(=))
-            error("@ref const requires an assignment expression")
+    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
+        # Handle mutable case
+        if !Meta.isexpr(expr.args[3], :(=))
+            error("@ref @mut requires an assignment expression")
         end
-        dest = expr.args[1].args[1]
-        if !Meta.isexpr(expr.args[1].args[2], :call) || expr.args[1].args[2].args[1] != :in
-            error("@ref const requires 'in' syntax: @ref const var = value in lifetime")
+        dest = expr.args[3].args[1]
+        if !Meta.isexpr(expr.args[3].args[2], :call) || expr.args[3].args[2].args[1] != :in
+            error("@ref @mut requires 'in' syntax: @ref @mut var = value in lifetime")
         end
-        src = expr.args[1].args[2].args[2]
-        lifetime = expr.args[1].args[2].args[3]
-        return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
+        src = expr.args[3].args[2].args[2]
+        lifetime = expr.args[3].args[2].args[3]
+        return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
     elseif Meta.isexpr(expr, :(=))
-        # Handle non-const case
-        dest = expr.args[1]
+        # Handle immutable case
         if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
             error("@ref requires 'in' syntax: @ref var = value in lifetime")
         end
+        dest = expr.args[1]
         src = expr.args[2].args[2]
         lifetime = expr.args[2].args[3]
-        return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
+        return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
     else
         error("@ref requires an assignment expression")
     end

@@ -16,17 +16,17 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ### Ownership
 
-- `@own const x = value`: Create a new owned immutable value
-- `@move const new = old`: Transfer ownership from one variable to another, creating an immutable destination
-- `@own x = value`: Create a new owned mutable value
-- `@move new = old`: Transfer ownership from one variable to another, creating a mutable destination
+- `@bind x = value`: Create a new owned immutable value
+- `@bind @mut x = value`: Create a new owned mutable value
+- `@move new = old`: Transfer ownership from one variable to another, creating an immutable destination
+- `@move @mut new = old`: Transfer ownership from one variable to another, creating a mutable destination
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref const var = value in lt`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
-- `@ref var = value in lt`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref var = value in lt`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref @mut var = value in lt`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
 
 ### Assignment
 
@@ -48,7 +48,7 @@ First, let's look at basic ownership.
 ```julia
 julia> using BorrowChecker
 
-julia> @own const x = 1
+julia> @bind x = 1
 Owned{Int64}(1)
 ```
 
@@ -78,7 +78,7 @@ ERROR: Cannot use x: value has been moved
 Now, let's look at a mutable value:
 
 ```julia
-julia> @own y = 1
+julia> @bind @mut y = 1
 OwnedMut{Int64}(1)
 ```
 
@@ -92,7 +92,7 @@ OwnedMut{Int64}(2)
 Note that we can't do this with immutable values:
 
 ```julia
-julia> @own const x = 1;
+julia> @bind x = 1;
 
 julia> @set x = 2
 ERROR: Cannot assign to immutable
@@ -101,13 +101,13 @@ ERROR: Cannot assign to immutable
 This also works with arrays:
 
 ```julia
-julia> @own const array = [1, 2, 3]
+julia> @bind array = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
 ERROR: Cannot write to immutable
 
-julia> @own array = [1, 2, 3]
+julia> @bind @mut array = [1, 2, 3]
 OwnedMut{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
@@ -117,7 +117,7 @@ OwnedMut{Vector{Int64}}([1, 2, 3, 4])
 Just like with immutable values, we can move ownership:
 
 ```julia
-julia> @move const array2 = array
+julia> @move array2 = array
 Owned{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array
@@ -129,7 +129,7 @@ ERROR: Cannot use array: value has been moved
 julia> array2[1] = 5
 ERROR: Cannot write to immutable
 
-julia> @move array3 = array2  # Move to mutable
+julia> @move @mut array3 = array2  # Move to mutable
 OwnedMut{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array3[1] = 5  # Now we can modify it
@@ -141,10 +141,10 @@ References must be created within a `@lifetime` block. Let's look at
 immutable references first:
 
 ```julia
-julia> @own data = [1, 2, 3];
+julia> @bind @mut data = [1, 2, 3];
 
 julia> @lifetime lt begin
-           @ref const ref = data in lt
+           @ref ref = data in lt
            ref
        end
 Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
@@ -163,8 +163,8 @@ Note that we can have multiple _immutable_ references at once:
 
 ```julia
 julia> @lifetime lt begin
-           @ref const ref1 = data in lt
-           @ref const ref2 = data in lt
+           @ref ref1 = data in lt
+           @ref ref2 = data in lt
            ref1 == ref2
        end
 true
@@ -174,8 +174,8 @@ For mutable references, we can only have one at a time:
 
 ```julia
 julia> @lifetime lt begin
-           @ref mut_ref = data in lt
-           @ref mut_ref2 = data in lt
+           @ref @mut mut_ref = data in lt
+           @ref @mut mut_ref2 = data in lt
        end
 ERROR: Cannot create mutable reference: value is already mutably borrowed
 ```
@@ -184,8 +184,8 @@ And we can't mix mutable and immutable references:
 
 ```julia
 julia> @lifetime lt begin
-           @ref const ref = data in lt
-           @ref mut_ref = data in lt
+           @ref ref = data in lt
+           @ref @mut mut_ref = data in lt
        end
 ERROR: Cannot create mutable reference: value is immutably borrowed
 ```
@@ -197,11 +197,11 @@ julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need im
            @assert v == [1, 2, 3]
        end;
 
-julia> @own const vec = [1, 2, 3]
+julia> @bind vec = [1, 2, 3]
 Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin
-           borrow_vector(@ref const d = vec in lt)  # Immutable borrow
+           borrow_vector(@ref d = vec in lt)  # Immutable borrow
        end
 
 julia> vec
