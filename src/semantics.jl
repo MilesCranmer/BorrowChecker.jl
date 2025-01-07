@@ -14,24 +14,29 @@ using ..TypesModule:
     is_mutable,
     mark_moved!,
     is_moved,
-    unsafe_get_value
+    unsafe_get_value,
+    is_same_thread
 using ..ErrorsModule: MovedError, BorrowRuleError
 using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
 
 function request_value(r::AllOwned, ::Val{mode}) where {mode}
-    @assert mode in (:read, :write)
-    if is_moved(r)
+    @assert mode in (:read, :write, :move)
+    if !is_same_thread(r) && mode != :move
+        throw(
+            BorrowRuleError(
+                "Cannot access owned value from a different thread than where it was created",
+            ),
+        )
+    elseif is_moved(r)
         throw(MovedError(r.symbol))
     elseif is_mutable(r) && r.mutable_borrows > 0
         throw(BorrowRuleError("Cannot access original while mutably borrowed"))
-    elseif mode == :write
-        if !is_mutable(r)
-            throw(BorrowRuleError("Cannot write to immutable"))
-        elseif r.immutable_borrows > 0
-            throw(BorrowRuleError("Cannot write to original while immutably borrowed"))
-        end
+    elseif !is_mutable(r) && mode == :write
+        throw(BorrowRuleError("Cannot write to immutable"))
+    elseif mode in (:write, :move) && r.immutable_borrows > 0
+        throw(BorrowRuleError("Cannot $mode original while immutably borrowed"))
     end
     return unsafe_get_value(r)
 end
@@ -50,7 +55,13 @@ function unsafe_set_value!(r::OwnedMut, value)
     return setfield!(r, :value, value)
 end
 function set_value!(r::AllOwned, value)
-    if !is_mutable(r)
+    if !is_same_thread(r)
+        throw(
+            BorrowRuleError(
+                "Cannot assign to value from a different thread than where it was created"
+            ),
+        )
+    elseif !is_mutable(r)
         throw(BorrowRuleError("Cannot assign to immutable"))
     elseif is_moved(r)
         throw(MovedError(r.symbol))

@@ -12,10 +12,11 @@ mutable struct Owned{T}
     const value::T
     moved::Bool
     immutable_borrows::Int
-    symbol::Symbol
+    const symbol::Symbol
+    const threadid::Int
 
     function Owned{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return new{T}(value, moved, 0, symbol)
+        return new{T}(value, moved, 0, symbol, Threads.threadid())
     end
     function Owned(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return Owned{T}(value, moved, symbol)
@@ -27,10 +28,11 @@ mutable struct OwnedMut{T}
     moved::Bool
     immutable_borrows::Int
     mutable_borrows::Int
-    symbol::Symbol
+    const symbol::Symbol
+    const threadid::Int
 
     function OwnedMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return new{T}(value, moved, 0, 0, symbol)
+        return new{T}(value, moved, 0, 0, symbol, Threads.threadid())
     end
     function OwnedMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return OwnedMut{T}(value, moved, symbol)
@@ -118,6 +120,7 @@ const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
 const AllWrappers{T} = Union{AllBorrowed{T},AllOwned{T}}
 
 # Type-specific utilities
+is_same_thread(r::AllOwned) = Threads.threadid() == getfield(r, :threadid)
 is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
 
@@ -149,25 +152,5 @@ constructorof(::Type{<:Owned}) = Owned
 constructorof(::Type{<:OwnedMut}) = OwnedMut
 constructorof(::Type{<:Borrowed}) = Borrowed
 constructorof(::Type{<:BorrowedMut}) = BorrowedMut
-
-# Thread safety traits
-"""
-    can_sync(T)
-    can_send(T)
-
-Determines if a type can be safely sent between threads.
-By default, something is sendable if lacks interior mutability.
-
-We try to replicate the behavior of Rust's Sync trait.
-"""
-can_sync(::Type{T}) where {T} = !recursive_ismutable(T)
-can_sync(::Type{<:AllBorrowed{T}}) where {T} = can_sync(T)
-can_send(::Type{<:Borrowed{T}}) where {T} = can_sync(T)
-can_send(::Type{<:BorrowedMut{T}}) where {T} = can_send(T)
-
-# TODO: We want to include Atomic types in the Sync trait.
-#       However, Julia doesn't yet have a mechanism for checking
-#       if a type is Atomic.
-
 
 end

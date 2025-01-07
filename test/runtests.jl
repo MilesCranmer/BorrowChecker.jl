@@ -461,3 +461,48 @@ end
 
     @test bc_correct_counter() == 10000
 end
+
+@testitem "Thread safety" begin
+    using BorrowChecker: BorrowRuleError, is_moved
+
+    # Create owned value in main thread
+    @own x = [1, 2, 3]
+    @test x[1] == 1
+
+    # Try to access owned value directly in another thread (should fail)
+    t = Threads.@spawn begin
+        @test_throws BorrowRuleError x[1]  # Test the exception type
+        # The error message is tested in other test cases
+    end
+    fetch(t)
+
+    # References are not safe
+    # @lifetime lt begin
+    #     @ref const ref = x in lt
+    #     t = Threads.@spawn begin
+    #         @test_throws BorrowRuleError ref[1]
+    #     end
+    #     fetch(t)
+    #     @ref ref2 = ref in lt
+    #     t = Threads.@spawn begin
+    #         @test_throws BorrowRuleError ref2[1]
+    #     end
+    #     fetch(t)
+    # end
+
+    # Properly transfer ownership using @take
+    t = Threads.@spawn begin
+        # Create new owned value in this thread
+        @own y = @take(x)
+        @test y == [1, 2, 3]
+
+        # Can modify it since we own it in this thread
+        push!(y, 4)
+        @test y == [1, 2, 3, 4]
+
+        @take(y)  # Return the value
+    end
+    result = fetch(t)
+    @test result == [1, 2, 3, 4]
+    @test is_moved(x)  # Original value was moved
+end

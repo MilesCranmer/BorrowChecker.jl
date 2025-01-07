@@ -52,7 +52,7 @@ macro move(expr)
 
         return esc(
             quote
-                $value = $(request_value)($src, Val(:read))
+                $value = $(request_value)($src, Val(:move))
                 $dest = Owned($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
@@ -66,7 +66,7 @@ macro move(expr)
 
         return esc(
             quote
-                $value = $(request_value)($src, Val(:read))
+                $value = $(request_value)($src, Val(:move))
                 $dest = OwnedMut($value, false, $(QuoteNode(dest)))
                 $(mark_moved!)($src)
                 $dest
@@ -87,7 +87,7 @@ macro take(var)
     value = gensym(:value)
     return esc(
         quote
-            $value = $(request_value)($var, $(Val(:read)))
+            $value = $(request_value)($var, $(Val(:move)))
             $(mark_moved!)($var)
             $value
         end,
