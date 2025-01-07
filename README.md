@@ -16,19 +16,15 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ### Ownership
 
-- `@bind x = value`: Create a new owned immutable value
-- `@bind @mut x = value`: Create a new owned mutable value
-- `@move new = old`: Transfer ownership from one variable to another, creating an immutable destination
-- `@move @mut new = old`: Transfer ownership from one variable to another, creating a mutable destination
-- `@clone new = old`: Create a deep copy of a value without moving the source, creating an immutable destination
-- `@clone @mut new = old`: Create a deep copy of a value without moving the source, creating a mutable destination
+- `@bind [@mut] x = value`: Create a new owned value (mutable if `@mut` is specified)
+- `@move [@mut] new = old`: Transfer ownership from one variable to another (mutable destination if `@mut` is specified)
+- `@clone [@mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `@mut` is specified)
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref var = value in lt`: Create an immutable reference to owned value `value` and assign it to `var` within the given lifetime scope `lt`
-- `@ref @mut var = value in lt`: Create a mutable reference to owned mutable value `value` and assign it to `var` within the given lifetime scope `lt`
+- `@ref [@mut] var = value in lt`: Create a reference to owned value `value` and assign it to `var` within the given lifetime scope `lt` (mutable if `@mut` is specified)
 
 ### Assignment
 
