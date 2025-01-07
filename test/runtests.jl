@@ -421,3 +421,43 @@ end
         @test_throws BorrowRuleError @set rx = rx + 1
     end
 end
+
+@testitem "Thread race detection example" begin
+    # From https://discourse.julialang.org/t/package-for-rust-like-borrow-checker-in-julia/124442/54
+
+    # This isn't too good of a test, but we want to confirm
+    # this syntax still works
+    increment_counter!(ref::Ref) = (ref[] += 1)
+    function bc_create_thread_race()
+        # (Oops, I forgot to make this Atomic!)
+        @own shared_counter = Ref(0)
+        Threads.@threads for _ in 1:10000
+            increment_counter!(@take shared_counter)
+        end
+    end
+    @test_throws "Cannot use shared_counter: value has been moved" bc_create_thread_race()
+
+    # This is the correct design, and thus won't throw
+    function counter(thread_count::Integer)
+        @own local_counter = 0
+        for _ in 1:thread_count
+            @set local_counter = local_counter + 1
+        end
+        @take local_counter
+    end
+    function bc_correct_counter()
+        @own const num_threads = 4
+        @own const total_count = 10000
+        @own const count_per_thread = total_count ÷ num_threads
+        @own tasks = Task[]
+        for t_id in 1:num_threads
+            @own const thread_count =
+                count_per_thread + (t_id == 1) * (total_count % num_threads)
+            @own const t = Threads.@spawn counter($(@take thread_count))
+            push!(tasks, @take(t))
+        end
+        return sum(map(fetch, @take(tasks)))
+    end
+
+    @test bc_correct_counter() == 10000
+end
