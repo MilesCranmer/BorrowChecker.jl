@@ -52,7 +52,7 @@ julia> @bind x = 1
 Bound{Int64}(1)
 ```
 
-This is meant to emulate `let x = 42` in Rust.
+This is meant to emulate `let x = 1` in Rust.
 We can compare it to objects, and the borrow checker will
 confirm that we can read it:
 
