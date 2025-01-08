@@ -146,7 +146,7 @@ Create a lifetime scope for references. References created with this lifetime
 are only valid within the block and are automatically cleaned up when the block exits.
 Can be used with either begin/end blocks or let blocks.
 """
-macro lifetime(name::QuoteNode, body)
+macro lifetime(name::Symbol, body)
     if !Meta.isexpr(body, :block) && !Meta.isexpr(body, :let)
         error("@lifetime requires a begin/end block or let block")
     end
