@@ -16,15 +16,15 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ### Ownership
 
-- `@bind [@mut] x = value`: Create a new owned value (mutable if `@mut` is specified)
-- `@move [@mut] new = old`: Transfer ownership from one variable to another (mutable destination if `@mut` is specified)
-- `@clone [@mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `@mut` is specified)
+- `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
+- `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified)
+- `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
 - `@take var`: Unwrap an owned value to pass ownership to an external function
 
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref [@mut] var = value in lt`: Create a reference to owned value `value` and assign it to `var` within the given lifetime scope `lt` (mutable if `@mut` is specified)
+- `@ref [:mut] var = value in lt`: Create a reference to owned value `value` and assign it to `var` within the given lifetime scope `lt` (mutable if `:mut` is specified)
 
 ### Assignment
 
@@ -76,7 +76,7 @@ ERROR: Cannot use x: value has been moved
 Now, let's look at a mutable value:
 
 ```julia
-julia> @bind @mut y = 1
+julia> @bind :mut y = 1
 BoundMut{Int64}(1)
 ```
 
@@ -105,7 +105,7 @@ Bound{Vector{Int64}}([1, 2, 3])
 julia> push!(array, 4)
 ERROR: Cannot write to immutable
 
-julia> @bind @mut array = [1, 2, 3]
+julia> @bind :mut array = [1, 2, 3]
 BoundMut{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
@@ -127,7 +127,7 @@ ERROR: Cannot use array: value has been moved
 julia> array2[1] = 5
 ERROR: Cannot write to immutable
 
-julia> @move @mut array3 = array2  # Move to mutable
+julia> @move :mut array3 = array2  # Move to mutable
 BoundMut{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array3[1] = 5  # Now we can modify it
@@ -139,7 +139,7 @@ You can also clone values using `@clone`, which calls `deepcopy` under the hood:
 julia> @bind x = [1, 2, 3]
 Bound{Vector{Int64}}([1, 2, 3])
 
-julia> @clone @mut y = x  # Create mutable clone
+julia> @clone :mut y = x  # Create mutable clone
 BoundMut{Vector{Int64}}([1, 2, 3])
 ```
 
@@ -149,7 +149,7 @@ References must be created within a `@lifetime` block. Let's look at
 immutable references first:
 
 ```julia
-julia> @bind @mut data = [1, 2, 3];
+julia> @bind :mut data = [1, 2, 3];
 
 julia> @lifetime lt begin
            @ref ref = data in lt
@@ -182,8 +182,8 @@ For mutable references, we can only have one at a time:
 
 ```julia
 julia> @lifetime lt begin
-           @ref @mut mut_ref = data in lt
-           @ref @mut mut_ref2 = data in lt
+           @ref :mut mut_ref = data in lt
+           @ref :mut mut_ref2 = data in lt
        end
 ERROR: Cannot create mutable reference: value is already mutably borrowed
 ```
@@ -193,7 +193,7 @@ And we can't mix mutable and immutable references:
 ```julia
 julia> @lifetime lt begin
            @ref ref = data in lt
-           @ref @mut mut_ref = data in lt
+           @ref :mut mut_ref = data in lt
        end
 ERROR: Cannot create mutable reference: value is immutably borrowed
 ```
@@ -219,12 +219,12 @@ Bound{Vector{Int64}}([1, 2, 3])
 We are also able to clone from reference:
 
 ```julia
-julia> @bind @mut data = [1, 2, 3]
+julia> @bind :mut data = [1, 2, 3]
 BoundMut{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime lt begin
            @ref ref = data in lt
-           @clone @mut clone = ref
+           @clone :mut clone = ref
            clone[2] = 4
            @show clone ref
        end;

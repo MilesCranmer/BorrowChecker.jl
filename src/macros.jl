@@ -8,21 +8,13 @@ using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
 
 """
     @bind x = value
-    @bind @mut x = value
+    @bind :mut x = value
 
-Create a new owned value. If `@mut` is specified, the value will be mutable.
+Create a new owned value. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
 """
-macro bind(expr)
-    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
-        # Handle mutable case
-        if !Meta.isexpr(expr.args[3], :(=))
-            error("@bind @mut requires an assignment expression")
-        end
-        name = expr.args[3].args[1]
-        value = expr.args[3].args[2]
-        return esc(:($(name) = $(BoundMut)($(value), false, $(QuoteNode(name)))))
-    elseif Meta.isexpr(expr, :(=))
+macro bind(expr::Expr)
+    if Meta.isexpr(expr, :(=))
         # Handle immutable case
         name = expr.args[1]
         value = expr.args[2]
@@ -32,34 +24,28 @@ macro bind(expr)
     end
 end
 
+macro bind(mut_flag::QuoteNode, expr::Expr)
+    if mut_flag != QuoteNode(:mut)
+        error("First argument to @bind must be :mut if two arguments are provided")
+    end
+    if !Meta.isexpr(expr, :(=))
+        error("@bind :mut requires an assignment expression")
+    end
+    name = expr.args[1]
+    value = expr.args[2]
+    return esc(:($(name) = $(BoundMut)($(value), false, $(QuoteNode(name)))))
+end
+
 """
     @move new = old
-    @move @mut new = old
+    @move :mut new = old
 
 Transfer ownership from one variable to another, invalidating the old variable.
-If `@mut` is not specified, the destination will be immutable.
+If `:mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
 """
-macro move(expr)
-    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
-        # Handle mutable case
-        if !Meta.isexpr(expr.args[3], :(=))
-            error("@move @mut requires an assignment expression")
-        end
-        dest = expr.args[3].args[1]
-        src = expr.args[3].args[2]
-        value = gensym(:value)
-
-        return esc(
-            quote
-                $(validate_symbol)($src, $(QuoteNode(src)))
-                $value = $(request_value)($src, Val(:move))
-                $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
-                $(mark_moved!)($src)
-                $dest
-            end,
-        )
-    elseif Meta.isexpr(expr, :(=))
+macro move(expr::Expr)
+    if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
@@ -77,6 +63,28 @@ macro move(expr)
     else
         error("@move requires an assignment expression")
     end
+end
+
+macro move(mut_flag::QuoteNode, expr::Expr)
+    if mut_flag != QuoteNode(:mut)
+        error("First argument to @move must be :mut if two arguments are provided")
+    end
+    if !Meta.isexpr(expr, :(=))
+        error("@move :mut requires an assignment expression")
+    end
+    dest = expr.args[1]
+    src = expr.args[2]
+    value = gensym(:value)
+
+    return esc(
+        quote
+            $(validate_symbol)($src, $(QuoteNode(src)))
+            $value = $(request_value)($src, Val(:move))
+            $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
+            $(mark_moved!)($src)
+            $dest
+        end,
+    )
 end
 
 """
@@ -129,8 +137,8 @@ end
 
 """
     @lifetime name begin
-        @ref name(rx = x)
-        @ref_mut name(ry = y)
+        @ref rx = x in name
+        @ref :mut ry = y in name
         # use refs here
     end
 
@@ -138,7 +146,7 @@ Create a lifetime scope for references. References created with this lifetime
 are only valid within the block and are automatically cleaned up when the block exits.
 Can be used with either begin/end blocks or let blocks.
 """
-macro lifetime(name, body)
+macro lifetime(name::QuoteNode, body)
     if !Meta.isexpr(body, :block) && !Meta.isexpr(body, :let)
         error("@lifetime requires a begin/end block or let block")
     end
@@ -179,27 +187,15 @@ end
 
 """
     @ref var = value in lifetime
-    @ref @mut var = value in lifetime
+    @ref :mut var = value in lifetime
 
 Create a reference to an owned value within the given lifetime scope.
-If `@mut` is not specified, creates an immutable reference.
+If `:mut` is not specified, creates an immutable reference.
 Otherwise, creates a mutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 """
-macro ref(expr)
-    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
-        # Handle mutable case
-        if !Meta.isexpr(expr.args[3], :(=))
-            error("@ref @mut requires an assignment expression")
-        end
-        dest = expr.args[3].args[1]
-        if !Meta.isexpr(expr.args[3].args[2], :call) || expr.args[3].args[2].args[1] != :in
-            error("@ref @mut requires 'in' syntax: @ref @mut var = value in lifetime")
-        end
-        src = expr.args[3].args[2].args[2]
-        lifetime = expr.args[3].args[2].args[3]
-        return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
-    elseif Meta.isexpr(expr, :(=))
+macro ref(expr::Expr)
+    if Meta.isexpr(expr, :(=))
         # Handle immutable case
         if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
             error("@ref requires 'in' syntax: @ref var = value in lifetime")
@@ -211,6 +207,22 @@ macro ref(expr)
     else
         error("@ref requires an assignment expression")
     end
+end
+
+macro ref(mut_flag::QuoteNode, expr::Expr)
+    if mut_flag != QuoteNode(:mut)
+        error("First argument to @ref must be :mut if two arguments are provided")
+    end
+    if !Meta.isexpr(expr, :(=))
+        error("@ref :mut requires an assignment expression")
+    end
+    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
+        error("@ref :mut requires 'in' syntax: @ref :mut var = value in lifetime")
+    end
+    dest = expr.args[1]
+    src = expr.args[2].args[2]
+    lifetime = expr.args[2].args[3]
+    return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
 end
 
 function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
@@ -235,31 +247,14 @@ end
 
 """
     @clone new = old
-    @clone @mut new = old
+    @clone :mut new = old
 
 Create a deep copy of a value, without moving the source.
-If `@mut` is not specified, the destination will be immutable.
+If `:mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
 """
-macro clone(expr)
-    if Meta.isexpr(expr, :macrocall) && expr.args[1] == Symbol("@mut")
-        # Handle mutable case
-        if !Meta.isexpr(expr.args[3], :(=))
-            error("@clone @mut requires an assignment expression")
-        end
-        dest = expr.args[3].args[1]
-        src = expr.args[3].args[2]
-        value = gensym(:value)
-
-        return esc(
-            quote
-                # Get the value from either a reference or owned value:
-                $value = deepcopy($(request_value)($src, Val(:read)))
-                $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
-                $dest
-            end,
-        )
-    elseif Meta.isexpr(expr, :(=))
+macro clone(expr::Expr)
+    if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
@@ -276,6 +271,27 @@ macro clone(expr)
     else
         error("@clone requires an assignment expression")
     end
+end
+
+macro clone(mut_flag::QuoteNode, expr::Expr)
+    if mut_flag != QuoteNode(:mut)
+        error("First argument to @clone must be :mut if two arguments are provided")
+    end
+    if !Meta.isexpr(expr, :(=))
+        error("@clone :mut requires an assignment expression")
+    end
+    dest = expr.args[1]
+    src = expr.args[2]
+    value = gensym(:value)
+
+    return esc(
+        quote
+            # Get the value from either a reference or owned value:
+            $value = deepcopy($(request_value)($src, Val(:read)))
+            $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
+            $dest
+        end,
+    )
 end
 
 end
