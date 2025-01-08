@@ -461,63 +461,6 @@ end
     @test bc_correct_counter() == 10000
 end
 
-@testitem "Thread safety" begin
-    using BorrowChecker: BorrowRuleError
-
-    @test Threads.nthreads() > 1
-
-    # Create owned value in main thread
-    @bind :mut x = [1, 2, 3]
-    @test x[1] == 1
-
-    # Try to access owned value directly in another thread (should fail)
-    Threads.@threads :static for i in 1:5
-        if Threads.threadid() != getfield(x, :threadid)
-            @test_throws BorrowRuleError x[1]  # Test the exception type
-        end
-    end
-
-    # Immutable references are fine though
-    @lifetime lt begin
-        @ref ref = x in lt
-        Threads.@threads :static for i in 1:5
-            @test ref[1] == 1
-        end
-    end
-end
-
-@testitem "Mutable references in threads" begin
-    @bind :mut x = [1, 2, 3]
-    @lifetime lt begin
-        @ref :mut ref2 = x in lt
-        Threads.@threads :static for i in 1:5
-            if Threads.threadid() != getfield(x, :threadid)
-                @test_throws BorrowRuleError ref2[1] == 1
-            end
-        end
-    end
-end
-
-@testitem "Properly transfer ownership using @take" begin
-    using BorrowChecker: is_moved
-
-    @bind :mut x = [1, 2, 3]
-    t = Threads.@spawn begin
-        # Create new owned value in this thread
-        @bind :mut y = @take(x)
-        @test y == [1, 2, 3]
-
-        # Can modify it since we own it in this thread
-        push!(y, 4)
-        @test y == [1, 2, 3, 4]
-
-        @take(y)  # Return the value
-    end
-    result = fetch(t)
-    @test result == [1, 2, 3, 4]
-    @test is_moved(x)  # Original value was moved
-end
-
 @testitem "Symbol Checking" begin
     using BorrowChecker: is_moved
 

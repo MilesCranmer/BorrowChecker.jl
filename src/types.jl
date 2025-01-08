@@ -13,10 +13,9 @@ mutable struct Bound{T}
     @atomic moved::Bool
     @atomic immutable_borrows::Int
     const symbol::Symbol
-    const threadid::Int
 
     function Bound{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return new{T}(value, moved, 0, symbol, Threads.threadid())
+        return new{T}(value, moved, 0, symbol)
     end
     function Bound(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return Bound{T}(value, moved, symbol)
@@ -29,10 +28,9 @@ mutable struct BoundMut{T}
     @atomic immutable_borrows::Int
     @atomic mutable_borrows::Int
     const symbol::Symbol
-    const threadid::Int
 
     function BoundMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return new{T}(value, moved, 0, 0, symbol, Threads.threadid())
+        return new{T}(value, moved, 0, 0, symbol)
     end
     function BoundMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return BoundMut{T}(value, moved, symbol)
@@ -120,8 +118,6 @@ const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
 const AllWrappers{T} = Union{AllBorrowed{T},AllBound{T}}
 
 # Type-specific utilities
-is_same_thread(r::AllBound) = Threads.threadid() == getfield(r, :threadid)
-is_same_thread(r::AllBorrowed) = is_same_thread(r.owner)
 is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
 
