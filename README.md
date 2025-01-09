@@ -17,7 +17,7 @@ In Julia, objects exist independently of the variables that refer to them. When 
 x = [1, 2, 3]
 y = x
 println(length(x))
-// 3
+# 3
 ```
 
 Once there are no more references to the object, the "garbage collector" will work to free the memory.
