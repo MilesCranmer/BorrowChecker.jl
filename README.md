@@ -5,9 +5,6 @@
 </div>
 
 > [!WARNING]
-> This is a highly experimental _demonstration_ of Rust-like ownership semantics in Julia. It is not yet intended for active use in libraries.
-
-> [!WARNING]
 > NOTE: This package is under active development and the syntax has not stabilized. Expect it to change significantly between versions.
 
 This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks.
