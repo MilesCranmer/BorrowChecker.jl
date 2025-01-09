@@ -70,7 +70,7 @@ First, some important disclaimers:
 
 Now, with that out of the way, let's see the reference and then some more detailed examples!
 
-### Reference
+## API
 
 - `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified)
