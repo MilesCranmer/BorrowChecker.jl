@@ -14,6 +14,7 @@ using ..SemanticsModule:
     bind,
     set,
     clone,
+    ref,
     cleanup!
 
 """
@@ -177,7 +178,7 @@ macro ref(expr::Expr)
         dest = expr.args[1]
         src = expr.args[2].args[2]
         lifetime = expr.args[2].args[3]
-        return esc(:($dest = $(create_immutable_ref)($lifetime, $src)))
+        return esc(:($dest = $(ref)($lifetime, $src, Val(false))))
     else
         error("@ref requires an assignment expression")
     end
@@ -196,27 +197,7 @@ macro ref(mut_flag::QuoteNode, expr::Expr)
     dest = expr.args[1]
     src = expr.args[2].args[2]
     lifetime = expr.args[2].args[3]
-    return esc(:($dest = $(BorrowedMut)($src, $lifetime)))
-end
-
-function create_immutable_ref(lt::Lifetime, ref_or_owner::AllWrappers)
-    # TODO: Put this in `Borrowed`
-
-    is_owner = ref_or_owner isa AllBound
-    owner = is_owner ? ref_or_owner : ref_or_owner.owner
-
-    if !is_owner
-        @assert(
-            ref_or_owner.lifetime === lt,
-            "Lifetime mismatch! Nesting lifetimes is not allowed."
-        )
-    end
-
-    if is_owner
-        return Borrowed(owner, lt)
-    else
-        return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
-    end
+    return esc(:($dest = $(ref)($lifetime, $src, Val(true))))
 end
 
 """

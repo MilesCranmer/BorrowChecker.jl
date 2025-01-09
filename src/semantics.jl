@@ -209,4 +209,26 @@ function cleanup!(lifetime::Lifetime)
     return empty!(lifetime.mutable_refs)
 end
 
+function ref(lt::Lifetime, ref_or_owner::AllWrappers, ::Val{mut}) where {mut}
+    is_owner = ref_or_owner isa AllBound
+    owner = is_owner ? ref_or_owner : ref_or_owner.owner
+
+    if !is_owner
+        @assert(
+            ref_or_owner.lifetime === lt,
+            "Lifetime mismatch! Nesting lifetimes is not allowed."
+        )
+    end
+
+    if mut
+        return BorrowedMut(ref_or_owner, lt)
+    else
+        if is_owner
+            return Borrowed(owner, lt)
+        else
+            return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
+        end
+    end
+end
+
 end
