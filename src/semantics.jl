@@ -245,4 +245,8 @@ function ref(
     end
 end
 
+function bind_for(iter, symbol::Symbol)
+    return Iterators.map(x -> Bound(x, false, symbol), iter)
+end
+
 end

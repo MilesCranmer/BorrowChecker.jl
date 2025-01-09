@@ -647,6 +647,8 @@ end
     # Test move behavior (should clone)
     @bind p = Point2D(1.0, 2.0)
     @move q = p
+    # Actually, this cloned!
+    @test !is_moved(p)
     @lifetime lt begin
         @ref ref_p = p in lt
         @ref ref_q = q in lt
@@ -730,4 +732,41 @@ end
         @clone c = ra  # correct symbols
         @test c.symbol == :c
     end
+end
+
+@testitem "For loop binding" begin
+    using BorrowChecker: is_moved, SymbolMismatchError
+
+    # Test basic for loop binding
+    @bind :mut accumulator = 0
+    @bind for x in 1:3
+        @test x isa Bound{Int}
+        @test x.symbol == :x
+        @set accumulator = accumulator + x
+        y = x
+        @test_throws SymbolMismatchError @take(y)
+    end
+    @test (@take accumulator) == 6
+
+    # Test nested for loop binding
+    @bind :mut matrix = []
+    @bind for i in [Ref(1), Ref(2)]  # We test non-isbits to verify moved semantics
+        @take i
+        @test_throws MovedError @take i
+    end
+
+    @bind :mut matrix = []
+    @bind for i in [Ref(1), Ref(2)]
+        @bind :mut row = []
+        @bind for j in [Ref(1), Ref(2)]
+            @clone i_copy = i
+            push!(row, (@take(i_copy).x, @take(j).x))
+
+            @test_throws MovedError @take(i_copy)
+            @test_throws MovedError @take(j)
+        end
+        push!(matrix, @take(row))
+        @test !is_moved(i)  # We only cloned it; never moved
+    end
+    @test matrix == [[(1, 1), (1, 2)], [(2, 1), (2, 2)]]
 end

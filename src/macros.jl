@@ -12,6 +12,7 @@ using ..SemanticsModule:
     take,
     move,
     bind,
+    bind_for,
     set,
     clone,
     ref,
@@ -20,9 +21,14 @@ using ..SemanticsModule:
 """
     @bind x = value
     @bind :mut x = value
+    @bind for var in iter
+        # body
+    end
 
 Create a new owned value. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
+
+For loops will create immutable owned values for each iteration.
 """
 macro bind(expr::Expr)
     if Meta.isexpr(expr, :(=))
@@ -30,8 +36,20 @@ macro bind(expr::Expr)
         name = expr.args[1]
         value = expr.args[2]
         return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(false))))
+    elseif Meta.isexpr(expr, :for)
+        # Handle for loop case
+        loop_var = expr.args[1].args[1]
+        iter = expr.args[1].args[2]
+        body = expr.args[2]
+        return esc(
+            quote
+                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)))
+                    $body
+                end
+            end,
+        )
     else
-        error("@bind requires an assignment expression")
+        error("@bind requires an assignment expression or for loop")
     end
 end
 
