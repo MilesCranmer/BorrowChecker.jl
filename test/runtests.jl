@@ -734,7 +734,7 @@ end
     end
 end
 
-@testitem "For loop binding" begin
+@testitem "Basic for loop binding" begin
     using BorrowChecker: is_moved, SymbolMismatchError
 
     # Test basic for loop binding
@@ -747,6 +747,24 @@ end
         @test_throws SymbolMismatchError @take(y)
     end
     @test (@take accumulator) == 6
+end
+
+@testitem "Mutable for loop binding" begin
+    using BorrowChecker: is_moved, SymbolMismatchError
+
+    # Test mutable for loop binding
+    @bind :mut accumulator = 0
+    @bind :mut for x in 1:3
+        @test x isa BoundMut{Int}
+        @test x.symbol == :x
+        @set x = x + 1  # Test mutability
+        @set accumulator = accumulator + x
+    end
+    @test (@take accumulator) == 9
+end
+
+@testitem "For loop move semantics" begin
+    using BorrowChecker: is_moved, SymbolMismatchError
 
     # Test nested for loop binding
     @bind :mut matrix = []
@@ -754,6 +772,10 @@ end
         @take i
         @test_throws MovedError @take i
     end
+end
+
+@testitem "Nested for loop binding" begin
+    using BorrowChecker: is_moved, SymbolMismatchError
 
     @bind :mut matrix = []
     @bind for i in [Ref(1), Ref(2)]
@@ -769,4 +791,20 @@ end
         @test !is_moved(i)  # We only cloned it; never moved
     end
     @test matrix == [[(1, 1), (1, 2)], [(2, 1), (2, 2)]]
+end
+
+@testitem "Mutable nested for loop binding" begin
+    using BorrowChecker: is_moved, SymbolMismatchError
+
+    @bind :mut matrix = []
+    @bind :mut for i in [Ref(1), Ref(2)]
+        @bind :mut row = []
+        @bind :mut for j in [Ref(1), Ref(2)]
+            @clone i_copy = i
+            @set j = Ref(15)
+            push!(row, (@take(i_copy).x, @take(j).x))
+        end
+        push!(matrix, @take(row))
+    end
+    @test matrix == [[(1, 15), (1, 15)], [(2, 15), (2, 15)]]
 end

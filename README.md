@@ -89,12 +89,13 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 For owned values and references, property access follows these rules:
 
-- Use `@take x` to extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
-- You can use `getproperty` and `setproperty!` normally on owned values and references. Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
+- `@take x`: Extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
+- `getproperty`/`setproperty!`: Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
 
 ### Loops
 
-- `@bind for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
+- `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
+
 
 ## Further Examples
 
@@ -289,4 +290,21 @@ julia> @lifetime lt begin
        end;
 clone = BoundMut{Vector{Int64}}([1, 4, 3])
 ref = Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
+```
+
+### Loops
+
+Finally, we can use ownership semantics in for loops. By default, loop variables are immutable:
+
+```julia
+julia> @bind :mut accumulator = 0
+BoundMut{Int64}(0)
+
+julia> @bind :mut for x in 1:3
+           @set x = x + 1  # Can modify x since it's mutable
+           @set accumulator = accumulator + x
+       end
+
+julia> @take accumulator
+6
 ```

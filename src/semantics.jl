@@ -245,11 +245,15 @@ function ref(
     end
 end
 
-function bind_for(iter, symbol::Symbol)
-    return Iterators.map(x -> Bound(x, false, symbol), iter)
+function bind_for(iter, symbol::Symbol, ::Val{mut}) where {mut}
+    if mut
+        return Iterators.map(x -> BoundMut(x, false, symbol), iter)
+    else
+        return Iterators.map(x -> Bound(x, false, symbol), iter)
+    end
 end
-function bind_for(iter::AllBound, symbol::Symbol)
-    return bind_for(take(iter, :anonymous), symbol)
+function bind_for(iter::AllBound, symbol::Symbol, ::Val{mut}) where {mut}
+    return bind_for(take(iter, :anonymous), symbol, Val(mut))
 end
 
 end

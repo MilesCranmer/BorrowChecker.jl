@@ -24,11 +24,15 @@ using ..SemanticsModule:
     @bind for var in iter
         # body
     end
+    @bind :mut for var in iter
+        # body
+    end
 
 Create a new owned value. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
 
-For loops will create immutable owned values for each iteration.
+For loops will create immutable owned values for each iteration by default.
+If `:mut` is specified, each iteration will create mutable owned values.
 """
 macro bind(expr::Expr)
     if Meta.isexpr(expr, :(=))
@@ -43,7 +47,7 @@ macro bind(expr::Expr)
         body = expr.args[2]
         return esc(
             quote
-                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)))
+                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)), Val(false))
                     $body
                 end
             end,
@@ -57,12 +61,26 @@ macro bind(mut_flag::QuoteNode, expr::Expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @bind must be :mut if two arguments are provided")
     end
-    if !Meta.isexpr(expr, :(=))
-        error("@bind :mut requires an assignment expression")
+    if Meta.isexpr(expr, :(=))
+        # Handle mutable assignment case
+        name = expr.args[1]
+        value = expr.args[2]
+        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(true))))
+    elseif Meta.isexpr(expr, :for)
+        # Handle mutable for loop case
+        loop_var = expr.args[1].args[1]
+        iter = expr.args[1].args[2]
+        body = expr.args[2]
+        return esc(
+            quote
+                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)), Val(true))
+                    $body
+                end
+            end,
+        )
+    else
+        error("@bind :mut requires an assignment expression or for loop")
     end
-    name = expr.args[1]
-    value = expr.args[2]
-    return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(true))))
 end
 
 """
