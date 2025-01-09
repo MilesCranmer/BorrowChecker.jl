@@ -10,6 +10,7 @@ using ..TypesModule:
     AllWrappers,
     AllMutable,
     AllImmutable,
+    Lifetime,
     constructorof,
     is_mutable,
     mark_moved!,
@@ -158,7 +159,9 @@ function take(var::AllBound, var_symbol::Symbol)
     end
 end
 
-function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::Val{mut}) where {mut}
+function move(
+    src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, ::Val{mut}
+) where {mut}
     validate_symbol(src, src_symbol)
     if isbitstype(typeof(request_value(src, Val(:read))))
         # For isbits types, we just clone:
@@ -171,7 +174,7 @@ function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
 
-function bind(value, symbol::Symbol, make_mut::Val{mut}) where {mut}
+function bind(value, symbol::Symbol, ::Val{mut}) where {mut}
     return mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
 end
 
@@ -186,10 +189,24 @@ function set(dest::AllBorrowed, value)
     return set_value!(dest.owner, value)
 end
 
-function clone(src::AllWrappers, dest_symbol::Symbol, make_mut::Val{mut}) where {mut}
+function clone(src::AllWrappers, dest_symbol::Symbol, ::Val{mut}) where {mut}
     # Get the value from either a reference or owned value:
     value = deepcopy(request_value(src, Val(:read)))
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
+end
+
+function cleanup!(lifetime::Lifetime)
+    # Clean up immutable references
+    for owner in lifetime.immutable_refs
+        owner.immutable_borrows -= 1
+    end
+    empty!(lifetime.immutable_refs)
+
+    # Clean up mutable references
+    for owner in lifetime.mutable_refs
+        owner.mutable_borrows -= 1
+    end
+    return empty!(lifetime.mutable_refs)
 end
 
 end

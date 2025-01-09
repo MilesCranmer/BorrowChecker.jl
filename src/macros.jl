@@ -4,7 +4,17 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllBound
-using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol, take, move, bind, set, clone
+using ..SemanticsModule:
+    request_value,
+    mark_moved!,
+    set_value!,
+    validate_symbol,
+    take,
+    move,
+    bind,
+    set,
+    clone,
+    cleanup!
 
 """
     @bind x = value
@@ -50,7 +60,9 @@ macro move(expr::Expr)
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false))))
+        return esc(
+            :($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)))
+        )
     else
         error("@move requires an assignment expression")
     end
@@ -65,7 +77,9 @@ macro move(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true))))
+    return esc(
+        :($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true)))
+    )
 end
 
 """
@@ -93,20 +107,6 @@ macro set(expr)
     value = expr.args[2]
 
     return esc(:($(set)($(dest), $(value))))
-end
-
-function cleanup!(lifetime::Lifetime)
-    # Clean up immutable references
-    for owner in lifetime.immutable_refs
-        owner.immutable_borrows -= 1
-    end
-    empty!(lifetime.immutable_refs)
-
-    # Clean up mutable references
-    for owner in lifetime.mutable_refs
-        owner.mutable_borrows -= 1
-    end
-    return empty!(lifetime.mutable_refs)
 end
 
 """
