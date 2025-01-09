@@ -11,7 +11,7 @@ This package demonstrates Rust-like ownership and borrowing semantics in Julia t
 
 ## Usage
 
-In Julia, there is no sense of a variable _owning_ an object. Objects exist independently of variables. When you write `x = [1, 2, 3]` in Julia, the actual _object_ exists independently as `[1, 2, 3]`, and you can refer to it from as many variables as you want without issue. This does not create a new object, nor does it prevent `x` from being used alongside `y`:
+In Julia, objects exist independently of the variables that refer to them. When you write `x = [1, 2, 3]` in Julia, the actual _object_ lives in memory as `[1, 2, 3]`, and you can refer to it from as many variables as you want without issue. This does not create a new object, nor does it prevent `x` from being used alongside `y`:
 
 ```julia
 x = [1, 2, 3]
