@@ -4,7 +4,7 @@
 
 </div>
 
-> [!CAUTION]
+> [!WARNING]
 > This is a highly experimental _demonstration_ of Rust-like ownership semantics in Julia. It is not yet intended for active use in libraries.
 
 > [!WARNING]
@@ -12,9 +12,65 @@
 
 This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks.
 
-## Available Macros
+## Usage
 
-### Ownership
+In Julia, there is no sense of a variable _owning_ an object. Objects exist independently of variables. When you write `x = [1, 2, 3]` in Julia, the actual _object_ exists independently as `[1, 2, 3]`, and you can refer to it from as many variables as you want without issue. This does not create a new object, nor does it prevent `x` from being used alongside `y`:
+
+```julia
+x = [1, 2, 3]
+y = x
+println(length(x))
+```
+
+Once there are no more references to the object, the "garbage collector" will work to free the memory.
+
+Rust is much different. For example, the equivalent code is **invalid** in Rust
+
+```rust
+let x = vec![1, 2, 3];
+let y = x;
+println!("{}", x.len());
+```
+
+Rust refuses to compile this code. Why? Because in Rust, objects (`vec![1, 2, 3]`) are _owned_ by variables. When you write `let y = x`, the ownership of `vec![1, 2, 3]` is _moved_ to `y`. Now `x` is no longer allowed to access it.
+
+To fix this, we would either write
+
+```rust
+let y = x.clone();
+// OR
+let y = &x;
+```
+
+to either create a copy of the vector, or _borrow_ `x` using the `&` operator to create a reference. You can create as many references as you want, but there can only be one original object.
+
+The purpose of this "ownership" paradigm is to improve safety of code. Especially in complex, multithreaded codebases, it is really easy to shoot yourself in the foot and modify objects which are "owned" (editable) by something else. Rust's ownership and lifetime model makes it so that you can _prove_ memory safety of code! Standard thread races are literally impossible. (Assuming you are not using `unsafe { ... }` to disable safety features, or rust itself has a bug, or a cosmic ray hits your PC!)
+
+In BorrowChecker.jl, we demonstrate a very simple implementation of some of these core ideas. The aim is to build a development layer that, eventually, can help prevent a few classes of memory safety issues, without affecting runtime behavior of code. The above example, with BorrowChecker.jl, would look like this:
+
+```julia
+using BorrowChecker
+
+@bind x = [1, 2, 3]
+@move y = x
+println(length(x))
+# ERROR: Cannot use x: value has been moved
+```
+
+You see, the `@bind` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The `@move` then moves the object to `y`, and trips a `.moved` flag on `x` so it can't be used by regular operations. 
+
+However, this does not prevent you from cheating the system and using `y = x` (though the code has ways that attempt to flag such mistakes). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+
+First, some important disclaimers:
+
+
+> [!WARNING]
+> BorrowChecker.jl does NOT promise safety in any way. This library implements an _extremely_ simplistic and hacky take on a part of Rust's ownership model. It will not prevent you from misusing it, or using regular Julia features, or doing all sorts of incorrect things. This tool should only be used in development and testing, but should not be relied on in production code to do correct things.
+
+
+Now, with that out of the way, let's see the reference and then some more detailed examples!
+
+### Reference
 
 - `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified)
@@ -37,7 +93,7 @@ For owned values and references, property access follows these rules:
 - Use `@take x` to extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
 - You can use `getproperty` and `setproperty!` normally on owned values and references. Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
 
-## Examples
+## Further Examples
 
 ### Ownership
 
