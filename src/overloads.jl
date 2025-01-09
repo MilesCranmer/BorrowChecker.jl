@@ -74,10 +74,10 @@ for op in (:length, :isempty, :size, :axes, :firstindex, :lastindex, :eachindex)
 end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
 for op in (:pop!, :popfirst!, :empty!, :resize!)
-    @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); r)
+    @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
 for op in (:push!, :append!)
-    @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); r)
+    @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 function Base.iterate(::AllBound)
     error("Cannot yet iterate over owned arrays. Iterate over a `@ref` instead.")
