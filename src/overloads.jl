@@ -80,7 +80,7 @@ for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); r)
 end
 function Base.iterate(::AllBound)
-    error("Cannot yet iterate over owned arrays. Iterate over a `@ref const` instead.")
+    error("Cannot yet iterate over owned arrays. Iterate over a `@ref` instead.")
 end
 function Base.iterate(r::Borrowed, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
@@ -89,7 +89,7 @@ function Base.iterate(r::Borrowed, state=Unused())
     return (Borrowed(iter, r.owner, r.lifetime), state)
 end
 function Base.iterate(::BorrowedMut{<:AbstractArray{T}}) where {T}
-    error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref const` instead.")
+    error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref` instead.")
 end
 # --- END COLLECTION OPERATIONS ---
 
