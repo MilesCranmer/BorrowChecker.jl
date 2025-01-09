@@ -92,6 +92,10 @@ For owned values and references, property access follows these rules:
 - Use `@take x` to extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
 - You can use `getproperty` and `setproperty!` normally on owned values and references. Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
 
+### Loops
+
+- `@bind for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
+
 ## Further Examples
 
 ### Ownership
