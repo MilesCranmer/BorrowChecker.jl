@@ -158,7 +158,7 @@ function take(var::AllBound, var_symbol::Symbol)
     end
 end
 
-function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::Bool)
+function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::Val{mut}) where {mut}
     validate_symbol(src, src_symbol)
     if isbitstype(typeof(request_value(src, Val(:read))))
         # For isbits types, we just clone:
@@ -168,11 +168,11 @@ function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::
         value = request_value(src, Val(:move))
         mark_moved!(src)
     end
-    return make_mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
+    return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
 
-function bind(value, symbol::Symbol, make_mut::Bool)
-    return make_mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
+function bind(value, symbol::Symbol, make_mut::Val{mut}) where {mut}
+    return mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
 end
 
 function set(dest::AllBound, value)
@@ -184,6 +184,12 @@ function set(dest::AllBorrowed, value)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
     return set_value!(dest.owner, value)
+end
+
+function clone(src::AllWrappers, dest_symbol::Symbol, make_mut::Val{mut}) where {mut}
+    # Get the value from either a reference or owned value:
+    value = deepcopy(request_value(src, Val(:read)))
+    return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
 
 end

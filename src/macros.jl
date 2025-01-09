@@ -4,7 +4,7 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllBound
-using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol, take, move, bind, set
+using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol, take, move, bind, set, clone
 
 """
     @bind x = value
@@ -18,7 +18,7 @@ macro bind(expr::Expr)
         # Handle immutable case
         name = expr.args[1]
         value = expr.args[2]
-        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), false)))
+        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(false))))
     else
         error("@bind requires an assignment expression")
     end
@@ -33,7 +33,7 @@ macro bind(mut_flag::QuoteNode, expr::Expr)
     end
     name = expr.args[1]
     value = expr.args[2]
-    return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), true)))
+    return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(true))))
 end
 
 """
@@ -50,7 +50,7 @@ macro move(expr::Expr)
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), false)))
+        return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false))))
     else
         error("@move requires an assignment expression")
     end
@@ -65,7 +65,7 @@ macro move(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), true)))
+    return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true))))
 end
 
 """
@@ -232,16 +232,7 @@ macro clone(expr::Expr)
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        value = gensym(:value)
-
-        return esc(
-            quote
-                # Get the value from either a reference or owned value:
-                $value = deepcopy($(request_value)($src, Val(:read)))
-                $dest = $(Bound)($value, false, $(QuoteNode(dest)))
-                $dest
-            end,
-        )
+        return esc(:($(dest) = $(clone)($(src), $(QuoteNode(dest)), Val(false))))
     else
         error("@clone requires an assignment expression")
     end
@@ -256,16 +247,7 @@ macro clone(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    value = gensym(:value)
-
-    return esc(
-        quote
-            # Get the value from either a reference or owned value:
-            $value = deepcopy($(request_value)($src, Val(:read)))
-            $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
-            $dest
-        end,
-    )
+    return esc(:($(dest) = $(clone)($(src), $(QuoteNode(dest)), Val(true))))
 end
 
 end
