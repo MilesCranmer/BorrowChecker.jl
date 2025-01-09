@@ -248,5 +248,8 @@ end
 function bind_for(iter, symbol::Symbol)
     return Iterators.map(x -> Bound(x, false, symbol), iter)
 end
+function bind_for(iter::AllBound, symbol::Symbol)
+    return bind_for(take(iter, :anonymous), symbol)
+end
 
 end
