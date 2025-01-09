@@ -145,4 +145,45 @@ function Base.show(io::IO, r::AllBorrowed)
     end
 end
 
+function take(var::AllBound, var_symbol::Symbol)
+    validate_symbol(var, var_symbol)
+    if isbitstype(typeof(request_value(var, Val(:read))))
+        # For isbits types, we just clone:
+        return deepcopy(request_value(var, Val(:read)))
+    else
+        # For non-isbits types, we move:
+        value = request_value(var, Val(:move))
+        mark_moved!(var)
+        return value
+    end
+end
+
+function move(src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, make_mut::Bool)
+    validate_symbol(src, src_symbol)
+    if isbitstype(typeof(request_value(src, Val(:read))))
+        # For isbits types, we just clone:
+        value = deepcopy(request_value(src, Val(:read)))
+    else
+        # For non-isbits types, we move:
+        value = request_value(src, Val(:move))
+        mark_moved!(src)
+    end
+    return make_mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
+end
+
+function bind(value, symbol::Symbol, make_mut::Bool)
+    return make_mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
+end
+
+function set(dest::AllBound, value)
+    return set_value!(dest, value)
+end
+
+function set(dest::AllBorrowed, value)
+    if !is_mutable(dest)
+        throw(BorrowRuleError("Cannot write to immutable reference"))
+    end
+    return set_value!(dest.owner, value)
+end
+
 end

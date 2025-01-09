@@ -55,13 +55,24 @@ end
 end
 
 @testitem "Primitive Types" begin
-    # Primitives still follow move semantics for consistency
+    # Primitives are isbits types, so they are cloned rather than moved
     @bind x = 42
     @move y = x
     @lifetime lt begin
         @ref ref = y in lt
         @test ref == 42
-        @test_throws MovedError @ref d = x in lt
+        # x is still valid since it was cloned:
+        @ref ref2 = x in lt
+        @test ref2 == 42
+    end
+
+    # Same with @take
+    @bind z = 42
+    @test (@take z) == 42
+    @lifetime lt begin
+        # z is still valid since it was cloned:
+        @ref ref = z in lt
+        @test ref == 42
     end
 end
 
@@ -313,24 +324,32 @@ end
 
     @bind :mut y = [1, 2, 3]
     @test y.symbol == :y
+    @clone y2 = y
+    @move y3 = y2
+    @test is_moved(y2)
+    @test !is_moved(y3)
 
     # Test symbol tracking through moves
     @move z = x
-    # Gets new symbol when moved
+    # Gets new symbol when moved/cloned
     @test z.symbol == :z
     @test x.symbol == :x
     @test !is_moved(z)
-    @test is_moved(x)
+    # x is not moved since it's isbits
+    @test !is_moved(x)
 
     # Test error messages include the correct symbol
+    @bind :mut a = [1, 2, 3]  # non-isbits
+    @move b = a
+    @test is_moved(a)  # a should be moved
     err = try
-        @move w = x
+        @move c = a  # Try to move an already moved value
         nothing
     catch e
         e
     end
     @test err isa MovedError
-    @test err.var === :x
+    @test err.var === :a
 
     # Test symbol tracking in references
     @lifetime lt begin
@@ -401,14 +420,15 @@ end
     @test abs(x) == 2
     @test sin(y) == sin(3)
 
-    # Test operations preserve ownership rules
-    @move z = y
-    @test_throws MovedError y + 1
+    # Test operations preserve ownership rules for non-isbits
+    @bind :mut vec = [1, 2, 3]
+    @move vec2 = vec
+    @test_throws MovedError vec[1]
 
     # Test operations through references
     @lifetime lt begin
         @ref rx = x in lt
-        @ref rz = z in lt  # Changed to const reference
+        @ref rz = y in lt
 
         # Test all combinations with references
         @test rx + 1 == 3  # ref op number
@@ -610,4 +630,38 @@ end
 
     # Was automatically moved:
     @test is_moved(x)
+end
+
+@testitem "Complex isbits types" begin
+    using BorrowChecker: is_moved
+
+    # Create a complex isbits type
+    struct Point2D
+        x::Float64
+        y::Float64
+    end
+
+    # Test that it is indeed isbits
+    @test isbitstype(Point2D)
+
+    # Test move behavior (should clone)
+    @bind p = Point2D(1.0, 2.0)
+    @move q = p
+    @lifetime lt begin
+        @ref ref_p = p in lt
+        @ref ref_q = q in lt
+        @test ref_p.x == 1.0
+        @test ref_p.y == 2.0
+        @test ref_q.x == 1.0
+        @test ref_q.y == 2.0
+        @test !is_moved(p)  # p is still valid since Point2D is isbits
+    end
+
+    # Test take behavior (should clone)
+    @bind r = Point2D(3.0, 4.0)
+    @test (@take r).x == 3.0
+    @lifetime lt begin
+        @ref ref = r in lt
+        @test ref.x == 3.0  # r is still valid since Point2D is isbits
+    end
 end

@@ -4,7 +4,7 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllBound
-using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol
+using ..SemanticsModule: request_value, mark_moved!, set_value!, validate_symbol, take, move, bind, set
 
 """
     @bind x = value
@@ -18,7 +18,7 @@ macro bind(expr::Expr)
         # Handle immutable case
         name = expr.args[1]
         value = expr.args[2]
-        return esc(:($(name) = $(Bound)($(value), false, $(QuoteNode(name)))))
+        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), false)))
     else
         error("@bind requires an assignment expression")
     end
@@ -33,7 +33,7 @@ macro bind(mut_flag::QuoteNode, expr::Expr)
     end
     name = expr.args[1]
     value = expr.args[2]
-    return esc(:($(name) = $(BoundMut)($(value), false, $(QuoteNode(name)))))
+    return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), true)))
 end
 
 """
@@ -43,23 +43,14 @@ end
 Transfer ownership from one variable to another, invalidating the old variable.
 If `:mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
+For `isbits` types, this will automatically use `@clone` instead.
 """
 macro move(expr::Expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        value = gensym(:value)
-
-        return esc(
-            quote
-                $(validate_symbol)($src, $(QuoteNode(src)))
-                $value = $(request_value)($src, Val(:move))
-                $dest = $(Bound)($value, false, $(QuoteNode(dest)))
-                $(mark_moved!)($src)
-                $dest
-            end,
-        )
+        return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), false)))
     else
         error("@move requires an assignment expression")
     end
@@ -74,17 +65,7 @@ macro move(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    value = gensym(:value)
-
-    return esc(
-        quote
-            $(validate_symbol)($src, $(QuoteNode(src)))
-            $value = $(request_value)($src, Val(:move))
-            $dest = $(BoundMut)($value, false, $(QuoteNode(dest)))
-            $(mark_moved!)($src)
-            $dest
-        end,
-    )
+    return esc(:($(dest) = $(move)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), true)))
 end
 
 """
@@ -92,17 +73,10 @@ end
 
 Take ownership of a value, typically used in function arguments.
 Returns the inner value and marks the original as moved.
+For `isbits` types, this will return a copy and not mark the original as moved.
 """
 macro take(var)
-    value = gensym(:value)
-    return esc(
-        quote
-            $(validate_symbol)($var, $(QuoteNode(var)))
-            $value = $(request_value)($var, Val(:move))
-            $(mark_moved!)($var)
-            $value
-        end,
-    )
+    return esc(:($(take)($(var), $(QuoteNode(var)))))
 end
 
 """
@@ -118,7 +92,7 @@ macro set(expr)
     dest = expr.args[1]
     value = expr.args[2]
 
-    return esc(:($(set_value!)($dest, $value)))
+    return esc(:($(set)($(dest), $(value))))
 end
 
 function cleanup!(lifetime::Lifetime)
