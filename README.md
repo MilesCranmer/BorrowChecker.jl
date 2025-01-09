@@ -17,6 +17,7 @@ In Julia, objects exist independently of the variables that refer to them. When 
 x = [1, 2, 3]
 y = x
 println(length(x))
+// 3
 ```
 
 Once there are no more references to the object, the "garbage collector" will work to free the memory.
@@ -27,6 +28,7 @@ Rust is much different. For example, the equivalent code is **invalid** in Rust
 let x = vec![1, 2, 3];
 let y = x;
 println!("{}", x.len());
+// error[E0382]: borrow of moved value: `x`
 ```
 
 Rust refuses to compile this code. Why? Because in Rust, objects (`vec![1, 2, 3]`) are _owned_ by variables. When you write `let y = x`, the ownership of `vec![1, 2, 3]` is _moved_ to `y`. Now `x` is no longer allowed to access it.
