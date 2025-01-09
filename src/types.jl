@@ -48,9 +48,10 @@ struct Borrowed{T,O<:Union{Bound,BoundMut}}
     value::T
     owner::O
     lifetime::Lifetime
+    symbol::Symbol
 
     function Borrowed(
-        value::T, owner::O, lifetime::Lifetime
+        value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
     ) where {T,O<:Union{Bound,BoundMut}}
         if is_moved(owner)
             throw(MovedError(owner.symbol))
@@ -65,10 +66,12 @@ struct Borrowed{T,O<:Union{Bound,BoundMut}}
         owner.immutable_borrows += 1
         push!(lifetime.immutable_refs, owner)
 
-        return new{T,O}(value, owner, lifetime)
+        return new{T,O}(value, owner, lifetime, symbol)
     end
-    function Borrowed(owner::O, lifetime::Lifetime) where {O<:Union{Bound,BoundMut}}
-        return Borrowed(unsafe_get_value(owner), owner, lifetime)
+    function Borrowed(
+        owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
+    ) where {O<:Union{Bound,BoundMut}}
+        return Borrowed(unsafe_get_value(owner), owner, lifetime, symbol)
     end
 end
 
@@ -76,9 +79,10 @@ struct BorrowedMut{T,O<:BoundMut}
     value::T
     owner::O
     lifetime::Lifetime
+    symbol::Symbol
 
     function BorrowedMut(
-        value::T, owner::O, lifetime::Lifetime
+        value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
     ) where {T,O<:Union{Bound,BoundMut}}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
@@ -100,10 +104,12 @@ struct BorrowedMut{T,O<:BoundMut}
         owner.mutable_borrows += 1
         push!(lifetime.mutable_refs, owner)
 
-        return new{T,O}(value, owner, lifetime)
+        return new{T,O}(value, owner, lifetime, symbol)
     end
-    function BorrowedMut(owner::O, lifetime::Lifetime) where {O<:Union{Bound,BoundMut}}
-        return BorrowedMut(unsafe_get_value(owner), owner, lifetime)
+    function BorrowedMut(
+        owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
+    ) where {O<:Union{Bound,BoundMut}}
+        return BorrowedMut(unsafe_get_value(owner), owner, lifetime, symbol)
     end
     function BorrowedMut(::Union{Borrowed,BorrowedMut}, ::Lifetime)
         return error("Mutable reference of references not yet implemented.")

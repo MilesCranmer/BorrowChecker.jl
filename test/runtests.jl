@@ -665,3 +665,69 @@ end
         @test ref.x == 3.0  # r is still valid since Point2D is isbits
     end
 end
+
+@testitem "Symbol validation" begin
+    using BorrowChecker: SymbolMismatchError, is_moved
+
+    # Test that symbol checking works for @clone
+    @bind :mut x = [1, 2, 3]
+    y = x  # This is illegal - should use @move or @clone
+    @test_throws(
+        "Variable `y` holds an object that was reassigned from `x`.\n" *
+            "Regular variable reassignment is not allowed with BorrowChecker. " *
+            "Use `@move` to transfer ownership or `@set` to modify values.",
+        @clone z = y
+    )
+
+    # Test that cloning works with correct symbols
+    @bind :mut a = [1, 2, 3]
+    @clone b = a  # This is fine
+    @test b == [1, 2, 3]
+    @test !is_moved(a)  # Original not moved
+
+    # Test symbol validation for owned values
+    @bind x = 42
+    @test x.symbol == :x
+    y = x  # This will create the wrong symbol association
+    @test_throws SymbolMismatchError @take y  # wrong symbol
+
+    # Test symbol validation for references
+    @lifetime lt begin
+        @ref rx = x in lt
+        @test rx.symbol == :rx
+        ry = rx
+        @test_throws SymbolMismatchError @set ry = 43
+    end
+
+    # Test symbol validation for mutable references
+    @bind :mut y = [1, 2, 3]
+    @lifetime lt begin
+        @ref :mut ry = y in lt
+        @test ry.symbol == :ry
+        rz = ry
+        @test_throws SymbolMismatchError @set rz = [4, 5, 6]
+    end
+
+    # # Test symbol validation for move
+    @bind :mut x = 42
+    y = x
+    @test_throws SymbolMismatchError @move wrong = y
+    @move z = x
+    @test z.symbol == :z
+
+    # Test symbol validation for clone
+    @bind a = [1, 2, 3]
+    b = a
+    @test_throws SymbolMismatchError @clone wrong = b
+    @clone c = a
+    @test c.symbol == :c
+
+    # Test symbol validation through references
+    @lifetime lt begin
+        @ref ra = a in lt
+        ra2 = ra
+        @test_throws SymbolMismatchError @clone tmp = ra2  # wrong source symbol
+        @clone c = ra  # correct symbols
+        @test c.symbol == :c
+    end
+end

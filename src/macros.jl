@@ -107,7 +107,7 @@ macro set(expr)
     dest = expr.args[1]
     value = expr.args[2]
 
-    return esc(:($(set)($(dest), $(value))))
+    return esc(:($(set)($(dest), $(QuoteNode(dest)), $(value))))
 end
 
 """
@@ -178,7 +178,7 @@ macro ref(expr::Expr)
         dest = expr.args[1]
         src = expr.args[2].args[2]
         lifetime = expr.args[2].args[3]
-        return esc(:($dest = $(ref)($lifetime, $src, Val(false))))
+        return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
     else
         error("@ref requires an assignment expression")
     end
@@ -197,7 +197,7 @@ macro ref(mut_flag::QuoteNode, expr::Expr)
     dest = expr.args[1]
     src = expr.args[2].args[2]
     lifetime = expr.args[2].args[3]
-    return esc(:($dest = $(ref)($lifetime, $src, Val(true))))
+    return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
 end
 
 """
@@ -213,7 +213,9 @@ macro clone(expr::Expr)
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(:($(dest) = $(clone)($(src), $(QuoteNode(dest)), Val(false))))
+        return esc(
+            :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)))
+        )
     else
         error("@clone requires an assignment expression")
     end
@@ -228,7 +230,9 @@ macro clone(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    return esc(:($(dest) = $(clone)($(src), $(QuoteNode(dest)), Val(true))))
+    return esc(
+        :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true)))
+    )
 end
 
 end

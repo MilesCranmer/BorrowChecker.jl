@@ -22,10 +22,19 @@ using ..UtilsModule: recursive_ismutable
 # Internal getters and setters
 
 function validate_symbol(r::AllBound, expected_symbol::Symbol)
-    if expected_symbol != r.symbol
+    if expected_symbol != r.symbol && r.symbol != :anonymous
         throw(SymbolMismatchError(r.symbol, expected_symbol))
     end
 end
+
+function validate_symbol(r::AllBorrowed, expected_symbol::Symbol)
+    if expected_symbol != r.symbol && r.symbol != :anonymous
+        throw(SymbolMismatchError(r.symbol, expected_symbol))
+    end
+end
+
+# Skip validation for primitive types
+validate_symbol(_, ::Symbol) = nothing
 
 function request_value(r::AllBound, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)
@@ -98,10 +107,8 @@ function Base.getproperty(o::AllBound, name::Symbol)
     end
 end
 function Base.getproperty(r::AllBorrowed, name::Symbol)
-    if name == :owner
-        return getfield(r, :owner)
-    elseif name == :lifetime
-        return getfield(r, :lifetime)
+    if name in (:owner, :lifetime, :symbol)
+        return getfield(r, name)
     else
         return wrapped_getter(getproperty, r, name)
     end
@@ -178,18 +185,23 @@ function bind(value, symbol::Symbol, ::Val{mut}) where {mut}
     return mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
 end
 
-function set(dest::AllBound, value)
+function set(dest::AllBound, dest_symbol::Symbol, value)
+    validate_symbol(dest, dest_symbol)
     return set_value!(dest, value)
 end
 
-function set(dest::AllBorrowed, value)
+function set(dest::AllBorrowed, dest_symbol::Symbol, value)
+    validate_symbol(dest, dest_symbol)
     if !is_mutable(dest)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
     return set_value!(dest.owner, value)
 end
 
-function clone(src::AllWrappers, dest_symbol::Symbol, ::Val{mut}) where {mut}
+function clone(
+    src::AllWrappers, src_symbol::Symbol, dest_symbol::Symbol, ::Val{mut}
+) where {mut}
+    validate_symbol(src, src_symbol)
     # Get the value from either a reference or owned value:
     value = deepcopy(request_value(src, Val(:read)))
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
@@ -209,7 +221,9 @@ function cleanup!(lifetime::Lifetime)
     return empty!(lifetime.mutable_refs)
 end
 
-function ref(lt::Lifetime, ref_or_owner::AllWrappers, ::Val{mut}) where {mut}
+function ref(
+    lt::Lifetime, ref_or_owner::AllWrappers, dest_symbol::Symbol, ::Val{mut}
+) where {mut}
     is_owner = ref_or_owner isa AllBound
     owner = is_owner ? ref_or_owner : ref_or_owner.owner
 
@@ -221,12 +235,12 @@ function ref(lt::Lifetime, ref_or_owner::AllWrappers, ::Val{mut}) where {mut}
     end
 
     if mut
-        return BorrowedMut(ref_or_owner, lt)
+        return BorrowedMut(ref_or_owner, lt, dest_symbol)
     else
         if is_owner
-            return Borrowed(owner, lt)
+            return Borrowed(owner, lt, dest_symbol)
         else
-            return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt)
+            return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt, dest_symbol)
         end
     end
 end
