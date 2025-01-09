@@ -80,7 +80,7 @@ for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 function Base.iterate(::AllBound)
-    error("Cannot yet iterate over owned arrays. Iterate over a `@ref` instead.")
+    error("Use `@bind for var in iter` instead.")
 end
 function Base.iterate(r::Borrowed, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
