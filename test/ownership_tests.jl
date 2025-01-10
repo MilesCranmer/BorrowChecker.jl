@@ -239,3 +239,10 @@ end
         @test ref.x == 3.0  # r is still valid since Point2D is isbits
     end
 end
+
+@testitem "Misuse of @bind" begin
+    using BorrowChecker: is_moved
+
+    @bind x = Ref(42)
+    @test_throws "Please use `@move` instead." @bind y = x
+end

@@ -187,6 +187,9 @@ end
 function bind(value, symbol::Symbol, ::Val{mut}) where {mut}
     return mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
 end
+function bind(::AllBound, ::Symbol, ::Val{mut}) where {mut}
+    return error("Please use `@move` instead.")
+end
 
 function set(dest::AllBound, dest_symbol::Symbol, value)
     validate_symbol(dest, dest_symbol)

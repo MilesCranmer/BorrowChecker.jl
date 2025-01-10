@@ -85,7 +85,6 @@ end
     end
 end
 
-
 @testitem "Borrowed Arrays" begin
     @bind x = [1, 2, 3]
     @lifetime lt begin
@@ -193,7 +192,6 @@ end
     end
 end
 
-
 @testitem "Symbol Checking" begin
     using BorrowChecker: is_moved
 
@@ -224,7 +222,6 @@ end
         end
     end
 end
-
 
 @testitem "Managed ownership transfer" begin
     using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
@@ -273,7 +270,6 @@ end
     @test is_moved(x)
     @test is_moved(offset)
 end
-
 
 @testitem "Symbol validation" begin
     using BorrowChecker: SymbolMismatchError, is_moved
@@ -433,7 +429,6 @@ end
         filter!(!=(joinpath(@__DIR__, "FakeModule")), LOAD_PATH)
     end
 end
-
 
 @testitem "Tuple unpacking" begin
     using BorrowChecker: is_moved
