@@ -60,7 +60,7 @@ macro managed(expr)
     return esc(
         quote
             $(Cassette).@overdub($(CleanManagedCtx), $(expr))
-        end
+        end,
     )
 end
 

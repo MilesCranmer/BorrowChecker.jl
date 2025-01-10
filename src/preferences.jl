@@ -17,6 +17,7 @@ end
 
 const UUID_CACHE = Cache{UInt64,Base.UUID}()
 const PREFERENCE_CACHE = Cache{Base.UUID,Tuple{Bool,IsCached}}()
+const MODULE_CACHE = Cache{Module,Bool}()
 
 function _cached_call(f::F, cache::Cache, key) where {F}
     lock(cache.lock) do
@@ -48,7 +49,26 @@ function is_borrow_checker_enabled(calling_module)
     if cached == Cached
         return value
     else
-        return true  # Default to enabled
+        Base.@lock MODULE_CACHE.lock begin
+            if haskey(MODULE_CACHE.cache, calling_module)
+                return MODULE_CACHE.cache[calling_module]
+            else
+                MODULE_CACHE.cache[calling_module] = true
+                return value
+            end
+        end
+    end
+end
+
+function disable_borrow_checker!(m::Module)
+    Base.@lock MODULE_CACHE.lock begin
+        if haskey(MODULE_CACHE.cache, m)
+            error(
+                "BorrowChecker preferences were already cached for module $m. " *
+                "Please call this function before any other BorrowChecker macros are used.",
+            )
+        end
+        MODULE_CACHE.cache[m] = false
     end
 end
 

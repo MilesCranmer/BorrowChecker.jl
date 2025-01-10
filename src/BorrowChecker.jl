@@ -16,11 +16,11 @@ using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchErr
 using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut
 using .MacrosModule: @bind, @move, @ref, @take, @set, @lifetime, @clone
 using .ManagedModule: @managed
+using .PreferencesModule: disable_borrow_checker!
 
 export @bind, @move, @ref, @take, @set, @lifetime, @clone
 export Bound, BoundMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError
-export @managed
 
 # Not exported but still available
 using .UtilsModule: recursive_ismutable
