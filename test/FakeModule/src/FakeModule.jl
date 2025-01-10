@@ -26,7 +26,7 @@ function test()
 
     # Test @lifetime and @ref
     @lifetime l begin
-        @ref r = z in l
+        @ref l r = z
         @test r == 2
         @test r isa Int
         @test !(r isa Borrowed{Int})

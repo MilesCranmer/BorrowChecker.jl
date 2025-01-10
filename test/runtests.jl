@@ -10,7 +10,7 @@ using BorrowChecker
     # Create owned value
     @bind x = 42
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         @test ref == 42
         @test !is_moved(x)
     end
@@ -18,7 +18,7 @@ using BorrowChecker
     # Create mutable owned value
     @bind :mut y = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref lt ref = y
         @test ref == [1, 2, 3]
         @test !is_moved(y)
     end
@@ -31,11 +31,11 @@ end
     @bind x = [1, 2, 3]
     @move y = x  # Move to immutable
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref lt ref = y
         @test ref == [1, 2, 3]
         @test is_moved(x)
         @test !is_moved(y)
-        @test_throws MovedError @ref d = x in lt
+        @test_throws MovedError @ref lt d = x
     end
 
     # Cannot move twice
@@ -46,11 +46,11 @@ end
     @move :mut y = a  # Move to mutable
     @move z = y  # Move to immutable
     @lifetime lt begin
-        @ref ref = z in lt
+        @ref lt ref = z
         @test ref == [1, 2, 3]
         @test is_moved(a) && is_moved(y) && !is_moved(z)
-        @test_throws MovedError @ref d = a in lt
-        @test_throws MovedError @ref d = y in lt
+        @test_throws MovedError @ref lt d = a
+        @test_throws MovedError @ref lt d = y
     end
 end
 
@@ -59,10 +59,10 @@ end
     @bind x = 42
     @move y = x
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref lt ref = y
         @test ref == 42
         # x is still valid since it was cloned:
-        @ref ref2 = x in lt
+        @ref lt ref2 = x
         @test ref2 == 42
     end
 
@@ -71,7 +71,7 @@ end
     @test (@take z) == 42
     @lifetime lt begin
         # z is still valid since it was cloned:
-        @ref ref = z in lt
+        @ref lt ref = z
         @test ref == 42
     end
 end
@@ -81,11 +81,11 @@ end
 
     @bind :mut x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         @test ref == [1, 2, 3]  # Can read through reference
         @test !is_moved(x)  # Reference doesn't move ownership
         @test_throws BorrowRuleError ref[1] = 10  # Can't modify through immutable ref
-        @ref ref2 = x in lt
+        @ref lt ref2 = x
         @test ref2 == [1, 2, 3]  # Original unchanged
     end
 end
@@ -98,11 +98,11 @@ end
     @bind p = Point(1, 2)
     @test p isa Bound{Point}
     @lifetime lt begin
-        @ref ref_p = p in lt
+        @ref lt ref_p = p
         @test ref_p isa Borrowed{Point}
         @test ref_p.x isa Borrowed{Int}
         # Ref to ref:
-        @ref rrx = ref_p.x in lt
+        @ref lt rrx = ref_p.x
         @test rrx == 1
         @test ref_p.x == 1  # Can read properties
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
@@ -110,7 +110,7 @@ end
     @test p.immutable_borrows == 0
     @bind :mut mp = Point(1, 2)
     @lifetime lt begin
-        @ref :mut mut_ref_p = mp in lt
+        @ref lt :mut mut_ref_p = mp
         @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x ==
             1
         @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
@@ -120,13 +120,13 @@ end
 @testitem "Mutable Property Access" begin
     @bind :mut y = [1, 2, 3]
     @lifetime lt begin
-        @ref :mut mut_ref = y in lt
+        @ref lt :mut mut_ref = y
         @test mut_ref == [1, 2, 3]  # Can read through reference
         push!(mut_ref, 4)  # Can modify through mutable reference
 
-        @test_throws BorrowRuleError @ref d = y in lt
+        @test_throws BorrowRuleError @ref lt d = y
         @test_throws(
-            "Cannot create immutable reference: value is mutably borrowed", @ref d = y in lt
+            "Cannot create immutable reference: value is mutably borrowed", @ref lt d = y
         )
     end
 end
@@ -135,8 +135,8 @@ end
     @bind z = [1, 2, 3]
     @move w = z
     @lifetime lt begin
-        @test_throws MovedError @ref d = z in lt
-        @test_throws BorrowRuleError @ref :mut d = z in lt
+        @test_throws MovedError @ref lt d = z
+        @test_throws BorrowRuleError @ref lt :mut d = z
     end
 end
 
@@ -155,7 +155,7 @@ end
     @test result == [1, 2, 3, 4]
     @test is_moved(x)
     @lifetime lt begin
-        @test_throws MovedError @ref d = x in lt
+        @test_throws MovedError @ref lt d = x
     end
 
     # Can't take ownership twice
@@ -168,9 +168,9 @@ end
 
     @bind y = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = y in lt  # Immutable borrow
+        @ref lt ref = y  # Immutable borrow
         @test !is_moved(y)  # y is still valid
-        @ref ref2 = y in lt
+        @ref lt ref2 = y
         @test ref2 == [1, 2, 3]
     end
 
@@ -181,12 +181,12 @@ end
 
     @bind :mut z = [1, 2, 3]
     @lifetime lt begin
-        @ref :mut ref = z in lt  # Mutable borrow
+        @ref lt :mut ref = z  # Mutable borrow
         push!(ref, 4)
         @test !is_moved(z)  # z is still valid
     end
     @lifetime lt begin
-        @ref ref = z in lt
+        @ref lt ref = z
         @test ref == [1, 2, 3, 4]
     end
 end
@@ -196,7 +196,7 @@ end
     @bind :mut x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         @test ref == [4, 5, 6]
     end
 
@@ -212,13 +212,13 @@ end
     # Test assignment with references
     @bind :mut v = [1, 2, 3]
     @lifetime lt begin
-        @ref :mut ref = v in lt
+        @ref lt :mut ref = v
         push!(ref, 4)
         @test_throws("Cannot assign to value while borrowed", @set v = [5, 6, 7])
     end
     @set v = [5, 6, 7]
     @lifetime lt begin
-        @ref ref = v in lt
+        @ref lt ref = v
         @test ref == [5, 6, 7]
         @test_throws "Cannot write to immutable reference" ref[1] = [8]
     end
@@ -228,14 +228,14 @@ end
     # Test multiple immutable references
     @bind x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref1 = x in lt
-        @ref ref2 = x in lt
+        @ref lt ref1 = x
+        @ref lt ref2 = x
         @test ref1 == [1, 2, 3]
         @test ref2 == [1, 2, 3]
         @test x.immutable_borrows == 2
 
         # Can't create mutable reference while immutably borrowed
-        @test_throws BorrowRuleError @ref :mut d = x in lt
+        @test_throws BorrowRuleError @ref lt :mut d = x
     end
     @test x.immutable_borrows == 0  # All borrows cleaned up
 
@@ -243,14 +243,14 @@ end
     @bind :mut y = [1, 2, 3]
     @bind :mut z = [4, 5, 6]
     @lifetime lt begin
-        @ref :mut mut_ref1 = y in lt
+        @ref lt :mut mut_ref1 = y
         # Can't create another mutable reference to y
-        @test_throws BorrowRuleError @ref :mut d = y in lt
+        @test_throws BorrowRuleError @ref lt :mut d = y
         # Can't create immutable reference to y while mutably borrowed
-        @test_throws BorrowRuleError @ref d = y in lt
+        @test_throws BorrowRuleError @ref lt d = y
 
         # But can create references to different variables
-        @ref :mut mut_ref2 = z in lt
+        @ref lt :mut mut_ref2 = z
         push!(mut_ref1, 4)
         push!(mut_ref2, 7)
     end
@@ -263,8 +263,8 @@ end
     @bind :mut a = [1, 2, 3]
     @bind b = [4, 5, 6]
     @lifetime lt begin
-        @ref :mut mut_ref = a in lt
-        @ref imm_ref = b in lt
+        @ref lt :mut mut_ref = a
+        @ref lt imm_ref = b
         push!(mut_ref, 4)
         @test imm_ref == [4, 5, 6]
         @test_throws "Cannot write to immutable reference" push!(imm_ref, 7)
@@ -278,7 +278,7 @@ end
     @bind :mut outer = [1, 2, 3]
 
     @lifetime lt let
-        @ref :mut inner = outer in lt
+        @ref lt :mut inner = outer
         push!(inner, 4)
         @test inner == [1, 2, 3, 4]
     end
@@ -296,10 +296,10 @@ end
 @testitem "Borrowed Arrays" begin
     @bind x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         @test ref == [1, 2, 3]
         # We can borrow the borrow since it is immutable
-        @ref ref2 = ref in lt
+        @ref lt ref2 = ref
         @test ref2 == [1, 2, 3]
         @test ref2 isa Borrowed{Vector{Int}}
         @test ref2[2] == 2
@@ -351,7 +351,7 @@ end
 
     # Test symbol tracking in references
     @lifetime lt begin
-        @ref ref = y in lt
+        @ref lt ref = y
         @test y.symbol == :y  # Original symbol preserved
         @test ref.owner.symbol == :y
     end
@@ -360,7 +360,7 @@ end
 @testitem "Prevents write on mutable array when referenced" begin
     @bind :mut x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         @test_throws BorrowRuleError x[1] = 5
     end
 end
@@ -425,8 +425,8 @@ end
 
     # Test operations through references
     @lifetime lt begin
-        @ref rx = x in lt
-        @ref rz = y in lt
+        @ref lt rx = x
+        @ref lt rz = y
 
         # Test all combinations with references
         @test rx + 1 == 3  # ref op number
@@ -502,7 +502,7 @@ end
 @testitem "Iteration" begin
     @bind :mut x = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = x in lt
+        @ref lt ref = x
         for (i, xi) in enumerate(ref)
             @test xi isa Borrowed{Int}
             @test xi == x[i]
@@ -556,13 +556,13 @@ end
     @clone :mut q = p
     @lifetime lt begin
         # Get references to all fields we'll need
-        @ref :mut p_x = p.x in lt
-        @ref :mut q_x = q.x in lt
+        @ref lt :mut p_x = p.x
+        @ref lt :mut q_x = q.x
 
         # We can't yet get mutable references
         # to the fields simultaneously:
-        @test_throws MovedError @ref :mut p_y = p.y in lt
-        @test_throws MovedError @ref :mut q_y = q.y in lt
+        @test_throws MovedError @ref lt :mut p_y = p.y
+        @test_throws MovedError @ref lt :mut q_y = q.y
         # TODO: ^Fix this
 
         # Test modifying original's x
@@ -589,7 +589,7 @@ end
 
     @bind :mut v = [1, 2, 3]
     @lifetime lt begin
-        @ref ref = v in lt
+        @ref lt ref = v
         @clone w = ref  # Clone from reference
         @test w isa Bound{Vector{Int}}
         @test w == [1, 2, 3]
@@ -671,8 +671,8 @@ end
     # Actually, this cloned!
     @test !is_moved(p)
     @lifetime lt begin
-        @ref ref_p = p in lt
-        @ref ref_q = q in lt
+        @ref lt ref_p = p
+        @ref lt ref_q = q
         @test ref_p.x == 1.0
         @test ref_p.y == 2.0
         @test ref_q.x == 1.0
@@ -684,7 +684,7 @@ end
     @bind r = Point2D(3.0, 4.0)
     @test (@take r).x == 3.0
     @lifetime lt begin
-        @ref ref = r in lt
+        @ref lt ref = r
         @test ref.x == 3.0  # r is still valid since Point2D is isbits
     end
 end
@@ -716,7 +716,7 @@ end
 
     # Test symbol validation for references
     @lifetime lt begin
-        @ref rx = x in lt
+        @ref lt rx = x
         @test rx.symbol == :rx
         ry = rx
         @test_throws SymbolMismatchError @set ry = 43
@@ -725,7 +725,7 @@ end
     # Test symbol validation for mutable references
     @bind :mut y = [1, 2, 3]
     @lifetime lt begin
-        @ref :mut ry = y in lt
+        @ref lt :mut ry = y
         @test ry.symbol == :ry
         rz = ry
         @test_throws SymbolMismatchError @set rz = [4, 5, 6]
@@ -747,7 +747,7 @@ end
 
     # Test symbol validation through references
     @lifetime lt begin
-        @ref ra = a in lt
+        @ref lt ra = a
         ra2 = ra
         @test_throws SymbolMismatchError @clone tmp = ra2  # wrong source symbol
         @clone c = ra  # correct symbols

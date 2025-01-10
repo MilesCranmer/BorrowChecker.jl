@@ -155,9 +155,9 @@ macro set(expr)
 end
 
 """
-    @lifetime name begin
-        @ref rx = x in name
-        @ref :mut ry = y in name
+    @lifetime lt begin
+        @ref lt rx = x
+        @ref lt :mut ry = y
         # use refs here
     end
 
@@ -195,44 +195,36 @@ macro lifetime(name::Symbol, expr)
 end
 
 """
-    @ref var = value in lifetime
-    @ref :mut var = value in lifetime
+    @ref lifetime var = value
+    @ref lifetime :mut var = value
 
 Create a reference to an owned value within the given lifetime scope.
 If `:mut` is not specified, creates an immutable reference.
 Otherwise, creates a mutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 """
-macro ref(expr::Expr)
+macro ref(lifetime::Symbol, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
-        if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
-            error("@ref requires 'in' syntax: @ref var = value in lifetime")
-        end
         dest = expr.args[1]
-        src = expr.args[2].args[2]
-        lifetime = expr.args[2].args[3]
+        src = expr.args[2]
         return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
     else
         error("@ref requires an assignment expression")
     end
 end
 
-macro ref(mut_flag::QuoteNode, expr::Expr)
+macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
-        error("First argument to @ref must be :mut if two arguments are provided")
+        error("Second argument to @ref must be :mut if three arguments are provided")
     end
     if !Meta.isexpr(expr, :(=))
-        error("@ref :mut requires an assignment expression")
-    end
-    if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
-        error("@ref :mut requires 'in' syntax: @ref :mut var = value in lifetime")
+        error("@ref lifetime :mut requires an assignment expression")
     end
     dest = expr.args[1]
-    src = expr.args[2].args[2]
-    lifetime = expr.args[2].args[3]
+    src = expr.args[2]
     return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
 end
 
