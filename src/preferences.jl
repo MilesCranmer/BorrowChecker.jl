@@ -62,7 +62,7 @@ end
 
 function disable_borrow_checker!(m::Module)
     Base.@lock MODULE_CACHE.lock begin
-        if haskey(MODULE_CACHE.cache, m)
+        if haskey(MODULE_CACHE.cache, m) && MODULE_CACHE.cache[m]
             error(
                 "BorrowChecker preferences were already cached for module $m. " *
                 "Please call this function before any other BorrowChecker macros are used.",
@@ -70,6 +70,7 @@ function disable_borrow_checker!(m::Module)
         end
         MODULE_CACHE.cache[m] = false
     end
+    return nothing
 end
 
 end

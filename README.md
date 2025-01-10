@@ -98,19 +98,20 @@ For owned values and references, property access follows these rules:
 
 ### Disabling BorrowChecker
 
-You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file. When disabled, all macros like `@bind`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
+You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like `@bind`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
 
-To disable BorrowChecker.jl for a specific package:
+You can also set the _default_ behavior from within a module:
 
 ```julia
-using Preferences
+module MyModule
+    using BorrowChecker: disable_borrow_checker!
 
-set_preferences!(
-    "MyPackage",  # Replace with your package name
-    "borrow_checker" => false;
-    force=true
-)
+    disable_borrow_checker!(@__MODULE__)
+    #= Other code =#
+end
 ```
+
+This can then be overridden by the LocalPreferences.toml file.
 
 ## Further Examples
 
