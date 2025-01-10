@@ -46,19 +46,22 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
     end
 end
 
+const CleanManagedCtx = Cassette.disablehooks(ManagedCtx())
+
 """
-    managed(f)
+    @managed f()
 
 Run code with automatic ownership transfer enabled. Any `Bound` or `BoundMut` arguments
 passed to functions within the block will automatically have their ownership transferred
 using the equivalent of `@take`.
 """
-function managed(f)
-    # Get the module from the caller's context
-    caller_module = parentmodule(f)
-    is_borrow_checker_enabled(caller_module) || return f()
-    ctx = Cassette.disablehooks(ManagedCtx())
-    return Cassette.@overdub(ctx, f())
+macro managed(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(
+        quote
+            $(Cassette).@overdub($(CleanManagedCtx), $(expr))
+        end
+    )
 end
 
 end

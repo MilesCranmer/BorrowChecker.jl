@@ -621,9 +621,7 @@ end
     @test_throws MethodError add_one(x)
 
     # With ownership context, it will automatically convert!
-    result = BorrowChecker.managed() do
-        add_one(x)
-    end
+    result = BorrowChecker.@managed add_one(x)
 
     # Correct calculation:
     @test result == 2
