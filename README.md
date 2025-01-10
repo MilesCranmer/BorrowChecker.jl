@@ -166,7 +166,8 @@ BoundMut{Int64}(2)
 Note that we can't do this with immutable values:
 
 ```julia
-julia> @bind x = 1;
+julia> @bind x, y, z = 1:3  # tuple unpacking works
+(Bound{Int64}(1), Bound{Int64}(2), Bound{Int64}(3))
 
 julia> @set x = 2
 ERROR: Cannot assign to immutable
