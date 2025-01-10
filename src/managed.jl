@@ -9,6 +9,7 @@ using Cassette: Cassette
 using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take
+using ..PreferencesModule: is_borrow_checker_enabled
 
 # Create the Cassette context for ownership transfer
 Cassette.@context ManagedCtx
@@ -53,6 +54,9 @@ passed to functions within the block will automatically have their ownership tra
 using the equivalent of `@take`.
 """
 function managed(f)
+    # Get the module from the caller's context
+    caller_module = parentmodule(f)
+    is_borrow_checker_enabled(caller_module) || return f()
     ctx = Cassette.disablehooks(ManagedCtx())
     return Cassette.@overdub(ctx, f())
 end

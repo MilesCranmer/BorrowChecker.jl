@@ -14,7 +14,6 @@ function test()
     @test x[] == 1
     # @take should just return the value directly
     @test (@take x)[] == 1
-
     # This error now goes undetected:
     @test x[] == 1
 
@@ -36,6 +35,20 @@ function test()
         @test z == 3
         @test r == 2  # r should just be a copy
     end
+
+    # Test managed() - it should just run functions as-is when disabled
+    function expects_raw_int(x::Int)
+        return x + 1
+    end
+
+    @bind w = 42
+    # When enabled, managed() would automatically convert w to raw Int,
+    # but when disabled it should fail since w is passed as-is
+    result = managed() do
+        expects_raw_int(w)
+    end
+    @test result == 43  # Function runs normally since w is just a raw Int
+    @test w == 42  # w is not moved since managed() is disabled
 end
 
 end

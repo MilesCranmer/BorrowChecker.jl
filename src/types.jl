@@ -49,8 +49,6 @@ struct NoLifetime end
 
 Base.in(x, ::NoLifetime) = x
 
-
-
 struct Borrowed{T,O<:Union{Bound,BoundMut}}
     value::T
     owner::O
