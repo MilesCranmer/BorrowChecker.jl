@@ -251,16 +251,30 @@ function ref(
     end
 end
 
+# These methods are used for immutable references to a field _in_ an object
+function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{false})
+    return Borrowed(value, owner, lt, dest_symbol)
+end
+function ref(lt::Lifetime, value, r::AllBorrowed, dest_symbol::Symbol, ::Val{false})
+    return ref(lt, value, r.owner, dest_symbol, Val(false))
+end
+
 function bind_for(iter, symbol, ::Val{mut}) where {mut}
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
-    if mut
-        return Iterators.map(((x, s),) -> BoundMut(x, false, s), zip(iter, symbols))
-    else
-        return Iterators.map(((x, s),) -> Bound(x, false, s), zip(iter, symbols))
-    end
+    return Iterators.map(((x, s),) -> bind(x, s, Val(mut)), zip(iter, symbols))
 end
 function bind_for(iter::AllBound, symbol, ::Val{mut}) where {mut}
     return bind_for(take(iter, :anonymous), symbol, Val(mut))
+end
+
+function ref_for(
+    lt::Lifetime, ref_or_owner::Union{AllBound,Borrowed}, symbol, ::Val{mut}
+) where {mut}
+    value = request_value(ref_or_owner, Val(:read))
+    symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
+    return Iterators.map(
+        ((x, s),) -> ref(lt, x, ref_or_owner, s, Val(mut)), zip(value, symbols)
+    )
 end
 
 end

@@ -95,6 +95,7 @@ For owned values and references, property access follows these rules:
 ### Loops
 
 - `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
+- `@ref [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element.
 
 ### Disabling BorrowChecker
 

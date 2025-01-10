@@ -17,6 +17,7 @@ using ..SemanticsModule:
     set,
     clone,
     ref,
+    ref_for,
     cleanup!
 using ..PreferencesModule: is_borrow_checker_enabled
 
@@ -198,6 +199,9 @@ end
 """
     @ref lifetime var = value
     @ref lifetime :mut var = value
+    @ref lifetime for var in iter
+        # body
+    end
 
 Create a reference to an owned value within the given lifetime scope.
 If `:mut` is not specified, creates an immutable reference.
@@ -211,8 +215,21 @@ macro ref(lifetime::Symbol, expr::Expr)
         dest = expr.args[1]
         src = expr.args[2]
         return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
+    elseif Meta.isexpr(expr, :for)
+        # Handle for loop case
+        loop_var = expr.args[1].args[1]
+        iter = expr.args[1].args[2]
+        body = expr.args[2]
+        return esc(
+            quote
+                for $loop_var in
+                    $(ref_for)($lifetime, $iter, $(QuoteNode(loop_var)), Val(false))
+                    $body
+                end
+            end,
+        )
     else
-        error("@ref requires an assignment expression")
+        error("@ref requires an assignment expression or for loop")
     end
 end
 
@@ -221,12 +238,16 @@ macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
     if mut_flag != QuoteNode(:mut)
         error("Second argument to @ref must be :mut if three arguments are provided")
     end
-    if !Meta.isexpr(expr, :(=))
-        error("@ref lifetime :mut requires an assignment expression")
+    if Meta.isexpr(expr, :(=))
+        # Handle assignment case
+        dest = expr.args[1]
+        src = expr.args[2]
+        return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
+    elseif Meta.isexpr(expr, :for)
+        error("@ref lifetime :mut does not yet support for loops")
+    else
+        error("@ref lifetime :mut requires an assignment expression or for loop")
     end
-    dest = expr.args[1]
-    src = expr.args[2]
-    return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
 end
 
 """

@@ -910,3 +910,48 @@ end
     @test x == 1
     @test z == 3
 end
+
+@testitem "Reference for loop" begin
+    using BorrowChecker: is_moved
+
+    # Test basic reference for loop
+    @bind :mut x = [1, 2, 3]
+    @lifetime lt begin
+        # Test immutable reference loop
+        @bind :mut count = 0
+        @ref lt for xi in x
+            @test xi isa Borrowed{Int}
+            @test xi.symbol == :xi
+            @set count = count + xi
+        end
+        @test count == 6
+        @test !is_moved(x)
+    end
+
+    # Test reference loop with non-isbits types
+    @bind :mut vec_array = [[1], [2], [3]]
+    @lifetime lt begin
+        @ref lt for v in vec_array
+            @test v isa Borrowed{Vector{Int}}
+            @test v.symbol == :v
+            @test_throws BorrowRuleError push!(v, 4)  # Can't modify through immutable ref
+        end
+        @test !is_moved(vec_array)
+    end
+
+    # Test nested reference loops
+    @bind :mut matrix = [[1, 2], [3, 4]]
+    @bind :mut flat = Int[]
+    @lifetime lt begin
+        @ref lt for row in matrix
+            @test row isa Borrowed{Vector{Int}}
+            @ref lt for x in row
+                @test x isa Borrowed{Int}
+                @test x.symbol == :x
+                @clone inner = x
+                push!(flat, @take(inner))
+            end
+        end
+        @test !is_moved(matrix)
+    end
+end
