@@ -50,6 +50,18 @@ function Base.getindex(
     return return_value
 end
 
+function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
+    throw(
+        BorrowRuleError(
+            "Cannot create view of an owned object. " *
+            "You can create an immutable reference with `@ref` and then create a view of that.",
+        ),
+    )
+end
+function Base.view(r::Borrowed{A}, i...) where {A<:Union{AbstractArray,Tuple}}
+    return Borrowed(view(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
+end
+
 #! format: off
 
 # --- BASIC OPERATIONS ---

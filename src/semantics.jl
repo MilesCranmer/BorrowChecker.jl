@@ -191,6 +191,9 @@ function bind(src::AllBound, src_expr, dest_symbol::Symbol, ::Val{mut}) where {m
     src_symbol = src_expr isa Symbol ? src_expr : :anonymous
     return move(src, src_symbol, dest_symbol, Val(mut))
 end
+function bind(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
+    throw(BorrowRuleError("Cannot bind a borrowed object."))
+end
 
 function set(dest::AllBound, dest_symbol::Symbol, value)
     validate_symbol(dest, dest_symbol)

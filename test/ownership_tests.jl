@@ -250,3 +250,11 @@ end
     @test y[] == 42
     @test !is_moved(y)  # isbits, so not moved
 end
+
+@testitem "Borrowed objects cannot be bound" begin
+    @bind x = Ref(42)
+    @lifetime lt begin
+        @ref lt ref = x
+        @test_throws BorrowRuleError @bind y = ref
+    end
+end

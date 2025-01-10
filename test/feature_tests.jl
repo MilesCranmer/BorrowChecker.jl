@@ -503,3 +503,16 @@ end
         @test !is_moved(matrix)
     end
 end
+
+@testitem "Array Views" begin
+    # Test that views are not allowed on owned arrays
+    @bind x = [1, 2, 3, 4]
+    @test_throws BorrowRuleError view(x, 1:2)
+
+    # Test that views work on borrowed arrays
+    @lifetime lt begin
+        @ref lt ref = x
+        @test view(ref, 1:2) isa Borrowed{<:AbstractVector{Int}}
+        @test_throws BorrowRuleError @bind bound_view = view(ref, 1:2)
+    end
+end
