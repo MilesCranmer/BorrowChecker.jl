@@ -106,16 +106,16 @@ First, let's look at basic ownership.
 ```julia
 julia> using BorrowChecker
 
-julia> @bind x = 1
-Bound{Int64}(1)
+julia> @bind x = [1]
+Bound{Vector{Int64}}([1])
 ```
 
-This is meant to emulate `let x = 1` in Rust.
+This is meant to emulate `let x = vec![1]` in Rust.
 We can compare it to objects, and the borrow checker will
 confirm that we can read it:
 
 ```julia
-julia> x == 1
+julia> x == [1]
 true
 ```
 
@@ -123,13 +123,13 @@ We could also do this by unpacking the value, which _moves_
 ownership:
 
 ```julia
-julia> (@take x) == 1
+julia> (@take x) == [1]
 true
 
 julia> x
 [moved]
 
-julia> x == 2
+julia> x == [2]
 ERROR: Cannot use x: value has been moved
 ```
 
