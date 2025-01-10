@@ -289,10 +289,8 @@ end
 end
 
 @testitem "mutability check works" begin
-    using BorrowChecker: recursive_ismutable
-
-    @test !recursive_ismutable(Int)
-    @test recursive_ismutable(Vector{Int})
+    @test isbitstype(Int)
+    @test !isbitstype(Vector{Int})
 end
 
 @testitem "Borrowed Arrays" begin
@@ -611,20 +609,21 @@ end
     using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
 
     # Define a function that expects a raw Int
-    function add_one(x::Int)
-        return x + 1
+    function add_one!(x::Ref{Int})
+        x[] += 1
+        return x
     end
 
     # Test with ownership context
-    @bind x = 1
+    @bind x = Ref(1)
     # Regular call will hit a MethodError
-    @test_throws MethodError add_one(x)
+    @test_throws MethodError add_one!(x)
 
     # With ownership context, it will automatically convert!
-    result = BorrowChecker.@managed add_one(x)
+    result = BorrowChecker.@managed add_one!(x)
 
     # Correct calculation:
-    @test result == 2
+    @test result[] == 2
 
     # Was automatically moved:
     @test is_moved(x)

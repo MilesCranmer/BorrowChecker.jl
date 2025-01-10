@@ -1,7 +1,6 @@
 module TypesModule
 
 using ..ErrorsModule: MovedError, BorrowRuleError
-using ..UtilsModule: recursive_ismutable
 
 # Forward declarations
 function unsafe_get_value end

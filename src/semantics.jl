@@ -17,7 +17,6 @@ using ..TypesModule:
     is_moved,
     unsafe_get_value
 using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError
-using ..UtilsModule: recursive_ismutable
 
 # Internal getters and setters
 
@@ -80,9 +79,7 @@ end
 # Public getters and setters
 function wrapped_getter(f::F, o::AllBound, k) where {F}
     value = request_value(o, Val(:read))
-    if recursive_ismutable(value)
-        # TODO: This is kind of where rust would check
-        #       the Copy trait. What should we do?
+    if !isbits(value)
         mark_moved!(o)
     end
     return constructorof(typeof(o))(f(value, k))

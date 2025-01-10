@@ -23,7 +23,6 @@ export Bound, BoundMut, Borrowed, BorrowedMut
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError
 
 # Not exported but still available
-using .UtilsModule: recursive_ismutable
 using .TypesModule: is_moved
 
 end

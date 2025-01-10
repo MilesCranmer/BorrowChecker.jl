@@ -11,7 +11,7 @@ using ..TypesModule:
     constructorof
 using ..SemanticsModule: request_value, mark_moved!
 using ..ErrorsModule: BorrowRuleError
-using ..UtilsModule: recursive_ismutable, Unused
+using ..UtilsModule: Unused
 
 # Container operations
 function Base.setindex!(r::AllWrappers, value, i...)
@@ -27,7 +27,7 @@ function Base.getindex(
     # We mark_moved! if the elements of this array are mutable,
     # because we can't be sure whether the elements will get mutated
     # or not.
-    if recursive_ismutable(T)
+    if !isbitstype(T)
         mark_moved!(o)
     end
     # Create a new owned object holding the indexed version:
@@ -41,7 +41,7 @@ end
 function Base.getindex(
     r::BorrowedMut{A}, i...
 ) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
-    if recursive_ismutable(T) ||
+    if !isbitstype(T) ||
         !((return_value = getindex(request_value(r, Val(:read)), i...)) isa T)
         # TODO: Make this more generic
         throw(BorrowRuleError("Cannot create slice of a mutable borrowed array"))
