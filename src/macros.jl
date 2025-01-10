@@ -3,7 +3,8 @@ module MacrosModule
 using MacroTools
 using MacroTools: rmlines
 
-using ..TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, AllWrappers, AllBound
+using ..TypesModule:
+    Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllBound
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -17,6 +18,7 @@ using ..SemanticsModule:
     clone,
     ref,
     cleanup!
+using ..PreferencesModule: is_borrow_checker_enabled
 
 """
     @bind x = value
@@ -35,6 +37,7 @@ For loops will create immutable owned values for each iteration by default.
 If `:mut` is specified, each iteration will create mutable owned values.
 """
 macro bind(expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         name = expr.args[1]
@@ -58,6 +61,7 @@ macro bind(expr::Expr)
 end
 
 macro bind(mut_flag::QuoteNode, expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @bind must be :mut if two arguments are provided")
     end
@@ -93,6 +97,7 @@ Otherwise, the destination will be mutable.
 For `isbits` types, this will automatically use `@clone` instead.
 """
 macro move(expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
@@ -106,6 +111,7 @@ macro move(expr::Expr)
 end
 
 macro move(mut_flag::QuoteNode, expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @move must be :mut if two arguments are provided")
     end
@@ -127,6 +133,7 @@ Returns the inner value and marks the original as moved.
 For `isbits` types, this will return a copy and not mark the original as moved.
 """
 macro take(var)
+    is_borrow_checker_enabled(__module__) || return esc(var)
     return esc(:($(take)($(var), $(QuoteNode(var)))))
 end
 
@@ -136,6 +143,7 @@ end
 Assign a value to the value of a mutable owned variable itself.
 """
 macro set(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if !Meta.isexpr(expr, :(=))
         error("@set requires an assignment expression")
     end
@@ -157,29 +165,19 @@ Create a lifetime scope for references. References created with this lifetime
 are only valid within the block and are automatically cleaned up when the block exits.
 Can be used with either begin/end blocks or let blocks.
 """
-macro lifetime(name::Symbol, body)
-    if !Meta.isexpr(body, :block) && !Meta.isexpr(body, :let)
-        error("@lifetime requires a begin/end block or let block")
+macro lifetime(name::Symbol, expr)
+    if !(Meta.isexpr(expr, :block) || Meta.isexpr(expr, :let))
+        error("@lifetime requires a block expression")
     end
 
-    inner_body = if Meta.isexpr(body, :let)
-        let_expr = body.args[1]
-        let_body = body.args[2]
-        if isempty(rmlines(let_expr).args)
+    if !is_borrow_checker_enabled(__module__)
+        return esc(
             quote
-                let
-                    $let_body
+                let $(name) = $(NoLifetime)()
+                    $expr
                 end
-            end
-        else
-            quote
-                let $let_expr
-                    $let_body
-                end
-            end
-        end
-    else
-        body
+            end,
+        )
     end
 
     # Wrap the body in lifetime management
@@ -187,7 +185,7 @@ macro lifetime(name::Symbol, body)
         quote
             let $(name) = $(Lifetime)()
                 try
-                    $inner_body
+                    $expr
                 finally
                     $(cleanup!)($(name))
                 end
@@ -206,6 +204,7 @@ Otherwise, creates a mutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 """
 macro ref(expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         if !Meta.isexpr(expr.args[2], :call) || expr.args[2].args[1] != :in
@@ -221,6 +220,7 @@ macro ref(expr::Expr)
 end
 
 macro ref(mut_flag::QuoteNode, expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @ref must be :mut if two arguments are provided")
     end
@@ -245,6 +245,7 @@ If `:mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
 """
 macro clone(expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
@@ -258,6 +259,7 @@ macro clone(expr::Expr)
 end
 
 macro clone(mut_flag::QuoteNode, expr::Expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @clone must be :mut if two arguments are provided")
     end

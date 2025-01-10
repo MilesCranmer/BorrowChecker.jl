@@ -808,3 +808,21 @@ end
     end
     @test matrix == [[(1, 15), (1, 15)], [(2, 15), (2, 15)]]
 end
+
+@testitem "Preferences disable" begin
+    # First test that the borrow checker is enabled by default
+    @bind x = [1]  # Use Vector{Int} instead of Int
+    @test x isa Bound{Vector{Int}}
+    @move y = x
+    @test y isa Bound{Vector{Int}}
+    @test_throws MovedError @take x
+
+    # Now test that it can be disabled via preferences
+    push!(LOAD_PATH, joinpath(@__DIR__, "FakeModule"))
+    try
+        @eval using FakeModule
+        FakeModule.test()
+    finally
+        filter!(!=(joinpath(@__DIR__, "FakeModule")), LOAD_PATH)
+    end
+end

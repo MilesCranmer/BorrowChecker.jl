@@ -96,6 +96,21 @@ For owned values and references, property access follows these rules:
 
 - `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
 
+### Disabling BorrowChecker
+
+You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file. When disabled, all macros like `@bind`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
+
+To disable BorrowChecker.jl for a specific package:
+
+```julia
+using Preferences
+
+set_preferences!(
+    "MyPackage",  # Replace with your package name
+    "borrow_checker" => false;
+    force=true
+)
+```
 
 ## Further Examples
 

@@ -6,6 +6,7 @@ using MacroTools: rmlines
 include("utils.jl")
 include("errors.jl")
 include("types.jl")
+include("preferences.jl")
 include("semantics.jl")
 include("macros.jl")
 include("overloads.jl")
