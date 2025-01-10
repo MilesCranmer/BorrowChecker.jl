@@ -44,7 +44,7 @@ function test()
     @bind w = 42
     # When enabled, managed() would automatically convert w to raw Int,
     # but when disabled it should fail since w is passed as-is
-    @bind result = @managed expects_raw_int(w)
+    @bind result = BorrowChecker.@managed expects_raw_int(w)
     @test result == 43  # Function runs normally since w is just a raw Int
     @test w == 42  # w is not moved since managed() is disabled
 end
