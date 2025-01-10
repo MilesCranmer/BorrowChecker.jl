@@ -79,7 +79,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref [:mut] var = value in lt`: Create a reference to owned value `value` and assign it to `var` within the given lifetime scope `lt` (mutable if `:mut` is specified)
+- `@ref lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
 
 ### Assignment
 
@@ -227,8 +227,8 @@ immutable references first:
 ```julia
 julia> @bind :mut data = [1, 2, 3];
 
-julia> @lifetime lt begin
-           @ref ref = data in lt
+julia> @lifetime a begin
+           @ref a ref = data
            ref
        end
 Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
@@ -246,9 +246,9 @@ BoundMut{Vector{Int64}}([4, 2, 3])
 Note that we can have multiple _immutable_ references at once:
 
 ```julia
-julia> @lifetime lt begin
-           @ref ref1 = data in lt
-           @ref ref2 = data in lt
+julia> @lifetime a begin
+           @ref a ref1 = data
+           @ref a ref2 = data
            ref1 == ref2
        end
 true
@@ -257,9 +257,9 @@ true
 For mutable references, we can only have one at a time:
 
 ```julia
-julia> @lifetime lt begin
-           @ref :mut mut_ref = data in lt
-           @ref :mut mut_ref2 = data in lt
+julia> @lifetime a begin
+           @ref a :mut mut_ref = data
+           @ref a :mut mut_ref2 = data
        end
 ERROR: Cannot create mutable reference: value is already mutably borrowed
 ```
@@ -267,9 +267,9 @@ ERROR: Cannot create mutable reference: value is already mutably borrowed
 And we can't mix mutable and immutable references:
 
 ```julia
-julia> @lifetime lt begin
-           @ref ref = data in lt
-           @ref :mut mut_ref = data in lt
+julia> @lifetime a begin
+           @ref a ref = data
+           @ref a :mut mut_ref = data
        end
 ERROR: Cannot create mutable reference: value is immutably borrowed
 ```
@@ -284,8 +284,8 @@ julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need im
 julia> @bind vec = [1, 2, 3]
 Bound{Vector{Int64}}([1, 2, 3])
 
-julia> @lifetime lt begin
-           borrow_vector(@ref d = vec in lt)  # Immutable borrow
+julia> @lifetime a begin
+           borrow_vector(@ref a d = vec)  # Immutable borrow
        end
 
 julia> vec
@@ -298,8 +298,8 @@ We are also able to clone from reference:
 julia> @bind :mut data = [1, 2, 3]
 BoundMut{Vector{Int64}}([1, 2, 3])
 
-julia> @lifetime lt begin
-           @ref ref = data in lt
+julia> @lifetime a begin
+           @ref a ref = data
            @clone :mut clone = ref
            clone[2] = 4
            @show clone ref
