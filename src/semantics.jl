@@ -184,11 +184,12 @@ function move(
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
 
-function bind(value, symbol::Symbol, ::Val{mut}) where {mut}
-    return mut ? BoundMut(value, false, symbol) : Bound(value, false, symbol)
+function bind(src, _, dest_symbol::Symbol, ::Val{mut}) where {mut}
+    return mut ? BoundMut(src, false, dest_symbol) : Bound(src, false, dest_symbol)
 end
-function bind(::AllBound, ::Symbol, ::Val{mut}) where {mut}
-    return error("Please use `@move` instead.")
+function bind(src::AllBound, src_expr, dest_symbol::Symbol, ::Val{mut}) where {mut}
+    src_symbol = src_expr isa Symbol ? src_expr : :anonymous
+    return move(src, src_symbol, dest_symbol, Val(mut))
 end
 
 function set(dest::AllBound, dest_symbol::Symbol, value)
@@ -264,7 +265,7 @@ end
 
 function bind_for(iter, symbol, ::Val{mut}) where {mut}
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
-    return Iterators.map(((x, s),) -> bind(x, s, Val(mut)), zip(iter, symbols))
+    return Iterators.map(((x, s),) -> bind(x, :anonymous, s, Val(mut)), zip(iter, symbols))
 end
 function bind_for(iter::AllBound, symbol, ::Val{mut}) where {mut}
     return bind_for(take(iter, :anonymous), symbol, Val(mut))

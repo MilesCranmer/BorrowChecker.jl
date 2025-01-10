@@ -23,7 +23,7 @@ function Base.setindex!(r::AllWrappers, value, i...)
 end
 function Base.getindex(
     o::AllBound{A}, i...
-) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
+) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
     # We mark_moved! if the elements of this array are mutable,
     # because we can't be sure whether the elements will get mutated
     # or not.
@@ -35,12 +35,12 @@ function Base.getindex(
 end
 function Base.getindex(
     r::Borrowed{A}, i...
-) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
+) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
     return Borrowed(getindex(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
 end
 function Base.getindex(
     r::BorrowedMut{A}, i...
-) where {T,A<:Union{AbstractArray{T},Tuple{T,Vararg{T}}}}
+) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
     if !isbitstype(T) ||
         !((return_value = getindex(request_value(r, Val(:read)), i...)) isa T)
         # TODO: Make this more generic

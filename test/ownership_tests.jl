@@ -240,9 +240,13 @@ end
     end
 end
 
-@testitem "Misuse of @bind" begin
+@testitem "Using @bind like @move" begin
     using BorrowChecker: is_moved
 
     @bind x = Ref(42)
-    @test_throws "Please use `@move` instead." @bind y = x
+    @bind y = x
+    @test y isa Bound{<:Ref{Int}}
+    @test is_moved(x)
+    @test y[] == 42
+    @test !is_moved(y)  # isbits, so not moved
 end

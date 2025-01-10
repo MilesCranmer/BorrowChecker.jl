@@ -70,7 +70,13 @@ function _bind(expr::Expr, mut::Bool)
             # Regular single assignment
             name = expr.args[1]
             value = expr.args[2]
-            return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val($mut))))
+            return esc(
+                :(
+                    $(name) = $(bind)(
+                        $(value), $(QuoteNode(value)), $(QuoteNode(name)), Val($mut)
+                    )
+                ),
+            )
         end
     elseif Meta.isexpr(expr, :for)
         # Handle for loop case
