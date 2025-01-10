@@ -633,19 +633,20 @@ end
     using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
 
     # Define a function that expects raw values in both positional and keyword arguments
-    function add_with_offset(x::Int; offset::Int)
-        return x + offset
+    function add_with_offset!(x::Ref{Int}; offset::Ref{Int})
+        x[] += offset[]
+        return x
     end
 
     # Test with ownership context
-    @bind x = 1
-    @bind offset = 5
+    @bind x = Ref(1)
+    @bind offset = Ref(5)
 
     # With ownership context, it should automatically convert both positional and keyword args
-    result = BorrowChecker.@managed add_with_offset(x, offset=offset)
+    result = BorrowChecker.@managed add_with_offset!(x, offset=offset)
 
     # Correct calculation:
-    @test result == 6
+    @test result[] == 6
 
     # Both values should be moved:
     @test is_moved(x)
