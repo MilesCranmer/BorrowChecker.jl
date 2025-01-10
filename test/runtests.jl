@@ -847,3 +847,37 @@ end
         filter!(!=(joinpath(@__DIR__, "FakeModule")), LOAD_PATH)
     end
 end
+
+@testitem "Usage example 1" begin
+    using BorrowChecker
+    using BorrowChecker: is_moved
+
+    struct Point
+        x::Float64
+        y::Float64
+    end
+
+    mutable struct Particle
+        position::Point
+        velocity::Point
+    end
+
+    function update_velocity!(p::Particle, dt::Float64)
+        p.position = Point(
+            p.position.x + p.velocity.x * dt, p.position.y + p.velocity.y * dt
+        )
+        return nothing
+    end
+
+    @bind :mut p = Particle(Point(0.0, 0.0), Point(1.0, 1.0))
+    @bind dt = 0.1
+
+    BorrowChecker.@managed let
+        update_velocity!(p, dt)
+    end
+
+    @test is_moved(p)
+
+    # dt is isbits, so isn't moved, but copied
+    @test !is_moved(dt)
+end

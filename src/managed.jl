@@ -20,8 +20,12 @@ end
 function maybe_take!(arg::AllBound)
     is_moved(arg) && throw(MovedError(arg.symbol))
     value = unsafe_get_value(arg)
-    mark_moved!(arg)
-    return value
+    if isbits(value)
+        return deepcopy(value)
+    else
+        mark_moved!(arg)
+        return value
+    end
 end
 
 #! format: off
