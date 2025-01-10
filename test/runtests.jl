@@ -881,3 +881,32 @@ end
     # dt is isbits, so isn't moved, but copied
     @test !is_moved(dt)
 end
+
+@testitem "Tuple unpacking" begin
+    using BorrowChecker: is_moved
+
+    # Test basic tuple unpacking
+    @bind x, y, z = (1, 2, 3)
+    @test x isa Bound{Int}
+    @test x == 1
+    @test z isa Bound{Int}
+    @test z == 3
+
+    @bind :mut x, y, z = (1, 2, 3)
+    @test x isa BoundMut{Int}
+    @test x == 1
+    @test z isa BoundMut{Int}
+    @test z == 3
+
+    @bind x, y, z = 1:3
+    @test x isa Bound{Int}
+    @test z isa Bound{Int}
+    @test x == 1
+    @test z == 3
+
+    @bind :mut x, y, z = 1:3
+    @test x isa BoundMut{Int}
+    @test z isa BoundMut{Int}
+    @test x == 1
+    @test z == 3
+end

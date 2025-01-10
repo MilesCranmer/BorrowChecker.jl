@@ -23,6 +23,8 @@ using ..PreferencesModule: is_borrow_checker_enabled
 """
     @bind x = value
     @bind :mut x = value
+    @bind x, y, z = (value1, value2, value3)
+    @bind :mut x, y = (value1, value2)
     @bind for var in iter
         # body
     end
@@ -38,26 +40,7 @@ If `:mut` is specified, each iteration will create mutable owned values.
 """
 macro bind(expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
-    if Meta.isexpr(expr, :(=))
-        # Handle immutable case
-        name = expr.args[1]
-        value = expr.args[2]
-        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(false))))
-    elseif Meta.isexpr(expr, :for)
-        # Handle for loop case
-        loop_var = expr.args[1].args[1]
-        iter = expr.args[1].args[2]
-        body = expr.args[2]
-        return esc(
-            quote
-                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)), Val(false))
-                    $body
-                end
-            end,
-        )
-    else
-        error("@bind requires an assignment expression or for loop")
-    end
+    return _bind(expr, false)
 end
 
 macro bind(mut_flag::QuoteNode, expr::Expr)
@@ -65,25 +48,43 @@ macro bind(mut_flag::QuoteNode, expr::Expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @bind must be :mut if two arguments are provided")
     end
+    return _bind(expr, true)
+end
+
+function _bind(expr::Expr, mut::Bool)
     if Meta.isexpr(expr, :(=))
-        # Handle mutable assignment case
-        name = expr.args[1]
-        value = expr.args[2]
-        return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val(true))))
+        # Handle immutable case
+        lhs = expr.args[1]
+        rhs = expr.args[2]
+        if Meta.isexpr(lhs, :tuple) || Meta.isexpr(lhs, :parameters)
+            # Handle tuple unpacking
+            names = lhs.args
+            return esc(
+                quote
+                    $(lhs) = $(bind_for)($(rhs), ($(map(QuoteNode, names)...),), Val($mut))
+                    $(lhs)
+                end,
+            )
+        else
+            # Regular single assignment
+            name = expr.args[1]
+            value = expr.args[2]
+            return esc(:($(name) = $(bind)($(value), $(QuoteNode(name)), Val($mut))))
+        end
     elseif Meta.isexpr(expr, :for)
-        # Handle mutable for loop case
+        # Handle for loop case
         loop_var = expr.args[1].args[1]
         iter = expr.args[1].args[2]
         body = expr.args[2]
         return esc(
             quote
-                for $loop_var in $(bind_for)($iter, $(QuoteNode(loop_var)), Val(true))
+                for $loop_var in $(bind_for)($(iter), $(QuoteNode(loop_var)), Val($mut))
                     $body
                 end
             end,
         )
     else
-        error("@bind :mut requires an assignment expression or for loop")
+        error("@bind requires an assignment expression or for loop")
     end
 end
 

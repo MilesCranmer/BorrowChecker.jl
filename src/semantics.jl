@@ -251,14 +251,15 @@ function ref(
     end
 end
 
-function bind_for(iter, symbol::Symbol, ::Val{mut}) where {mut}
+function bind_for(iter, symbol, ::Val{mut}) where {mut}
+    symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
     if mut
-        return Iterators.map(x -> BoundMut(x, false, symbol), iter)
+        return Iterators.map(((x, s),) -> BoundMut(x, false, s), zip(iter, symbols))
     else
-        return Iterators.map(x -> Bound(x, false, symbol), iter)
+        return Iterators.map(((x, s),) -> Bound(x, false, s), zip(iter, symbols))
     end
 end
-function bind_for(iter::AllBound, symbol::Symbol, ::Val{mut}) where {mut}
+function bind_for(iter::AllBound, symbol, ::Val{mut}) where {mut}
     return bind_for(take(iter, :anonymous), symbol, Val(mut))
 end
 
