@@ -21,7 +21,11 @@ function maybe_take!(arg::AllBound)
     is_moved(arg) && throw(MovedError(arg.symbol))
     value = unsafe_get_value(arg)
     if isbits(value)
-        return deepcopy(value)
+        # This is Julia-level immutable, so
+        # we don't need to worry about the original
+        # getting modified, and thus we do NOT need
+        # to deepcopy it.
+        return value
     else
         mark_moved!(arg)
         return value

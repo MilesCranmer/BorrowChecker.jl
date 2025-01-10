@@ -150,30 +150,36 @@ function Base.show(io::IO, r::AllBorrowed)
     end
 end
 
-function take(var::AllBound, var_symbol::Symbol)
-    validate_symbol(var, var_symbol)
-    if isbitstype(typeof(request_value(var, Val(:read))))
-        # For isbits types, we just clone:
-        return deepcopy(request_value(var, Val(:read)))
+function take(src::AllBound, src_symbol::Symbol)
+    validate_symbol(src, src_symbol)
+    value = if isbitstype(typeof(request_value(src, Val(:read))))
+        # For isbits types, we do not need to worry
+        # about the original getting modified, and thus
+        # we do NOT need to deepcopy it.
+        request_value(src, Val(:read))
     else
         # For non-isbits types, we move:
-        value = request_value(var, Val(:move))
-        mark_moved!(var)
-        return value
+        v = request_value(src, Val(:move))
+        mark_moved!(src)
+        v
     end
+    return value
 end
 
 function move(
     src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
     validate_symbol(src, src_symbol)
-    if isbitstype(typeof(request_value(src, Val(:read))))
-        # For isbits types, we just clone:
-        value = deepcopy(request_value(src, Val(:read)))
+    value = if isbitstype(typeof(request_value(src, Val(:read))))
+        # For isbits types, we do not need to worry
+        # about the original getting modified, and thus
+        # we do NOT need to deepcopy it.
+        request_value(src, Val(:read))
     else
         # For non-isbits types, we move:
-        value = request_value(src, Val(:move))
+        v = request_value(src, Val(:move))
         mark_moved!(src)
+        v
     end
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
@@ -200,7 +206,10 @@ function clone(
 ) where {mut}
     validate_symbol(src, src_symbol)
     # Get the value from either a reference or owned value:
-    value = deepcopy(request_value(src, Val(:read)))
+    value = let v = request_value(src, Val(:read))
+        isbits(v) ? v : deepcopy(v)
+    end
+
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
 end
 
