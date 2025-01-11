@@ -179,6 +179,8 @@ macro set(expr)
 end
 # TODO: Doesn't this mess up closures? Like if I bind a variable to a closure,
 #       then using `x = {value}` will actually be different than `x[] = {value}`.
+#       But at the same time, binding variables to a closure is a bad idea. If there
+#       was a way we could prevent that entirely, that would be nice.
 
 """
     @lifetime a begin
@@ -284,7 +286,9 @@ macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
 end
 
 macro ref(mut_flag::QuoteNode, lifetime::Symbol, expr::Expr)
-    error("You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`")
+    return error(
+        "You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`"
+    )
 end
 
 """
@@ -302,14 +306,16 @@ macro clone(expr::Expr)
         src = expr.args[2]
         if is_borrow_checker_enabled(__module__)
             return esc(
-                :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)))
+                :(
+                    $(dest) = $(clone)(
+                        $(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)
+                    )
+                ),
             )
         else
             # Even when borrow checker is disabled, we still want to clone
             # the value to avoid mutating the original.
-            return esc(
-                :($(dest) = $(deepcopy)($(src)))
-            )
+            return esc(:($(dest) = $(deepcopy)($(src))))
         end
     else
         error("@clone requires an assignment expression")

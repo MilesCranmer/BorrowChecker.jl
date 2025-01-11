@@ -78,6 +78,14 @@ end
 for op in (:length, :isempty, :size, :axes, :firstindex, :lastindex, :eachindex)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
+function Base.keys(r::AllWrappers)
+    value = request_value(r, Val(:read))
+    k = keys(value)
+    if !isbitstype(eltype(k))
+        throw("Refusing to return non-isbits keys of a collection. Use `keys(@take!(d))` if needed.")
+    end
+    return k
+end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
 for op in (:pop!, :popfirst!, :empty!, :resize!)
     @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)

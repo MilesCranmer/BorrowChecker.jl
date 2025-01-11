@@ -127,3 +127,29 @@ end
         end
     end
 end
+
+@testitem "Usage example 3" begin
+    using BorrowChecker
+
+    struct Point
+        x::Float64
+        y::Float64
+    end
+
+    @bind :mut points = [Ref(Point(rand(2)...)) for _ in 1:100]
+    @clone points_clone = points
+    @bind perturbation = Point(rand(2)...)
+    @lifetime a begin
+        @ref a :mut for p in points
+            p[] = Point(p[].x + perturbation.x, p[].y + perturbation.y)
+        end
+    end
+
+    raw_points = @take! points
+    @test all(
+        i -> raw_points[i][].x ≈ points_clone[i][].x + perturbation.x, eachindex(raw_points)
+    )
+    @test all(
+        i -> raw_points[i][].y ≈ points_clone[i][].y + perturbation.y, eachindex(raw_points)
+    )
+end
