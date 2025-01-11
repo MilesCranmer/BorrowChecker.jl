@@ -56,9 +56,11 @@ println(length(x))
 # ERROR: Cannot use x: value has been moved
 ```
 
-You see, the `@bind` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The `@move` then moves the object to `y`, and trips a `.moved` flag on `x` so it can't be used by regular operations. 
+You see, the `@bind` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The second operation then moves the object to `y`, and flips the `.moved` flag on `x` so it can no longer be used by regular operations.
 
-However, this does not prevent you from cheating the system and using `y = x` (though the code has ways that attempt to flag such mistakes). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+However, this does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+
+[^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
 
 First, some important disclaimers:
 
