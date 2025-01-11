@@ -152,8 +152,13 @@ end
 Returns the inner value and does a deepcopy. This does _not_ mark the original as moved.
 """
 macro take(var)
-    is_borrow_checker_enabled(__module__) || return esc(var)
-    return esc(:($(take)($(var), $(QuoteNode(var)))))
+    if is_borrow_checker_enabled(__module__)
+        return esc(:($(take)($(var), $(QuoteNode(var)))))
+    else
+        # Even when borrow checker is disabled, we still want to clone
+        # the value to avoid mutating the original.
+        return esc(:($(deepcopy)($(var))))
+    end
 end
 
 """
@@ -172,11 +177,13 @@ macro set(expr)
 
     return esc(:($(set)($(dest), $(QuoteNode(dest)), $(value))))
 end
+# TODO: Doesn't this mess up closures? Like if I bind a variable to a closure,
+#       then using `x = {value}` will actually be different than `x[] = {value}`.
 
 """
-    @lifetime lt begin
-        @ref lt rx = x
-        @ref lt :mut ry = y
+    @lifetime a begin
+        @ref a rx = x
+        @ref a :mut ry = y
         # use refs here
     end
 
@@ -276,6 +283,10 @@ macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
     end
 end
 
+macro ref(mut_flag::QuoteNode, lifetime::Symbol, expr::Expr)
+    error("You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`")
+end
+
 """
     @clone new = old
     @clone :mut new = old
@@ -285,21 +296,27 @@ If `:mut` is not specified, the destination will be immutable.
 Otherwise, the destination will be mutable.
 """
 macro clone(expr::Expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(
-            :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)))
-        )
+        if is_borrow_checker_enabled(__module__)
+            return esc(
+                :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)))
+            )
+        else
+            # Even when borrow checker is disabled, we still want to clone
+            # the value to avoid mutating the original.
+            return esc(
+                :($(dest) = $(deepcopy)($(src)))
+            )
+        end
     else
         error("@clone requires an assignment expression")
     end
 end
 
 macro clone(mut_flag::QuoteNode, expr::Expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @clone must be :mut if two arguments are provided")
     end
@@ -308,9 +325,15 @@ macro clone(mut_flag::QuoteNode, expr::Expr)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    return esc(
-        :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true)))
-    )
+    if is_borrow_checker_enabled(__module__)
+        return esc(
+            :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true)))
+        )
+    else
+        # Even when borrow checker is disabled, we still want to clone
+        # the value to avoid mutating the original.
+        return esc(:($(dest) = $(deepcopy)($(src))))
+    end
 end
 
 end
