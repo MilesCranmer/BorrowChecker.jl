@@ -51,7 +51,7 @@ In BorrowChecker.jl, we demonstrate a very simple implementation of some of thes
 using BorrowChecker
 
 @bind x = [1, 2, 3]
-@move y = x
+@bind y = x
 println(length(x))
 # ERROR: Cannot use x: value has been moved
 ```
@@ -71,16 +71,23 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ## API
 
+### Basics
+
 - `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
-- `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified)
+    - These are `Bound{T}` and `BoundMut{T}` objects, respectively.
+- `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@bind` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
-- `@take! var`: Unwrap an owned value (marking the original as moved)
-- `@take var`: Unwrap an owned value and deepcopy it (does _not_ mark the original as moved)
+- `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
+
+### Automatic Borrow Checking
+
+- `BorrowChecker.@managed begin ... end`: create a scope where contextual dispatch is performed: recursively, all functions (_**in any library**_) are automatically modified to apply `@take!` to any bound input arguments.
 
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
+    - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these inthe signature of any function you wish to make compatible with references.
 
 ### Assignment
 
@@ -89,7 +96,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 ### Loops
 
 - `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
-- `@ref lt [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element.
+- `@ref lt [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element, for the duration of `lt`.
 
 ### Disabling BorrowChecker
 

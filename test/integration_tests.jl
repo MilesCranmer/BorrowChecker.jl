@@ -100,10 +100,15 @@ end
 
     @bind nsteps = 100
     @bind dt = 0.1
-    for _ in 1:nsteps
+    @bind for step in 1:nsteps
         @lifetime a let
             @ref a :mut for p in particles
                 update_velocity!(p, @take(dt))
+            end
+
+            # Not allowed:
+            if step == 0
+                @test_throws "Cannot access original" @ref a :mut particles2 = particles
             end
         end
     end
