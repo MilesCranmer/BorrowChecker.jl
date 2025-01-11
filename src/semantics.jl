@@ -21,13 +21,17 @@ using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError
 # Internal getters and setters
 
 function validate_symbol(r::AllBound, expected_symbol::Symbol)
-    if expected_symbol != r.symbol && r.symbol != :anonymous
+    if expected_symbol != r.symbol &&
+        r.symbol != :anonymous &&
+        expected_symbol != :anonymous
         throw(SymbolMismatchError(r.symbol, expected_symbol))
     end
 end
 
 function validate_symbol(r::AllBorrowed, expected_symbol::Symbol)
-    if expected_symbol != r.symbol && r.symbol != :anonymous
+    if expected_symbol != r.symbol &&
+        r.symbol != :anonymous &&
+        expected_symbol != :anonymous
         throw(SymbolMismatchError(r.symbol, expected_symbol))
     end
 end
