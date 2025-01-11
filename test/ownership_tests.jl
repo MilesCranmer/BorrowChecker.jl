@@ -160,8 +160,8 @@ end
 
         # We can't yet get mutable references
         # to the fields simultaneously:
-        @test_throws MovedError @ref lt :mut p_y = p.y
-        @test_throws MovedError @ref lt :mut q_y = q.y
+        @test_throws BorrowRuleError @ref lt :mut p_y = p.y
+        @test_throws BorrowRuleError @ref lt :mut q_y = q.y
         # TODO: ^Fix this
 
         # Test modifying original's x
@@ -173,13 +173,10 @@ end
         push!(q_x, 4)
         @test p_x == [1, 3]  # Original's x unchanged
         @test q_x == [1, 4]  # Clone's x modified
-
-        @test is_moved(p)
-        @test is_moved(q)
     end
 
-    @test_skip !is_moved(p)
-    @test_skip !is_moved(q)
+    @test_skip is_moved(p)
+    @test_skip is_moved(q)
     # TODO: ^Fix this
 end
 

@@ -7,47 +7,41 @@ using ..TypesModule:
     BorrowedMut,
     AllBound,
     AllBorrowed,
+    AllEager,
     AllWrappers,
-    constructorof
-using ..SemanticsModule: request_value, mark_moved!
+    LazyAccessor,
+    constructorof,
+    unsafe_access,
+    get_owner
+using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused
 
 # Container operations
-function Base.setindex!(r::AllWrappers, value, i...)
+function Base.getindex(
+    o::AllEager{A}, i...
+) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
+    if isbitstype(T)
+        return getindex(request_value(o, Val(:read)), i...)
+    else
+        return LazyAccessor(o, (i...,))
+    end
+end
+function Base.getindex(r::LazyAccessor, i...)
+    return LazyAccessor(r, (i...,))
+end
+function Base.setindex!(r::AllEager, value, i...)
     setindex!(request_value(r, Val(:write)), value, i...)
     # TODO: This is not good Julia style, but otherwise we would
     #       need to return a new owned object. We have to break
     #       a lot of conventions here for safety.
     return nothing
 end
-function Base.getindex(
-    o::AllBound{A}, i...
-) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
-    # We mark_moved! if the elements of this array are mutable,
-    # because we can't be sure whether the elements will get mutated
-    # or not.
-    if !isbitstype(T)
-        mark_moved!(o)
-    end
-    # Create a new owned object holding the indexed version:
-    return constructorof(typeof(o))(getindex(request_value(o, Val(:read)), i...))
-end
-function Base.getindex(
-    r::Borrowed{A}, i...
-) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
-    return Borrowed(getindex(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
-end
-function Base.getindex(
-    r::BorrowedMut{A}, i...
-) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
-    if !isbitstype(T) ||
-        !((return_value = getindex(request_value(r, Val(:read)), i...)) isa T)
-        # TODO: Make this more generic
-        throw(BorrowRuleError("Cannot create slice of a mutable borrowed array"))
-    end
-    # Only allowed to return single immutable values
-    return return_value
+function Base.setindex!(r::LazyAccessor, value, i...)
+    owner = getfield(r, :target)
+    validate_mode(owner, Val(:write))
+    setindex!(unsafe_access(r), value, i...)
+    return nothing
 end
 
 function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
@@ -59,7 +53,7 @@ function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
     )
 end
 function Base.view(r::Borrowed{A}, i...) where {A<:Union{AbstractArray,Tuple}}
-    return Borrowed(view(request_value(r, Val(:read)), i...), r.owner, r.lifetime)
+    return Borrowed(view(request_value(r, Val(:read)), i...), get_owner(r), r.lifetime)
 end
 
 #! format: off
@@ -98,7 +92,7 @@ function Base.iterate(r::Borrowed, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
     out === nothing && return nothing
     (iter, state) = out
-    return (Borrowed(iter, r.owner, r.lifetime), state)
+    return (Borrowed(iter, get_owner(r), r.lifetime), state)
 end
 function Base.iterate(::BorrowedMut{<:AbstractArray{T}}) where {T}
     error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref` instead.")

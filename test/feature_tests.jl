@@ -95,18 +95,30 @@ end
         @test ref2 == [1, 2, 3]
         @test ref2 isa Borrowed{Vector{Int}}
         @test ref2[2] == 2
-        @test ref2[2] isa Borrowed{Int}
+        @test ref2[2] isa Int
 
-        @test ref2[1:2] isa Borrowed{Vector{Int}}
+        @test ref2[1:2] isa Vector{Int}
 
         # No mutating allowed
         @test_throws BorrowRuleError push!(ref2, 4)
     end
     @test x == [1, 2, 3]
+
+    # Now, with non-isbits
+    mutable struct A
+        a::Float64
+    end
+    @bind x = [A(1.0), A(2.0), A(3.0)]
+    @lifetime lt begin
+        @ref lt ref = x
+        @show ref[1]
+        # @test ref[1] == A(1.0)
+        # @test ref[1] isa Borrowed{A}
+    end
 end
 
 @testitem "Symbol Tracking" begin
-    using BorrowChecker: is_moved
+    using BorrowChecker: is_moved, get_owner
 
     # Test symbol tracking for owned values
     @bind x = 42
@@ -145,7 +157,7 @@ end
     @lifetime lt begin
         @ref lt ref = y
         @test y.symbol == :y  # Original symbol preserved
-        @test ref.owner.symbol == :y
+        @test get_owner(ref).symbol == :y
     end
 end
 

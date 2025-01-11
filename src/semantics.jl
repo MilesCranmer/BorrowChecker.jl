@@ -7,16 +7,22 @@ using ..TypesModule:
     BorrowedMut,
     AllBound,
     AllBorrowed,
+    AllEager,
     AllWrappers,
     AllMutable,
     AllImmutable,
     Lifetime,
+    LazyAccessor,
     constructorof,
     is_mutable,
     mark_moved!,
     is_moved,
-    unsafe_get_value
-using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError
+    is_expired,
+    unsafe_get_value,
+    unsafe_access,
+    has_lifetime,
+    get_owner
+using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 
 # Internal getters and setters
 
@@ -39,7 +45,7 @@ end
 # Skip validation for primitive types
 validate_symbol(_, ::Symbol) = nothing
 
-function request_value(r::AllBound, ::Val{mode}) where {mode}
+function validate_mode(r::AllBound, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)
     if is_moved(r)
         throw(MovedError(r.symbol))
@@ -50,17 +56,32 @@ function request_value(r::AllBound, ::Val{mode}) where {mode}
     elseif mode in (:write, :move) && r.immutable_borrows > 0
         throw(BorrowRuleError("Cannot $mode original while immutably borrowed"))
     end
-    return unsafe_get_value(r)
+    return nothing
 end
-function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
+function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
-    owner = r.owner
+    owner = get_owner(r)
     if is_moved(owner)
         throw(MovedError(owner.symbol))
+    elseif is_expired(r)
+        throw(ExpiredError(r.symbol))
     elseif mode == :write && !is_mutable(r)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
+    return nothing
+end
+function request_value(r::AllBound, ::Val{mode}) where {mode}
+    validate_mode(r, Val(mode))
     return unsafe_get_value(r)
+end
+function request_value(r::AllBorrowed, ::Val{mode}) where {mode}
+    validate_mode(r, Val(mode))
+    return unsafe_get_value(r)
+end
+function request_value(r::LazyAccessor, ::Val{mode}) where {mode}
+    target = getfield(r, :target)
+    validate_mode(target, Val(mode))
+    return unsafe_access(r)
 end
 
 function unsafe_set_value!(r::BoundMut, value)
@@ -80,58 +101,53 @@ function set_value!(::AllBorrowed, value)
     throw(BorrowRuleError("Cannot assign to borrowed"))
 end
 
-# Public getters and setters
-function wrapped_getter(f::F, o::AllBound, k) where {F}
-    value = request_value(o, Val(:read))
-    if !isbits(value)
-        mark_moved!(o)
-    end
-    return constructorof(typeof(o))(f(value, k))
-end
-function wrapped_getter(f::F, r::AllBorrowed, k) where {F}
-    value = f(request_value(r, Val(:read)), k)
-    return constructorof(typeof(r))(value, r.owner, r.lifetime)
-end
-function wrapped_setter(f::F, o::AllWrappers, k, v) where {F}
-    value = request_value(o, Val(:write))
-    return f(value, k, v)
-end
-
-function Base.getproperty(o::AllBound, name::Symbol)
+@inline function Base.getproperty(o::AllBound, name::Symbol)
     if name == :value
         error("Use `@take` to directly access the value of an owned variable")
     end
     if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
+        # TODO: This is not safe, because the user's type might
+        #       have properties of this name!
         return getfield(o, name)
     else
-        return wrapped_getter(getproperty, o, name)
+        return LazyAccessor(o, Val(name))
     end
 end
-function Base.getproperty(r::AllBorrowed, name::Symbol)
+@inline function Base.getproperty(r::AllBorrowed, name::Symbol)
     if name in (:owner, :lifetime, :symbol)
         return getfield(r, name)
     else
-        return wrapped_getter(getproperty, r, name)
+        return LazyAccessor(r, Val(name))
     end
 end
-function Base.setproperty!(o::AllBound, name::Symbol, v)
+@inline function Base.getproperty(
+    r::LazyAccessor{T,P,property}, name::Symbol
+) where {T,P,property}
+    return LazyAccessor(r, Val(name))
+end
+@inline function Base.setproperty!(o::AllBound, name::Symbol, v)
     if name in (:moved, :immutable_borrows, :mutable_borrows)
         setfield!(o, name, v, :sequentially_consistent)
     else
-        wrapped_setter(setproperty!, o, name, v)
+        setproperty!(request_value(o, Val(:write)), k, v)
     end
     return o
 end
-function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
+@inline function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
     name == :owner && error("Cannot modify reference ownership")
-    result = wrapped_setter(setproperty!, r, name, value)
+    setproperty!(request_value(r, Val(:write)), name, value)
     # TODO: I think we should return `nothing` here instead, or
     #       some other marker.
-    return constructorof(typeof(r))(result, r.owner, r.lifetime)
+    return value
+end
+@inline function Base.setproperty!(r::LazyAccessor, name::Symbol, value)
+    target = getfield(r, :target)
+    setproperty!(request_value(target, Val(:write)), name, value)
+    return value
 end
 
 # Convenience functions
-function Base.propertynames(o::AllWrappers)
+function Base.propertynames(o::AllEager)
     return propertynames(unsafe_get_value(o))
 end
 function Base.show(io::IO, o::AllBound)
@@ -140,7 +156,8 @@ function Base.show(io::IO, o::AllBound)
     else
         constructor = constructorof(typeof(o))
         value = request_value(o, Val(:read))
-        print(io, "$(constructor){$(typeof(value))}($(value))")
+        symbol = o.symbol
+        print(io, "$(constructor){$(typeof(value))}($(value), :$(symbol))")
     end
 end
 function Base.show(io::IO, r::AllBorrowed)
@@ -149,14 +166,15 @@ function Base.show(io::IO, r::AllBorrowed)
     else
         constructor = constructorof(typeof(r))
         value = request_value(r, Val(:read))
-        owner = r.owner
-        print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value))")
+        owner = get_owner(r)
+        symbol = r.symbol
+        print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value), :$(symbol))")
     end
 end
 
-function take!(src::AllBound, src_symbol::Symbol)
-    validate_symbol(src, src_symbol)
-    value = if isbitstype(typeof(request_value(src, Val(:read))))
+function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
+    src_symbol isa Symbol && validate_symbol(src, src_symbol)
+    value = if isbitstype(T)
         # For isbits types, we do not need to worry
         # about the original getting modified, and thus
         # we do NOT need to deepcopy it.
@@ -170,8 +188,8 @@ function take!(src::AllBound, src_symbol::Symbol)
     return value
 end
 
-function take(src::AllBound, src_symbol::Symbol)
-    validate_symbol(src, src_symbol)
+function take(src::Union{AllBound,LazyAccessor}, src_symbol)
+    src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = request_value(src, Val(:read))
     if isbits(value)
         return value
@@ -181,10 +199,10 @@ function take(src::AllBound, src_symbol::Symbol)
 end
 
 function move(
-    src::AllBound, src_symbol::Symbol, dest_symbol::Symbol, ::Val{mut}
-) where {mut}
-    validate_symbol(src, src_symbol)
-    value = if isbitstype(typeof(request_value(src, Val(:read))))
+    src::Union{AllBound{T},LazyAccessor{T}}, src_symbol, dest_symbol, ::Val{mut}
+) where {T,mut}
+    src_symbol isa Symbol && validate_symbol(src, src_symbol)
+    value = if isbitstype(T)
         # For isbits types, we do not need to worry
         # about the original getting modified, and thus
         # we do NOT need to deepcopy it.
@@ -209,8 +227,8 @@ function bind(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
     throw(BorrowRuleError("Cannot bind a borrowed object."))
 end
 
-function set(dest::AllBound, dest_symbol::Symbol, value)
-    validate_symbol(dest, dest_symbol)
+function set(dest::AllBound, dest_symbol, value)
+    dest_symbol isa Symbol && validate_symbol(dest, dest_symbol)
     return set_value!(dest, value)
 end
 
@@ -219,13 +237,13 @@ function set(dest::AllBorrowed, dest_symbol::Symbol, value)
     if !is_mutable(dest)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
-    return set_value!(dest.owner, value)
+    return set_value!(get_owner(dest), value)
 end
 
 function clone(
-    src::AllWrappers, src_symbol::Symbol, dest_symbol::Symbol, ::Val{mut}
+    src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
-    validate_symbol(src, src_symbol)
+    src_symbol isa Symbol && validate_symbol(src, src_symbol)
     # Get the value from either a reference or owned value:
     value = let v = request_value(src, Val(:read))
         isbits(v) ? v : deepcopy(v)
@@ -235,6 +253,8 @@ function clone(
 end
 
 function cleanup!(lifetime::Lifetime)
+    lifetime.expired[] = true
+
     # Clean up immutable references
     for owner in lifetime.immutable_refs
         owner.immutable_borrows -= 1
@@ -245,16 +265,18 @@ function cleanup!(lifetime::Lifetime)
     for owner in lifetime.mutable_refs
         owner.mutable_borrows -= 1
     end
-    return empty!(lifetime.mutable_refs)
+    empty!(lifetime.mutable_refs)
+
+    return nothing
 end
 
 function ref(
     lt::Lifetime, ref_or_owner::AllWrappers, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
     is_owner = ref_or_owner isa AllBound
-    owner = is_owner ? ref_or_owner : ref_or_owner.owner
+    owner = get_owner(ref_or_owner)
 
-    if !is_owner
+    if has_lifetime(ref_or_owner)
         @assert(
             ref_or_owner.lifetime === lt,
             "Lifetime mismatch! Nesting lifetimes is not allowed."
@@ -277,7 +299,7 @@ function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{fa
     return Borrowed(value, owner, lt, dest_symbol)
 end
 function ref(lt::Lifetime, value, r::AllBorrowed, dest_symbol::Symbol, ::Val{false})
-    return ref(lt, value, r.owner, dest_symbol, Val(false))
+    return ref(lt, value, get_owner(r), dest_symbol, Val(false))
 end
 
 function bind_for(iter, symbol, ::Val{mut}) where {mut}

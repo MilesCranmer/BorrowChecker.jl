@@ -6,6 +6,10 @@ struct MovedError <: BorrowError
     var::Symbol
 end
 
+struct ExpiredError <: BorrowError
+    var::Symbol
+end
+
 struct BorrowRuleError <: BorrowError
     msg::String
 end
@@ -17,6 +21,9 @@ end
 
 function Base.showerror(io::IO, e::MovedError)
     return print(io, "Cannot use $(e.var): value has been moved")
+end
+function Base.showerror(io::IO, e::ExpiredError)
+    return print(io, "Cannot use $(e.var): value's lifetime has expired")
 end
 function Base.showerror(io::IO, e::BorrowRuleError)
     return print(io, e.msg)

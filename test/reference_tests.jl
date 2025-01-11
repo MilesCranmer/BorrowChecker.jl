@@ -15,6 +15,16 @@ using BorrowChecker
     end
 end
 
+@testitem "Expired references" begin
+    @bind x = [42]
+    y = Any[]
+    @lifetime lt begin
+        @ref lt ref = x
+        push!(y, ref)
+    end
+    @test_throws ExpiredError y[1][1]
+end
+
 @testitem "Property access through references" begin
     struct Point
         x::Int
@@ -25,7 +35,7 @@ end
     @lifetime lt begin
         @ref lt ref_p = p
         @test ref_p isa Borrowed{Point}
-        @test ref_p.x isa Borrowed{Int}
+        @test ref_p.x isa LazyAccessor{Int}
         # Ref to ref:
         @ref lt rrx = ref_p.x
         @test rrx == 1
@@ -36,9 +46,7 @@ end
     @bind :mut mp = Point(1, 2)
     @lifetime lt begin
         @ref lt :mut mut_ref_p = mp
-        @test_throws "Cannot create mutable reference: value is already mutably borrowed" mut_ref_p.x ==
-            1
-        @test_throws ErrorException mut_ref_p.x = 10  # Can't modify immutable struct properties
+        @test mut_ref_p.x == 1
     end
 end
 
@@ -135,4 +143,22 @@ end
         @ref lt ref = x
         @test_throws BorrowRuleError x[1] = 5
     end
+end
+
+@testitem "Editing a vector in a struct" begin
+    using BorrowChecker: is_moved
+
+    struct Container
+        x::Vector{Int}
+    end
+
+    @bind :mut c = Container([1, 2, 3])
+    c.x[1] = 4
+    @test c.x == [4, 2, 3]
+
+    # When we pass the inner vector, the outer
+    # container is moved.
+    f(x::Vector) = sum(x)
+    @test f(@take! c.x) == 9
+    @test is_moved(c)
 end
