@@ -81,7 +81,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ### Automatic Borrow Checking
 
-- `BorrowChecker.@managed begin ... end`: create a scope where contextual dispatch is performed: recursively, all functions (_**in any library**_) are automatically modified to apply `@take!` to any bound input arguments.
+- `BorrowChecker.@managed begin ... end`: create a scope where contextual dispatch is performed: recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any bound input arguments.
 
 ### References and Lifetimes
 
