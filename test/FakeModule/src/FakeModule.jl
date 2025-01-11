@@ -12,8 +12,8 @@ function test()
     @test !(y isa Bound)
     # Since borrow checker is disabled, x should still be accessible
     @test x[] == 1
-    # @take should just return the value directly
-    @test (@take x)[] == 1
+    # @take! should just return the value directly
+    @test (@take! x)[] == 1
     # This error now goes undetected:
     @test x[] == 1
 

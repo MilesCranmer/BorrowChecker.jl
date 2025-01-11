@@ -14,13 +14,13 @@ include("managed.jl")
 
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError
 using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut
-using .MacrosModule: @bind, @move, @ref, @take, @set, @lifetime, @clone
+using .MacrosModule: @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 using .ManagedModule: @managed
 using .PreferencesModule: disable_borrow_checker!
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError
 export Bound, BoundMut, Borrowed, BorrowedMut
-export @bind, @move, @ref, @take, @set, @lifetime, @clone
+export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
 using .TypesModule: is_moved

@@ -11,6 +11,7 @@ using ..SemanticsModule:
     set_value!,
     validate_symbol,
     take,
+    take!,
     move,
     bind,
     bind_for,
@@ -134,11 +135,21 @@ macro move(mut_flag::QuoteNode, expr::Expr)
 end
 
 """
-    @take var
+    @take! var
 
 Take ownership of a value, typically used in function arguments.
 Returns the inner value and marks the original as moved.
 For `isbits` types, this will return a copy and not mark the original as moved.
+"""
+macro take!(var)
+    is_borrow_checker_enabled(__module__) || return esc(var)
+    return esc(:($(take!)($(var), $(QuoteNode(var)))))
+end
+
+"""
+    @take var
+
+Returns the inner value and does a deepcopy. This does _not_ mark the original as moved.
 """
 macro take(var)
     is_borrow_checker_enabled(__module__) || return esc(var)

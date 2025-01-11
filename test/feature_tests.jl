@@ -12,7 +12,7 @@ using BorrowChecker
 
     # Test taking ownership in function calls
     @bind :mut x = [1, 2, 3]
-    @bind :mut result = consume_vector(@take x)
+    @bind :mut result = consume_vector(@take! x)
     @test result == [1, 2, 3, 4]
     @test is_moved(x)
     @lifetime lt begin
@@ -20,7 +20,7 @@ using BorrowChecker
     end
 
     # Can't take ownership twice
-    @test_throws MovedError consume_vector(@take x)
+    @test_throws MovedError consume_vector(@take! x)
 
     # Test borrowing in function calls
     function borrow_vector(v)
@@ -195,12 +195,12 @@ end
 @testitem "Symbol Checking" begin
     using BorrowChecker: is_moved
 
-    # Test that symbol checking works for @take
+    # Test that symbol checking works for @take!
     @bind :mut x = 42
     y = x  # This is illegal - should use @move
     @test_throws(
         "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
-        @take y
+        @take! y
     )
 
     # Test that symbol checking works for @move
@@ -224,7 +224,7 @@ end
 end
 
 @testitem "Managed ownership transfer" begin
-    using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
+    using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
 
     # Define a function that expects a raw Int
     function add_one!(x::Ref{Int})
@@ -248,7 +248,7 @@ end
 end
 
 @testitem "Managed ownership transfer with keyword arguments" begin
-    using BorrowChecker: BorrowChecker, MovedError, @bind, @take, is_moved
+    using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
 
     # Define a function that expects raw values in both positional and keyword arguments
     function add_with_offset!(x::Ref{Int}; offset::Ref{Int})
@@ -294,7 +294,7 @@ end
     @bind x = 42
     @test x.symbol == :x
     y = x  # This will create the wrong symbol association
-    @test_throws SymbolMismatchError @take y  # wrong symbol
+    @test_throws SymbolMismatchError @take! y  # wrong symbol
 
     # Test symbol validation for references
     @lifetime lt begin
@@ -347,9 +347,9 @@ end
         @test x.symbol == :x
         @set accumulator = accumulator + x
         y = x
-        @test_throws SymbolMismatchError @take(y)
+        @test_throws SymbolMismatchError @take!(y)
     end
-    @test (@take accumulator) == 6
+    @test (@take! accumulator) == 6
 end
 
 @testitem "Mutable for loop binding" begin
@@ -363,7 +363,7 @@ end
         @set x = x + 1  # Test mutability
         @set accumulator = accumulator + x
     end
-    @test (@take accumulator) == 9
+    @test (@take! accumulator) == 9
 end
 
 @testitem "For loop move semantics" begin
@@ -372,8 +372,8 @@ end
     # Test nested for loop binding
     @bind :mut matrix = []
     @bind for i in [Ref(1), Ref(2)]  # We test non-isbits to verify moved semantics
-        @take i
-        @test_throws MovedError @take i
+        @take! i
+        @test_throws MovedError @take! i
     end
 end
 
@@ -385,12 +385,12 @@ end
         @bind :mut row = []
         @bind for j in [Ref(1), Ref(2)]
             @clone i_copy = i
-            push!(row, (@take(i_copy).x, @take(j).x))
+            push!(row, (@take!(i_copy).x, @take!(j).x))
 
-            @test_throws MovedError @take(i_copy)
-            @test_throws MovedError @take(j)
+            @test_throws MovedError @take!(i_copy)
+            @test_throws MovedError @take!(j)
         end
-        push!(matrix, @take(row))
+        push!(matrix, @take!(row))
         @test !is_moved(i)  # We only cloned it; never moved
     end
     @test matrix == [[(1, 1), (1, 2)], [(2, 1), (2, 2)]]
@@ -405,9 +405,9 @@ end
         @bind :mut for j in [Ref(1), Ref(2)]
             @clone i_copy = i
             @set j = Ref(15)
-            push!(row, (@take(i_copy).x, @take(j).x))
+            push!(row, (@take!(i_copy).x, @take!(j).x))
         end
-        push!(matrix, @take(row))
+        push!(matrix, @take!(row))
     end
     @test matrix == [[(1, 15), (1, 15)], [(2, 15), (2, 15)]]
 end
@@ -418,7 +418,7 @@ end
     @test x isa Bound{Vector{Int}}
     @move y = x
     @test y isa Bound{Vector{Int}}
-    @test_throws MovedError @take x
+    @test_throws MovedError @take! x
 
     # Now test that it can be disabled via preferences
     push!(LOAD_PATH, joinpath(@__DIR__, "FakeModule"))
@@ -497,7 +497,7 @@ end
                 @test x isa Borrowed{Int}
                 @test x.symbol == :x
                 @clone inner = x
-                push!(flat, @take(inner))
+                push!(flat, @take!(inner))
             end
         end
         @test !is_moved(matrix)

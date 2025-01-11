@@ -11,7 +11,7 @@ using BorrowChecker
         # (Oops, I forgot to make this Atomic!)
         @bind :mut shared_counter = Ref(0)
         Threads.@threads for _ in 1:10000
-            increment_counter!(@take shared_counter)
+            increment_counter!(@take! shared_counter)
         end
     end
     @test_throws "Cannot use shared_counter: value has been moved" bc_create_thread_race()
@@ -22,7 +22,7 @@ using BorrowChecker
         for _ in 1:thread_count
             @set local_counter = local_counter + 1
         end
-        @take local_counter
+        @take! local_counter
     end
     function bc_correct_counter()
         @bind num_threads = 4
@@ -32,10 +32,10 @@ using BorrowChecker
         for t_id in 1:num_threads
             @bind thread_count =
                 count_per_thread + (t_id == 1) * (total_count % num_threads)
-            @bind t = Threads.@spawn counter($(@take thread_count))
-            push!(tasks, @take(t))
+            @bind t = Threads.@spawn counter($(@take! thread_count))
+            push!(tasks, @take!(t))
         end
-        return sum(map(fetch, @take(tasks)))
+        return sum(map(fetch, @take!(tasks)))
     end
 
     @test bc_correct_counter() == 10000

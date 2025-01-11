@@ -63,9 +63,9 @@ end
         @test ref2 == 42
     end
 
-    # Same with @take
+    # Same with @take!
     @bind z = 42
-    @test (@take z) == 42
+    @test (@take! z) == 42
     @lifetime lt begin
         # z is still valid since it was cloned:
         @ref lt ref = z
@@ -233,7 +233,7 @@ end
 
     # Test take behavior (should clone)
     @bind r = Point2D(3.0, 4.0)
-    @test (@take r).x == 3.0
+    @test (@take! r).x == 3.0
     @lifetime lt begin
         @ref lt ref = r
         @test ref.x == 3.0  # r is still valid since Point2D is isbits
@@ -257,4 +257,17 @@ end
         @ref lt ref = x
         @test_throws BorrowRuleError @bind y = ref
     end
+end
+
+@testitem "non-destructive take" begin
+    using BorrowChecker: is_moved
+
+    @bind x = [1, 2, 3]
+    @test (@take x) == [1, 2, 3]
+    @test !is_moved(x)
+    @test x == [1, 2, 3]
+    @test (@take x) !== x
+    @take! x
+    @test is_moved(x)
+    @test_throws MovedError @take x
 end

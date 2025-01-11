@@ -150,7 +150,7 @@ function Base.show(io::IO, r::AllBorrowed)
     end
 end
 
-function take(src::AllBound, src_symbol::Symbol)
+function take!(src::AllBound, src_symbol::Symbol)
     validate_symbol(src, src_symbol)
     value = if isbitstype(typeof(request_value(src, Val(:read))))
         # For isbits types, we do not need to worry
@@ -164,6 +164,16 @@ function take(src::AllBound, src_symbol::Symbol)
         v
     end
     return value
+end
+
+function take(src::AllBound, src_symbol::Symbol)
+    validate_symbol(src, src_symbol)
+    value = request_value(src, Val(:read))
+    if isbits(value)
+        return value
+    else
+        return deepcopy(value)
+    end
 end
 
 function move(

@@ -58,7 +58,7 @@ println(length(x))
 
 You see, the `@bind` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The `@move` then moves the object to `y`, and trips a `.moved` flag on `x` so it can't be used by regular operations. 
 
-However, this does not prevent you from cheating the system and using `y = x` (though the code has ways that attempt to flag such mistakes). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+However, this does not prevent you from cheating the system and using `y = x` (though the code has ways that attempt to flag such mistakes). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
 First, some important disclaimers:
 
@@ -74,7 +74,8 @@ Now, with that out of the way, let's see the reference and then some more detail
 - `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified)
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
-- `@take var`: Unwrap an owned value to pass ownership to an external function
+- `@take! var`: Unwrap an owned value (marking the original as moved)
+- `@take var`: Unwrap an owned value and deepcopy it (does _not_ mark the original as moved)
 
 ### References and Lifetimes
 
@@ -85,17 +86,10 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 - `@set x = value`: Assign a new value to an existing owned mutable variable
 
-### Property Access
-
-For owned values and references, property access follows these rules:
-
-- `@take x`: Extract the wrapped value of `x`, exiting the BorrowChecker.jl system and allowing direct access to the value. `x` loses ownership and can't be used after this.
-- `getproperty`/`setproperty!`: Ownership will be transferred when necessary, and errors will be thrown when determined by ownership rules.
-
 ### Loops
 
 - `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
-- `@ref [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element.
+- `@ref lt for var in iter`: Create a loop over a bound iterable, generating references to each element.
 
 ### Disabling BorrowChecker
 
@@ -140,7 +134,7 @@ We could also do this by unpacking the value, which _moves_
 ownership:
 
 ```julia
-julia> (@take x) == [1]
+julia> (@take! x) == [1]
 true
 
 julia> x
@@ -323,6 +317,6 @@ julia> @bind :mut for x in 1:3
            @set accumulator = accumulator + x
        end
 
-julia> @take accumulator
+julia> @take! accumulator
 6
 ```
