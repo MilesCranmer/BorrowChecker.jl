@@ -1,7 +1,7 @@
 name = "BorrowChecker"
 uuid = "7bdcaa52-c310-4bb0-bf54-d941056ed284"
 authors = ["MilesCranmer <miles.cranmer@gmail.com>"]
-version = "0.0.2"
+version = "0.0.3"
 
 [deps]
 Cassette = "7057c7e9-c182-5462-911a-8362d720325c"
