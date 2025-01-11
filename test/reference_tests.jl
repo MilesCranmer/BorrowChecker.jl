@@ -23,6 +23,29 @@ end
         push!(y, ref)
     end
     @test_throws ExpiredError y[1][1]
+
+    # Also test showerror coverage
+    err = try
+        y[1][1]
+    catch e
+        e
+    end
+    output = sprint(io -> showerror(io, err))
+    @test occursin("value's lifetime has expired", output)
+end
+
+@testitem "Lifetime nesting restrictions" begin
+    @bind arr = [10, 20, 30]
+    @lifetime outerLT begin
+        @ref outerLT refA = arr
+        @lifetime innerLT begin
+            # Attempt to re-bind refA with a different lifetime
+            # triggers "Lifetime mismatch! Nesting lifetimes is not allowed."
+            @test_throws AssertionError begin
+                @ref innerLT refB = refA
+            end
+        end
+    end
 end
 
 @testitem "Property access through references" begin

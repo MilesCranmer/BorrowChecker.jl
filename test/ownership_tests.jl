@@ -51,6 +51,17 @@ end
     end
 end
 
+# Additional test for MovedError on array access
+@testitem "MovedError on array access" begin
+    using BorrowChecker: is_moved
+
+    # Test that accessing a moved value throws MovedError
+    @bind c = [10, 20]
+    @move d = c
+    @test is_moved(c)
+    @test_throws MovedError c[1]
+end
+
 @testitem "Primitive Types" begin
     # Primitives are isbits types, so they are cloned rather than moved
     @bind x = 42
@@ -71,6 +82,16 @@ end
         @ref lt ref = z
         @test ref == 42
     end
+end
+
+@testitem "No move for isbits values with take" begin
+    using BorrowChecker: is_moved
+
+    # Test that taking isbits values doesn't actually move them
+    @bind x = 123
+    val = @take! x
+    @test val == 123
+    @test !is_moved(x)
 end
 
 @testitem "mutability check works" begin
