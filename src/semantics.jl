@@ -292,12 +292,17 @@ function ref(
     end
 end
 
-# These methods are used for immutable references to a field _in_ an object
+# These methods are used for references to a field _in_ an object
 function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{false})
     return Borrowed(value, owner, lt, dest_symbol)
 end
-function ref(lt::Lifetime, value, r::AllBorrowed, dest_symbol::Symbol, ::Val{false})
-    return ref(lt, value, get_owner(r), dest_symbol, Val(false))
+function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{true})
+    return BorrowedMut(value, owner, lt, dest_symbol)
+end
+function ref(
+    lt::Lifetime, value, r::AllBorrowed, dest_symbol::Symbol, ::Val{mut}
+) where {mut}
+    return ref(lt, value, get_owner(r), dest_symbol, Val(mut))
 end
 
 function bind_for(iter, symbol, ::Val{mut}) where {mut}
@@ -311,11 +316,23 @@ end
 function ref_for(
     lt::Lifetime, ref_or_owner::Union{AllBound,Borrowed}, symbol, ::Val{mut}
 ) where {mut}
+    owner = get_owner(ref_or_owner)
     value = request_value(ref_or_owner, Val(:read))
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
     return Iterators.map(
-        ((x, s),) -> ref(lt, x, ref_or_owner, s, Val(mut)), zip(value, symbols)
+        ((i, (x, s)),) -> let
+            if i > 1 && owner.mutable_borrows == 1
+                # Since this is a single array, we are
+                # technically only referencing it once.
+                pop!(lt.mutable_refs)
+                owner.mutable_borrows = 0
+                # TODO: This is very slow and not safe
+            end
+            ref(lt, x, ref_or_owner, s, Val(mut))
+        end,
+        enumerate(zip(value, symbols)),
     )
+    # TODO: Make this more robust
 end
 
 end

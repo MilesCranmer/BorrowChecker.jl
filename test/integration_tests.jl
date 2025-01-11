@@ -74,3 +74,51 @@ end
     # dt is isbits, so isn't moved, but copied
     @test !is_moved(dt)
 end
+
+@testitem "Usage example 2" begin
+    struct Point
+        x::Float64
+        y::Float64
+    end
+    mutable struct Particle
+        position::Point
+        velocity::Point
+    end
+
+    function update_velocity!(p::Union{T,BorrowedMut{T}}, dt::Float64) where {T<:Particle}
+        p.position = Point(
+            p.position.x + p.velocity.x * dt, p.position.y + p.velocity.y * dt
+        )
+        return nothing
+    end
+
+    @bind :mut particles = [
+        Particle(Point(0.0, 0.0), Point(1.0, 1.0)),
+        Particle(Point(0.0, 0.0), Point(1.0, -0.5)),
+        Particle(Point(0.0, 0.0), Point(2.0, 0.5)),
+    ]
+
+    @bind nsteps = 100
+    @bind dt = 0.1
+    for _ in 1:nsteps
+        @lifetime a let
+            @ref a :mut for p in particles
+                update_velocity!(p, @take(dt))
+            end
+        end
+    end
+
+    @test particles[2].position.x ≈ (0.0 + 1.0 * nsteps * dt)
+    @test particles[2].position.y ≈ (0.0 - 0.5 * nsteps * dt)
+
+    # If we had repeated the references, this would have broken:
+    @test_throws "Cannot access original while mutably borrowed" begin
+        @lifetime a let
+            for _ in 1:nsteps
+                @ref a :mut for p in particles
+                    update_velocity!(p, @take(dt))
+                end
+            end
+        end
+    end
+end

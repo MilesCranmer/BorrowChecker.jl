@@ -139,7 +139,9 @@ for op in (
     :*, :/, :+, :-, :^, :÷, :mod, :log,
     :atan, :atand, :copysign, :flipsign,
     :&, :|, :⊻, ://, :\, :(:), :rem, :cmp,
+    :isapprox,
 )
+    # TODO: Forward kwargs
     @eval begin
         function Base.$(op)(l::Number, r::AllWrappers{<:Number})
             return Base.$(op)(l, request_value(r, Val(:read)))

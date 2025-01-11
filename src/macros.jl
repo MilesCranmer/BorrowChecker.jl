@@ -182,13 +182,8 @@ end
 
 Create a lifetime scope for references. References created with this lifetime
 are only valid within the block and are automatically cleaned up when the block exits.
-Can be used with either begin/end blocks or let blocks.
 """
-macro lifetime(name::Symbol, expr)
-    if !(Meta.isexpr(expr, :block) || Meta.isexpr(expr, :let))
-        error("@lifetime requires a block expression")
-    end
-
+macro lifetime(name::Symbol, expr::Expr)
     if !is_borrow_checker_enabled(__module__)
         return esc(
             quote
@@ -224,6 +219,9 @@ Create a reference to an owned value within the given lifetime scope.
 If `:mut` is not specified, creates an immutable reference.
 Otherwise, creates a mutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
+
+!!! warning
+    This will not detect aliasing in the iterator.
 """
 macro ref(lifetime::Symbol, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
@@ -261,7 +259,18 @@ macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
         src = expr.args[2]
         return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
     elseif Meta.isexpr(expr, :for)
-        error("@ref lifetime :mut does not yet support for loops")
+        # Handle for loop case
+        loop_var = expr.args[1].args[1]
+        iter = expr.args[1].args[2]
+        body = expr.args[2]
+        return esc(
+            quote
+                for $loop_var in
+                    $(ref_for)($lifetime, $iter, $(QuoteNode(loop_var)), Val(true))
+                    $body
+                end
+            end,
+        )
     else
         error("@ref lifetime :mut requires an assignment expression or for loop")
     end

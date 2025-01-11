@@ -89,7 +89,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 ### Loops
 
 - `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
-- `@ref lt for var in iter`: Create a loop over a bound iterable, generating references to each element.
+- `@ref lt [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element.
 
 ### Disabling BorrowChecker
 
