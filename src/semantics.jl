@@ -240,9 +240,7 @@ function set(dest::AllBorrowed, dest_symbol::Symbol, value)
     return set_value!(get_owner(dest), value)
 end
 
-function clone(
-    src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}
-) where {mut}
+function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) where {mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     # Get the value from either a reference or owned value:
     value = let v = request_value(src, Val(:read))

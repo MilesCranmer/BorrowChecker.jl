@@ -111,9 +111,8 @@ end
     @bind x = [A(1.0), A(2.0), A(3.0)]
     @lifetime lt begin
         @ref lt ref = x
-        @show ref[1]
-        # @test ref[1] == A(1.0)
-        # @test ref[1] isa Borrowed{A}
+        @test ref[1].a == 1.0
+        @test ref[1] isa LazyAccessor{A,<:Any,<:Any,<:Borrowed{<:Vector{A}}}
     end
 end
 
