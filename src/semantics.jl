@@ -171,6 +171,16 @@ function Base.show(io::IO, r::AllBorrowed)
         print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value), :$(symbol))")
     end
 end
+function Base.show(io::IO, r::LazyAccessor)
+    owner = get_owner(r)
+    if is_moved(owner)
+        print(io, "[moved]")
+    else
+        value = request_value(r, Val(:read))
+        print(io, value)
+        # TODO: What's the right way to print this?
+    end
+end
 
 function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
