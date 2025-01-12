@@ -34,15 +34,17 @@ end
 
 #! format: off
 const SKIP_METHODS = (
-    Base.getindex, Base.setindex!, Base.getproperty,
-    Base.setproperty!, Base.getfield, Base.setfield!
+    Base.getindex, Base.setindex!,
+    Base.getproperty, Base.setproperty!,
+    Base.getfield, Base.setfield!,
 )
 #! format: on
-function skip_method(f)
+function skip_method(f::Union{Function,Type})
     # Don't modify our own methods!
     own_function = parentmodule(parentmodule(f)) == parentmodule(@__MODULE__)
     return own_function || f in SKIP_METHODS
 end
+skip_method(_) = false
 
 # Overdub all method calls, other than the ones defined in our library,
 # to automatically take ownership of Bound/BoundMut arguments
@@ -52,6 +54,7 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
         args[1] isa Core.Box &&
         args[2] == :contents &&
         args[3] isa AllBound
+        #
         symbol = args[3].symbol
         error("You are not allowed to capture bound variable `$(symbol)` inside a closure.")
     end

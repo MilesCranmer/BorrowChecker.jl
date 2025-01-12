@@ -330,6 +330,20 @@ end
     end
 end
 
+@testitem "Cassette context forbids capturing bound variables" begin
+    using BorrowChecker: BorrowChecker, @bind
+
+    function g()
+        @bind x = 1
+        inner() = (x = x + 1; nothing)
+        inner()
+        return x
+    end
+    @test_throws "You are not allowed to capture bound variable `x` inside a closure." begin
+        BorrowChecker.@managed g()
+    end
+end
+
 @testitem "Symbol validation" begin
     using BorrowChecker: SymbolMismatchError, is_moved
 

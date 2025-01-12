@@ -209,6 +209,10 @@ function take(src::Union{AllBound,LazyAccessor}, src_symbol)
     end
 end
 
+# Fallbacks
+take!(x, _) = x
+take(x, _) = deepcopy(x)
+
 function move(
     src::Union{AllBound{T},LazyAccessor{T}}, src_symbol, dest_symbol, ::Val{mut}
 ) where {T,mut}
