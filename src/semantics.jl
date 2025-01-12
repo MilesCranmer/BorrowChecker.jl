@@ -345,16 +345,27 @@ function (m::RefMapper{mut})((i, (x, s))) where {mut}
     # technically only referencing it once.
     if i > 1
         if mut
-            Base.@lock m.lifetime.mutables_lock pop!(m.lifetime.mutable_refs)
+            pop_owner!(m.lifetime.mutable_refs, m.owner, m.lifetime.mutables_lock)
             decrement_mutable_borrows!(m.owner)
         else
-            # TODO: pop! is not safe here! We could be popping the incorrect owner!
-            Base.@lock m.lifetime.immutables_lock pop!(m.lifetime.immutable_refs)
+            pop_owner!(m.lifetime.immutable_refs, m.owner, m.lifetime.immutables_lock)
             decrement_immutable_borrows!(m.owner)
         end
         # TODO: Verify this in tests, for extra (im)mutable before/after loop
     end
     return ref(m.lifetime, x, m.ref, s, Val(mut))
 end
+function pop_owner!(refs::Vector, owner::AllBound, lock)
+    Base.@lock lock begin
+        i = findlast(Base.Fix1(===, owner), refs)
+        if isnothing(i)
+            error("We could not find the owner in the mutable refs. Please submit a bug report.")
+        else
+            popat!(refs, i)
+        end
+    end
+end
+# TODO: Much simpler if we just don't add the owner in the first place.
+#       There should be a better overall design here.
 
 end
