@@ -37,12 +37,10 @@ function validate_symbol(r::AllBound, expected_symbol::Symbol)
     end
 end
 
-function validate_symbol(r::AllBorrowed, expected_symbol::Symbol)
-    if expected_symbol != r.symbol &&
-        r.symbol != :anonymous &&
-        expected_symbol != :anonymous
-        throw(SymbolMismatchError(r.symbol, expected_symbol))
-    end
+function validate_symbol(::AllBorrowed, _::Symbol)
+    # We don't check borrowed symbols, since
+    # they are typically passed to functions
+    return nothing
 end
 
 # Skip validation for primitive types

@@ -364,26 +364,19 @@ end
     @test !is_moved(a)  # Original not moved
 
     # Test symbol validation for bound values
-    @bind x = 42
+    @bind :mut x = 42
     @test x.symbol == :x
     y = x  # This will create the wrong symbol association
     @test_throws SymbolMismatchError @take! y  # wrong symbol
 
     # Test symbol validation for references
     @lifetime lt begin
-        @ref lt rx = x
+        @ref lt :mut rx = x
         @test rx.symbol == :rx
         ry = rx
-        @test_throws SymbolMismatchError @set ry = 43
-    end
-
-    # Test symbol validation for mutable references
-    @bind :mut y = [1, 2, 3]
-    @lifetime lt begin
-        @ref lt :mut ry = y
-        @test ry.symbol == :ry
-        rz = ry
-        @test_throws SymbolMismatchError @set rz = [4, 5, 6]
+        # Symbol validation does NOT trigger
+        # for ref
+        @take ry
     end
 
     # # Test symbol validation for move
@@ -399,15 +392,6 @@ end
     @test_throws SymbolMismatchError @clone wrong = b
     @clone c = a
     @test c.symbol == :c
-
-    # Test symbol validation through references
-    @lifetime lt begin
-        @ref lt ra = a
-        ra2 = ra
-        @test_throws SymbolMismatchError @clone tmp = ra2  # wrong source symbol
-        @clone c = ra  # correct symbols
-        @test c.symbol == :c
-    end
 end
 
 @testitem "Basic for loop binding" begin
