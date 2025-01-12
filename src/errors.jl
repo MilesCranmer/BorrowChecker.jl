@@ -1,19 +1,44 @@
 module ErrorsModule
 
+"""
+    abstract type BorrowError <: Exception end
+
+Base type for all errors related to borrow checking rules.
+"""
 abstract type BorrowError <: Exception end
 
+"""
+    MovedError <: BorrowError
+
+Error thrown when attempting to use a value that has been moved.
+"""
 struct MovedError <: BorrowError
     var::Symbol
 end
 
+"""
+    ExpiredError <: BorrowError
+
+Error thrown when attempting to use a reference whose lifetime has expired.
+"""
 struct ExpiredError <: BorrowError
     var::Symbol
 end
 
+"""
+    BorrowRuleError <: BorrowError
+
+Error thrown when attempting to violate borrow checking rules, such as having multiple mutable references.
+"""
 struct BorrowRuleError <: BorrowError
     msg::String
 end
 
+"""
+    SymbolMismatchError <: BorrowError
+
+Error thrown when attempting to reassign a variable without using proper ownership transfer mechanisms.
+"""
 struct SymbolMismatchError <: BorrowError
     expected::Symbol
     current::Symbol

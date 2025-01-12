@@ -9,9 +9,38 @@ function is_moved end
 function unsafe_access end
 function get_owner end
 
+"""
+    abstract type AbstractBound{T} end
+
+Abstract supertype for all bound value types in the BorrowChecker system.
+"""
 abstract type AbstractBound{T} end
+
+"""
+    abstract type AbstractBorrowed{T} end
+
+Abstract supertype for all borrowed reference types in the BorrowChecker system.
+"""
 abstract type AbstractBorrowed{T} end
 
+"""
+    Bound{T}
+
+An immutable bound value. Common operations:
+- Create using `@bind x = value`
+- Access value using `@take!` (moves) or `@take` (copies)
+- Borrow using `@ref`
+- Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
+
+Once moved, the value cannot be accessed again.
+
+# Internal fields (not part of public API):
+
+- `value::T`: The contained value
+- `moved::Bool`: Whether the value has been moved
+- `immutable_borrows::Int`: Count of active immutable borrows
+- `symbol::Symbol`: Variable name for error reporting
+"""
 mutable struct Bound{T} <: AbstractBound{T}
     const value::T
     @atomic moved::Bool
@@ -28,6 +57,26 @@ end
 # TODO: Store a random hash in `get_task_storage` and
 #       validate it to ensure we have not moved tasks.
 
+"""
+    BoundMut{T}
+
+A mutable bound value. Common operations:
+- Create using `@bind :mut x = value`
+- Access value using `@take!` (moves) or `@take` (copies)
+- Modify using `@set`
+- Borrow using `@ref` or `@ref :mut`
+- Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
+
+Once moved, the value cannot be accessed again.
+
+# Internal fields (not part of public API):
+
+- `value::T`: The contained value
+- `moved::Bool`: Whether the value has been moved
+- `immutable_borrows::Int`: Count of active immutable borrows
+- `mutable_borrows::Int`: Count of active mutable borrows
+- `symbol::Symbol`: Variable name for error reporting
+"""
 mutable struct BoundMut{T} <: AbstractBound{T}
     @atomic value::T
     @atomic moved::Bool
@@ -59,6 +108,24 @@ struct NoLifetime end
 
 Base.in(x, ::NoLifetime) = x
 
+"""
+    Borrowed{T,O<:AbstractBound}
+
+An immutable reference to a bound value. Common operations:
+- Create using `@ref lt x = value`
+- Access value using `@take` (copies)
+- Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
+
+Multiple immutable references can exist simultaneously.
+The reference is valid only within its lifetime scope.
+
+# Internal fields (not part of public API):
+
+- `value::T`: The referenced value
+- `owner::O`: The original bound value
+- `lifetime::Lifetime`: The scope in which this reference is valid
+- `symbol::Symbol`: Variable name for error reporting
+"""
 struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
     value::T
     owner::O
@@ -90,6 +157,24 @@ struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
     end
 end
 
+"""
+    BorrowedMut{T,O<:BoundMut}
+
+A mutable reference to a bound value. Common operations:
+- Create using `@ref lt :mut x = value`
+- Access value using `@take` (copies)
+- Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
+
+Only one mutable reference can exist at a time,
+and no immutable references can exist simultaneously.
+
+# Internal fields (not part of public API):
+
+- `value::T`: The referenced value
+- `owner::O`: The original bound value
+- `lifetime::Lifetime`: The scope in which this reference is valid
+- `symbol::Symbol`: Variable name for error reporting
+"""
 struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
     value::T
     owner::O
@@ -131,6 +216,26 @@ struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
     end
 end
 
+"""
+    LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
+
+A lazy accessor for properties or indices of bound or borrowed values.
+Maintains ownership semantics while allowing property/index access without copying or moving.
+
+Created automatically when accessing properties or indices of bound/borrowed values:
+
+```julia
+@bind x = (a=1, b=2)
+x.a  # Returns a LazyAccessor
+```
+
+# Internal fields (not part of public API):
+
+- `parent::P`: The parent value being accessed
+- `property::S`: The property/index being accessed
+- `property_type::Type{T}`: Type of the accessed property/index
+- `target::O`: The original bound/borrowed value
+"""
 struct LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
     parent::P
     property::S
