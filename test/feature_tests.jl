@@ -1021,3 +1021,235 @@ end
     s = sprint(show, r1)
     @test s == "[moved]"
 end
+
+@testitem "Tuple Operations" begin
+    # Test tuple indexing
+    @bind t = (1, [2], 3)
+    @test t[1] == 1  # isbits element
+    @test t[2] == [2]  # non-isbits element
+    @test t[2] isa LazyAccessor  # non-isbits elements return LazyAccessor
+
+    # Test tuple operations with references
+    @lifetime lt begin
+        @ref lt ref = t
+        @test ref[1] == 1
+        @test ref[2] == [2]
+        @test ref[2] isa LazyAccessor
+    end
+
+    # Test tuple operations with bound values
+    @bind :mut mt = ([1], [2], [3])
+    @lifetime lt begin
+        @ref lt :mut ref = mt
+        @test ref[1] == [1]
+        @test ref[1] isa LazyAccessor
+    end
+end
+
+@testitem "Comparison Operators" begin
+    # Test comparison operators with bound values
+    @bind x = 42
+    @bind y = 42
+
+    @test x == y
+    @test x == 42
+    @test 42 == x
+    @test isequal(x, y)
+    @test isequal(x, 42)
+    @test isequal(42, x)
+
+    # Test comparison operators with references
+    @lifetime lt begin
+        @ref lt rx = x
+        @ref lt ry = y
+
+        @test rx == ry
+        @test rx == 42
+        @test 42 == rx
+        @test isequal(rx, ry)
+        @test isequal(rx, 42)
+        @test isequal(42, rx)
+    end
+
+    # Nothing operator
+    @bind n = nothing
+    @test isnothing(n)
+
+    # Test ordering operators
+    @bind a = 1
+    @bind b = 2
+    @test a < b
+    @test a <= b
+    @test a < 2
+    @test a <= 2
+    @test b > 1
+    @test b >= 1
+
+    # Test with references
+    @lifetime lt begin
+        @ref lt ra = a
+        @ref lt rb = b
+        @test ra < rb
+        @test ra <= rb
+        @test rb > ra
+        @test rb >= ra
+    end
+
+    # Test isnothing
+    @bind n = nothing
+    @test isnothing(n)
+    @lifetime lt begin
+        @ref lt rn = n
+        @test isnothing(rn)
+    end
+end
+
+@testitem "copy! Operation" begin
+    # Test copy! with bound values
+    @bind :mut dest = [1, 2, 3]
+    @bind src = [4, 5, 6]
+    copy!(dest, src)
+    @test dest == [4, 5, 6]
+
+    # And with Dict
+    @bind :mut dest2 = Dict()
+    @bind src2 = Dict(:a => 1, :b => 2)
+    @lifetime lt begin
+        @ref lt :mut rdest = dest2
+        @ref lt rsrc = src2
+        copy!(rdest, rsrc)
+        @test rdest == Dict(:a => 1, :b => 2)
+    end
+end
+
+@testitem "_maybe_read Coverage" begin
+    # Test _maybe_read with bound values in indexing
+    @bind :mut arr = [[1], [2], [3]]
+    @bind idx = 2
+    @test arr[idx] == [2]  # Uses _maybe_read on the index
+
+    # Test with references
+    @lifetime lt begin
+        @ref lt :mut rarr = arr
+        @ref lt ridx = idx
+        @test rarr[ridx] == [2]  # Uses _maybe_read on both array and index
+    end
+
+    # Test with dictionary
+    @bind :mut dict = Dict(:a => 1, :b => 2)
+    @bind key = :a
+    @test dict[key] == 1  # Uses _maybe_read on the key
+
+    @lifetime lt begin
+        @ref lt :mut rdict = dict
+        @ref lt rkey = key
+        @test rdict[rkey] == 1  # Uses _maybe_read on both dict and key
+    end
+end
+
+@testitem "Type Alias Behavior" begin
+    using BorrowChecker: OrBorrowed, OrBorrowedMut
+
+    # Test function that accepts either raw value or borrowed value
+    function accepts_borrowed(x::OrBorrowed{Vector})
+        return length(x)
+    end
+    function accepts_borrowed_mut(x::OrBorrowedMut{Vector})
+        push!(x, 4)
+        return x
+    end
+
+    # Test with raw value
+    @test accepts_borrowed([1, 2, 3]) == 3
+
+    # Test with borrowed value
+    @bind vec = [1, 2, 3]
+    @lifetime lt begin
+        @ref lt ref = vec
+        @test accepts_borrowed(ref) == 3
+    end
+
+    # Test with mutable borrowed value
+    @bind :mut mvec = [1, 2, 3]
+    @lifetime lt begin
+        @ref lt :mut mref = mvec
+        accepts_borrowed_mut(mref)
+        @test mref == [1, 2, 3, 4]
+    end
+
+    # Test with LazyAccessor
+    @bind :mut container = [[1, 2, 3]]
+    @lifetime lt begin
+        @ref lt ref = container
+        # First test immutable access
+        @test accepts_borrowed(ref[1]) == 3
+    end
+end
+
+@testitem "Complex Tuple Operations" begin
+    # Test tuple with nested non-isbits
+    @bind t = ([1], ([2], [3]), [4])
+    @test t[1] isa LazyAccessor
+    @test t[2] isa LazyAccessor
+    @test t[3] isa LazyAccessor
+
+    # Test nested access
+    @test t[2][1] == [2]
+    @test t[2][1] isa LazyAccessor
+
+    # Test with references
+    @lifetime lt begin
+        @ref lt ref = t
+        @test ref[2][2] == [3]
+        @test ref[2][2] isa LazyAccessor
+    end
+
+    # Test tuple unpacking with references
+    @bind :mut tup = ([1], [2], [3])
+    @lifetime lt begin
+        @ref lt :mut ref = tup
+        @test ref[1] == [1]
+        @test ref[2] == [2]
+        @test ref[3] == [3]
+    end
+
+    # Test error cases
+    @bind :mut mt = ([1], [2])
+    @move other = mt
+    @test_throws MovedError mt[1]
+end
+
+@testitem "Additional Error Cases" begin
+    # Test error on invalid tuple index
+    @bind t = (1, 2, 3)
+    @test_throws BoundsError t[4]
+    @lifetime lt begin
+        @ref lt ref = t
+        @test_throws BoundsError ref[4]
+    end
+
+    # Test error on invalid array index with bound index
+    @bind arr = [1, 2, 3]
+    @bind idx = 4
+    @test_throws BoundsError arr[idx]
+
+    # Test error on invalid dictionary key with bound key
+    @bind dict = Dict(:a => 1)
+    @bind key = :b
+    @test_throws KeyError dict[key]
+
+    # Test error on type mismatch in comparison
+    @bind x = 1
+    @bind s = "hello"
+    @test_throws MethodError x < s
+    @lifetime lt begin
+        @ref lt rx = x
+        @ref lt rs = s
+        @test_throws MethodError rx < rs
+    end
+
+    # Test error on invalid copy!
+    @bind :mut dest = [1, 2, 3]
+    @bind src = ["a", "b", "c"]
+    @test_throws MethodError copy!(dest, src)
+end
