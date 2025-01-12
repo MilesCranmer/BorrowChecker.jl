@@ -2,6 +2,9 @@
 
 # BorrowChecker.jl
 
+[![Build Status](https://github.com/MilesCranmer/BorrowChecker.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/MilesCranmer/BorrowChecker.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://coveralls.io/repos/github/MilesCranmer/BorrowChecker.jl/badge.svg?branch=main)](https://coveralls.io/github/MilesCranmer/BorrowChecker.jl?branch=main)
+
 </div>
 
 > [!WARNING]
