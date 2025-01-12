@@ -64,7 +64,7 @@ function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
     )
 end
 function Base.view(
-    r::Union{Borrowed{A},LazyAccessorOf{Borrowed{A}}}, i...
+    r::Union{Borrowed{A},LazyAccessor{A,<:Any,<:Any,<:Borrowed}}, i...
 ) where {A<:Union{AbstractArray,Tuple}}
     return Borrowed(
         view(request_value(r, Val(:read)), map(_maybe_read, i)...),
