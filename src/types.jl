@@ -187,6 +187,7 @@ const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
 const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllBound{T}}
 const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
+const LazyAccessorOf{O} = LazyAccessor{T,P,S,O} where {T,P,S}
 
 # Type-specific utilities
 is_mutable(r::AllMutable) = true

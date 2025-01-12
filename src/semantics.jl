@@ -13,6 +13,7 @@ using ..TypesModule:
     AllImmutable,
     Lifetime,
     LazyAccessor,
+    LazyAccessorOf,
     constructorof,
     is_mutable,
     mark_moved!,
@@ -199,7 +200,7 @@ function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
     return value
 end
 
-function take(src::Union{AllBound,LazyAccessor}, src_symbol)
+function take(src::Union{AllBound,AllBorrowed,LazyAccessor}, src_symbol)
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = request_value(src, Val(:read))
     if isbits(value)
@@ -315,7 +316,7 @@ function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{tr
     return BorrowedMut(value, owner, lt, dest_symbol)
 end
 function ref(
-    lt::Lifetime, value, r::AllBorrowed, dest_symbol::Symbol, ::Val{mut}
+    lt::Lifetime, value, r::Union{AllBorrowed,LazyAccessor}, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
     return ref(lt, value, get_owner(r), dest_symbol, Val(mut))
 end
@@ -329,8 +330,8 @@ function bind_for(iter::AllBound, symbol, ::Val{mut}) where {mut}
 end
 
 function ref_for(
-    lt::Lifetime, ref_or_owner::Union{AllBound,Borrowed}, symbol, ::Val{mut}
-) where {mut}
+    lt::Lifetime, ref_or_owner::Union{B,LazyAccessorOf{B}}, symbol, ::Val{mut}
+) where {mut,B<:Union{AllBound,Borrowed}}
     owner = get_owner(ref_or_owner)
     value = request_value(ref_or_owner, Val(:read))
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol

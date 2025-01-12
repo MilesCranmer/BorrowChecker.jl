@@ -17,21 +17,30 @@ using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused
 
+_maybe_read(x) = x
+_maybe_read(x::AllWrappers) = request_value(x, Val(:read))
+
 # Container operations
-function Base.getindex(
-    o::AllEager{A}, i...
-) where {T,A<:Union{Ref{T},AbstractArray{T},Tuple{T,Vararg{T}}}}
+function Base.getindex(o::AllEager{A}, i...) where {T,A<:Union{Ref{T},AbstractArray{T}}}
     if isbitstype(T)
-        return getindex(request_value(o, Val(:read)), i...)
+        return getindex(request_value(o, Val(:read)), map(_maybe_read, i)...)
     else
-        return LazyAccessor(o, (i...,))
+        return LazyAccessor(o, (map(_maybe_read, i)...,))
+    end
+end
+function Base.getindex(o::AllEager{A}, i) where {A<:Tuple}
+    out = getindex(request_value(o, Val(:read)), _maybe_read(i))
+    if isbits(out)
+        return out
+    else
+        return LazyAccessor(o, (i,))
     end
 end
 function Base.getindex(r::LazyAccessor, i...)
-    return LazyAccessor(r, (i...,))
+    return LazyAccessor(r, (map(_maybe_read, i)...,))
 end
 function Base.setindex!(r::AllEager, value, i...)
-    setindex!(request_value(r, Val(:write)), value, i...)
+    setindex!(request_value(r, Val(:write)), value, map(_maybe_read, i)...)
     # TODO: This is not good Julia style, but otherwise we would
     #       need to return a new owned object. We have to break
     #       a lot of conventions here for safety.
@@ -40,7 +49,7 @@ end
 function Base.setindex!(r::LazyAccessor, value, i...)
     owner = getfield(r, :target)
     validate_mode(owner, Val(:write))
-    setindex!(unsafe_access(r), value, i...)
+    setindex!(unsafe_access(r), value, map(_maybe_read, i)...)
     return nothing
 end
 
@@ -53,16 +62,22 @@ function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
     )
 end
 function Base.view(r::Borrowed{A}, i...) where {A<:Union{AbstractArray,Tuple}}
-    return Borrowed(view(request_value(r, Val(:read)), i...), get_owner(r), r.lifetime)
+    return Borrowed(
+        view(request_value(r, Val(:read)), map(_maybe_read, i)...), get_owner(r), r.lifetime
+    )
 end
 
 #! format: off
 
 # --- BASIC OPERATIONS ---
-Base.haskey(r::AllWrappers, key) = haskey(request_value(r, Val(:read)), key)
-Base.:(==)(r::AllWrappers, other) = request_value(r, Val(:read)) == other
-Base.:(==)(other, r::AllWrappers) = other == request_value(r, Val(:read))
-Base.:(==)(r::AllWrappers, other::AllWrappers) = request_value(r, Val(:read)) == request_value(other, Val(:read))
+Base.isnothing(r::AllWrappers) = isnothing(request_value(r, Val(:read)))
+for op in (:(==), :haskey, :isequal)
+    @eval begin
+        Base.$(op)(r::AllWrappers, other) = $(op)(request_value(r, Val(:read)), other)
+        Base.$(op)(other, r::AllWrappers) = $(op)(other, request_value(r, Val(:read)))
+        Base.$(op)(r::AllWrappers, other::AllWrappers) = $(op)(request_value(r, Val(:read)), request_value(other, Val(:read)))
+    end
+end
 for op in (:hash, :string)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
@@ -86,11 +101,11 @@ function Base.keys(r::AllWrappers)
     end
     return k
 end
-Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), i)
+Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i))
 for op in (:pop!, :popfirst!, :empty!, :resize!)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:write)))
 end
-Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), k)
+Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k))
 for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
@@ -106,12 +121,16 @@ end
 function Base.iterate(::BorrowedMut{<:AbstractArray{T}}) where {T}
     error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref` instead.")
 end
+function Base.copy!(r::AllWrappers, src::AllWrappers)
+    copy!(request_value(r, Val(:write)), request_value(src, Val(:read)))
+    return nothing
+end
 # --- END COLLECTION OPERATIONS ---
 
 # --- DICTIONARY OPERATIONS ---
 # Dictionary-specific operations
-Base.getindex(r::AllWrappers{<:AbstractDict}, key) = getindex(request_value(r, Val(:read)), key)
-Base.delete!(r::AllWrappers{<:AbstractDict}, key) = delete!(request_value(r, Val(:write)), key)
+Base.getindex(r::AllWrappers{<:AbstractDict}, key) = getindex(request_value(r, Val(:read)), _maybe_read(key))
+Base.delete!(r::AllWrappers{<:AbstractDict}, key) = delete!(request_value(r, Val(:write)), _maybe_read(key))
 # --- END DICTIONARY OPERATIONS ---
 
 # --- STRING OPERATIONS ---
@@ -150,7 +169,7 @@ for op in (
     :*, :/, :+, :-, :^, :÷, :mod, :log,
     :atan, :atand, :copysign, :flipsign,
     :&, :|, :⊻, ://, :\, :(:), :rem, :cmp,
-    :isapprox,
+    :isapprox, :(<), :(<=), :(>), :(>=),
 )
     # TODO: Forward kwargs
     @eval begin
