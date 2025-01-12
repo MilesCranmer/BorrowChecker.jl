@@ -359,7 +359,9 @@ function pop_owner!(refs::Vector, owner::AllBound, lock)
     Base.@lock lock begin
         i = findlast(Base.Fix1(===, owner), refs)
         if isnothing(i)
-            error("We could not find the owner in the mutable refs. Please submit a bug report.")
+            error(
+                "We could not find the owner in the mutable refs. Please submit a bug report.",
+            )
         else
             popat!(refs, i)
         end

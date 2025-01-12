@@ -3,11 +3,17 @@ module StaticTraitModule
 """
     is_static(x)
 
-Approximation of the `Copy` trait in Rust.
+This trait is used to determine if we can safely
+`@take!` a value without marking the original as moved.
 
-For the most part, this is equivalent to `isbits`,
+This is somewhat analogous to the `Copy` trait in Rust,
+although because Julia immutables are truly immutable,
+we actually do not need to copy on these.
+
+For the most part, this is equal to `isbits`,
 but it also includes things like `Symbol` and `Type{T}`
-(recursively), which are not `isbits`.
+(recursively), which are not `isbits`, but which
+are immutable.
 """
 function is_static(::Type{T}) where {T}
     if isbitstype(T)
