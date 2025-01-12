@@ -47,6 +47,14 @@ end
 # Overdub all method calls, other than the ones defined in our library,
 # to automatically take ownership of Bound/BoundMut arguments
 function Cassette.overdub(ctx::ManagedCtx, f, args...)
+    if f == Core.setfield! &&
+        length(args) == 3 &&
+        args[1] isa Core.Box &&
+        args[2] == :contents &&
+        args[3] isa AllBound
+        symbol = args[3].symbol
+        error("You are not allowed to capture bound variable `$(symbol)` inside a closure.")
+    end
     if skip_method(f)
         return Cassette.fallback(ctx, f, args...)
     else
