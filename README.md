@@ -87,6 +87,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 ### Automatic Borrow Checking
 
 - `BorrowChecker.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Bound{T}` or `BoundMut{T}` input arguments.
+    - Note: this is **extra** experimental. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
 
 ### References and Lifetimes
 
