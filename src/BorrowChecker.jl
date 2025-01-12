@@ -24,7 +24,7 @@ export Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
 export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
-using .TypesModule: is_moved, get_owner, Lifetime
+using .TypesModule: is_moved, get_owner, Lifetime, LazyAccessorOf, OrBorrowed, OrBorrowedMut
 #! format: on
 
 end

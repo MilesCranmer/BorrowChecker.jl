@@ -10,9 +10,11 @@ using ..TypesModule:
     AllEager,
     AllWrappers,
     LazyAccessor,
+    LazyAccessorOf,
     constructorof,
     unsafe_access,
-    get_owner
+    get_owner,
+    get_lifetime
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused
@@ -61,9 +63,13 @@ function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
         ),
     )
 end
-function Base.view(r::Borrowed{A}, i...) where {A<:Union{AbstractArray,Tuple}}
+function Base.view(
+    r::Union{Borrowed{A},LazyAccessorOf{Borrowed{A}}}, i...
+) where {A<:Union{AbstractArray,Tuple}}
     return Borrowed(
-        view(request_value(r, Val(:read)), map(_maybe_read, i)...), get_owner(r), r.lifetime
+        view(request_value(r, Val(:read)), map(_maybe_read, i)...),
+        get_owner(r),
+        get_lifetime(r),
     )
 end
 
@@ -109,16 +115,16 @@ Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k
 for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
-function Base.iterate(::AllBound)
+function Base.iterate(::Union{AllBound,LazyAccessorOf{<:AllBound}})
     error("Use `@bind for var in iter` instead.")
 end
-function Base.iterate(r::Borrowed, state=Unused())
+function Base.iterate(r::Union{Borrowed,LazyAccessorOf{<:Borrowed}}, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
     out === nothing && return nothing
     (iter, state) = out
-    return (Borrowed(iter, get_owner(r), r.lifetime), state)
+    return (Borrowed(iter, get_owner(r), get_lifetime(r)), state)
 end
-function Base.iterate(::BorrowedMut{<:AbstractArray{T}}) where {T}
+function Base.iterate(::Union{BorrowedMut{<:AbstractArray{T}},LazyAccessorOf{<:BorrowedMut{<:AbstractArray{T}}}}, state=Unused()) where {T}
     error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref` instead.")
 end
 function Base.copy!(r::AllWrappers, src::AllWrappers)

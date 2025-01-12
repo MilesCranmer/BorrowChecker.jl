@@ -187,7 +187,11 @@ const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
 const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllBound{T}}
 const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
-const LazyAccessorOf{O} = LazyAccessor{T,P,S,O} where {T,P,S}
+const LazyAccessorOf{O} = LazyAccessor{T,P,S,<:O} where {T,P,S}
+const OrBorrowed{T} = Union{T,Borrowed{<:T},LazyAccessor{<:T,P,S,<:Borrowed} where {P,S}}
+const OrBorrowedMut{T} = Union{
+    T,BorrowedMut{<:T},LazyAccessor{<:T,P,S,<:BorrowedMut} where {P,S}
+}
 
 # Type-specific utilities
 is_mutable(r::AllMutable) = true
@@ -245,5 +249,8 @@ has_lifetime(::LazyAccessor) = false
 get_owner(r::AllBound) = r
 get_owner(r::AllBorrowed) = getfield(r, :owner)
 get_owner(r::LazyAccessor) = get_owner(getfield(r, :target))
+
+get_lifetime(r::AllBorrowed) = getfield(r, :lifetime)
+get_lifetime(r::LazyAccessorOf{AllBorrowed}) = get_lifetime(getfield(r, :target))
 
 end
