@@ -9,7 +9,7 @@ For the most part, this is equivalent to `isbits`,
 but it also includes things like `Symbol` and `Type{T}`
 (recursively), which are not `isbits`.
 """
-@generated function is_static(::Type{T}) where {T}
+function is_static(::Type{T}) where {T}
     if isbitstype(T)
         return true
     elseif T isa UnionAll || T === Union{}
