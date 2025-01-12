@@ -101,6 +101,7 @@ end
     @test is_static(Int)
     @test !is_static([1])
     @test !is_static(Vector{Int})
+    @test !is_static(Vector)
     @test is_static(Val(1))
     @test is_static('a')
     @test is_static(Union{Int,Float32})
