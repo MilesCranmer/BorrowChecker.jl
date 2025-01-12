@@ -11,13 +11,12 @@ include("preferences.jl")
 include("semantics.jl")
 include("macros.jl")
 include("overloads.jl")
-include("managed.jl")
+include("experimental.jl")
 
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
 using .MacrosModule: @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
-using .ManagedModule: @managed
 using .PreferencesModule: disable_borrow_checker!
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError

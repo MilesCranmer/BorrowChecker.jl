@@ -1,9 +1,8 @@
 """
-This module provides Cassette-based automatic ownership transfer functionality.
-It allows bound values (`Bound` and `BoundMut`) to be automatically taken when
-passed to functions, without requiring explicit `@take!` calls.
+This module provides experimental features that are not yet stable enough
+for the main API.
 """
-module ManagedModule
+module Experimental
 
 using Cassette: Cassette
 using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved
@@ -74,6 +73,9 @@ const CleanManagedCtx = Cassette.disablehooks(ManagedCtx())
 Run code with automatic ownership transfer enabled. Any `Bound` or `BoundMut` arguments
 passed to functions within the block will automatically have their ownership transferred
 using the equivalent of `@take!`.
+
+!!! warning
+    This is an experimental feature and may change or be removed in future versions.
 """
 macro managed(expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)

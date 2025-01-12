@@ -267,6 +267,7 @@ end
 
 @testitem "Managed ownership transfer" begin
     using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
+    using BorrowChecker.Experimental: @managed
 
     # Define a function that expects a raw Int
     function add_one!(x::Ref{Int})
@@ -280,7 +281,7 @@ end
     @test_throws MethodError add_one!(x)
 
     # With ownership context, it will automatically convert!
-    result = BorrowChecker.@managed add_one!(x)
+    result = @managed add_one!(x)
 
     # Correct calculation:
     @test result[] == 2
@@ -291,6 +292,7 @@ end
 
 @testitem "Managed ownership transfer with keyword arguments" begin
     using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
+    using BorrowChecker.Experimental: @managed
 
     # Define a function that expects raw values in both positional and keyword arguments
     function add_with_offset!(x::Ref{Int}; offset::Ref{Int})
@@ -303,7 +305,7 @@ end
     @bind offset = Ref(5)
 
     # With ownership context, it should automatically convert both positional and keyword args
-    result = BorrowChecker.@managed add_with_offset!(x, offset=offset)
+    result = @managed add_with_offset!(x, offset=offset)
 
     # Correct calculation:
     @test result[] == 6
@@ -326,7 +328,7 @@ end
     @test skipobj isa Bound{MySkippingType}
 
     @test_throws "type MySkippingType has no field c" begin
-        BorrowChecker.@managed setprop_for_skip!(skipobj)
+        BorrowChecker.Experimental.@managed setprop_for_skip!(skipobj)
     end
 end
 
@@ -340,7 +342,7 @@ end
         return x
     end
     @test_throws "You are not allowed to capture bound variable `x` inside a closure." begin
-        BorrowChecker.@managed g()
+        BorrowChecker.Experimental.@managed g()
     end
 end
 

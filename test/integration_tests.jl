@@ -65,7 +65,7 @@ end
     @bind :mut p = Particle(Point(0.0, 0.0), Point(1.0, 1.0))
     @bind dt = 0.1
 
-    BorrowChecker.@managed let
+    BorrowChecker.Experimental.@managed let
         update_velocity!(p, dt)
     end
 

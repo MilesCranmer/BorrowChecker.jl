@@ -84,10 +84,10 @@ Now, with that out of the way, let's see the reference and then some more detail
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
 - `@take[!] var`: Unwrap a bound value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
 
-### Automatic Borrow Checking
+### Automatic Ownership Transfer
 
-- `BorrowChecker.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Bound{T}` or `BoundMut{T}` input arguments.
-    - Note: this is **extra** experimental. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
+- `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Bound{T}` or `BoundMut{T}` input arguments.
+    - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
 
 ### References and Lifetimes
 
