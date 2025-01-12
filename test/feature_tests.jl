@@ -150,7 +150,7 @@ end
 @testitem "Symbol Tracking" begin
     using BorrowChecker: is_moved, get_owner
 
-    # Test symbol tracking for owned values
+    # Test symbol tracking for bound values
     @bind x = 42
     @test x.symbol == :x
 
@@ -192,19 +192,19 @@ end
 end
 
 @testitem "Math Operations" begin
-    # Test binary operations with owned values
+    # Test binary operations with bound values
     @bind x = 2
     @bind :mut y = 3
 
-    # Test owned op number
+    # Test bound op number
     @test x + 1 == 3
     @test y * 2 == 6
 
-    # Test number op owned
+    # Test number op bound
     @test 1 + x == 3
     @test 2 * y == 6
 
-    # Test owned op owned
+    # Test bound op bound
     @test x + y == 5
     @test x * y == 6
 
@@ -349,7 +349,7 @@ end
     @test b == [1, 2, 3]
     @test !is_moved(a)  # Original not moved
 
-    # Test symbol validation for owned values
+    # Test symbol validation for bound values
     @bind x = 42
     @test x.symbol == :x
     y = x  # This will create the wrong symbol association
@@ -638,7 +638,7 @@ end
 end
 
 @testitem "Array Views" begin
-    # Test that views are not allowed on owned arrays
+    # Test that views are not allowed on bound arrays
     @bind x = [1, 2, 3, 4]
     @test_throws BorrowRuleError view(x, 1:2)
 

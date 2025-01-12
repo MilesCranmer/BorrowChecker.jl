@@ -34,11 +34,10 @@ using ..PreferencesModule: is_borrow_checker_enabled
         # body
     end
 
-Create a new owned value. If `:mut` is specified, the value will be mutable.
+Create a new bound ("owned") variable. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
 
-For loops will create immutable owned values for each iteration by default.
-If `:mut` is specified, each iteration will create mutable owned values.
+You may also use `@bind` in a `for` loop to create a bound value for each iteration.
 """
 macro bind(expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)

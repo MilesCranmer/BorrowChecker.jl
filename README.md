@@ -78,11 +78,11 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ### Basics
 
-- `@bind [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
+- `@bind [:mut] x = value`: Create a new bound/owned value (mutable if `:mut` is specified)
     - These are `Bound{T}` and `BoundMut{T}` objects, respectively.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@bind` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
-- `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
+- `@take[!] var`: Unwrap a bound value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
 
 ### Automatic Borrow Checking
 
@@ -96,7 +96,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ### Assignment
 
-- `@set x = value`: Assign a new value to an existing owned mutable variable
+- `@set x = value`: Assign a new value to an existing bound mutable variable
 
 ### Loops
 

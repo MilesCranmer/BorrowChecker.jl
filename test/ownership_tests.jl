@@ -4,7 +4,7 @@ using BorrowChecker
 @testitem "Basic Ownership" begin
     using BorrowChecker: is_moved
 
-    # Create owned value
+    # Create bound value
     @bind x = 42
     @lifetime lt begin
         @ref lt ref = x
@@ -12,7 +12,7 @@ using BorrowChecker
         @test !is_moved(x)
     end
 
-    # Create mutable owned value
+    # Create mutable bound value
     @bind :mut y = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = y

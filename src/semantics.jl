@@ -103,7 +103,7 @@ end
 
 @inline function Base.getproperty(o::AllBound, name::Symbol)
     if name == :value
-        error("Use `@take` to directly access the value of an owned variable")
+        error("Use `@take` to directly access the value of a bound variable")
     end
     if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
         # TODO: This is not safe, because the user's type might
@@ -253,7 +253,7 @@ end
 
 function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) where {mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
-    # Get the value from either a reference or owned value:
+    # Get the value from either a borrowed or bound value:
     value = let v = request_value(src, Val(:read))
         isbits(v) ? v : deepcopy(v)
     end

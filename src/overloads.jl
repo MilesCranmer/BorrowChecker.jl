@@ -47,7 +47,7 @@ end
 function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
     throw(
         BorrowRuleError(
-            "Cannot create view of an owned object. " *
+            "Cannot create view of a bound object. " *
             "You can create an immutable reference with `@ref` and then create a view of that.",
         ),
     )
@@ -67,7 +67,7 @@ for op in (:hash, :string)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
 function Base.promote_rule(::Type{<:AllWrappers}, ::Type)
-    # We never want to convert an owned or borrowed object, so
+    # We never want to convert an bound or borrowed object, so
     # we refuse to define a common promotion rule.
     return Any
 end

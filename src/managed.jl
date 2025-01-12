@@ -1,6 +1,6 @@
 """
 This module provides Cassette-based automatic ownership transfer functionality.
-It allows owned values (`Bound` and `BoundMut`) to be automatically taken when
+It allows bound values (`Bound` and `BoundMut`) to be automatically taken when
 passed to functions, without requiring explicit `@take!` calls.
 """
 module ManagedModule
