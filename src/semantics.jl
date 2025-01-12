@@ -22,6 +22,7 @@ using ..TypesModule:
     unsafe_get_value,
     unsafe_access,
     has_lifetime,
+    get_lifetime,
     get_owner
 using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 
@@ -292,7 +293,7 @@ function ref(
 
     if has_lifetime(ref_or_owner)
         @assert(
-            ref_or_owner.lifetime === lt,
+            get_lifetime(ref_or_owner) === lt,
             "Lifetime mismatch! Nesting lifetimes is not allowed."
         )
     end

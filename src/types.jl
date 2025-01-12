@@ -194,8 +194,10 @@ const OrBorrowedMut{T} = Union{
 }
 
 # Type-specific utilities
+# COV_EXCL_START
 is_mutable(r::AllMutable) = true
 is_mutable(r::AllImmutable) = false
+# COV_EXCL_STOP
 
 # Internal getters and setters
 unsafe_get_value(r::BoundMut) = getfield(r, :value, :sequentially_consistent)
@@ -232,10 +234,11 @@ function is_moved(r::AllBorrowed)
     return is_moved(get_owner(r))
 end
 function is_expired(r::AllBorrowed)
-    return getfield(r.lifetime, :expired)[]
+    return getfield(get_lifetime(r), :expired)[]
 end
 
 # Constructor utilities
+# COV_EXCL_START
 constructorof(::Type{<:Bound}) = Bound
 constructorof(::Type{<:BoundMut}) = BoundMut
 constructorof(::Type{<:Borrowed}) = Borrowed
@@ -244,6 +247,7 @@ constructorof(::Type{<:BorrowedMut}) = BorrowedMut
 has_lifetime(::AllBound) = false
 has_lifetime(::AllBorrowed) = true
 has_lifetime(::LazyAccessor) = false
+# COV_EXCL_STOP
 # TODO: Should LazyAccessor have its owner be Borrowed?
 
 get_owner(r::AllBound) = r
