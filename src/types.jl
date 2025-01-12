@@ -9,7 +9,10 @@ function is_moved end
 function unsafe_access end
 function get_owner end
 
-mutable struct Bound{T}
+abstract type AbstractBound{T} end
+abstract type AbstractBorrowed{T} end
+
+mutable struct Bound{T} <: AbstractBound{T}
     const value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
@@ -25,7 +28,7 @@ end
 # TODO: Store a random hash in `get_task_storage` and
 #       validate it to ensure we have not moved tasks.
 
-mutable struct BoundMut{T}
+mutable struct BoundMut{T} <: AbstractBound{T}
     @atomic value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
@@ -56,7 +59,7 @@ struct NoLifetime end
 
 Base.in(x, ::NoLifetime) = x
 
-struct Borrowed{T,O<:Union{Bound,BoundMut}}
+struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
     value::T
     owner::O
     lifetime::Lifetime
@@ -64,7 +67,7 @@ struct Borrowed{T,O<:Union{Bound,BoundMut}}
 
     function Borrowed(
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {T,O<:Union{Bound,BoundMut}}
+    ) where {T,O<:AbstractBound}
         if is_moved(owner)
             throw(MovedError(owner.symbol))
         elseif owner isa BoundMut && owner.mutable_borrows > 0
@@ -82,12 +85,12 @@ struct Borrowed{T,O<:Union{Bound,BoundMut}}
     end
     function Borrowed(
         owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {O<:Union{Bound,BoundMut}}
+    ) where {O<:AbstractBound}
         return Borrowed(unsafe_get_value(owner), owner, lifetime, symbol)
     end
 end
 
-struct BorrowedMut{T,O<:BoundMut}
+struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
     value::T
     owner::O
     lifetime::Lifetime
@@ -95,7 +98,7 @@ struct BorrowedMut{T,O<:BoundMut}
 
     function BorrowedMut(
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {T,O<:Union{Bound,BoundMut}}
+    ) where {T,O<:AbstractBound}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif is_moved(owner)
@@ -120,15 +123,15 @@ struct BorrowedMut{T,O<:BoundMut}
     end
     function BorrowedMut(
         owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {O<:Union{Bound,BoundMut}}
+    ) where {O<:AbstractBound}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime, symbol)
     end
-    function BorrowedMut(::Union{Borrowed,BorrowedMut}, ::Lifetime)
+    function BorrowedMut(::AbstractBorrowed, ::Lifetime)
         return error("Mutable reference of references not yet implemented.")
     end
 end
 
-struct LazyAccessor{T,P,S,O<:Union{Bound,BoundMut,Borrowed,BorrowedMut}}
+struct LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
     parent::P
     property::S
     property_type::Type{T}
@@ -178,8 +181,8 @@ function Borrowed(lazy::LazyAccessor, lt::Lifetime, dest_symbol::Symbol=:anonymo
 end
 
 # Type aliases and traits
-const AllBorrowed{T} = Union{Borrowed{T},BorrowedMut{T}}
-const AllBound{T} = Union{Bound{T},BoundMut{T}}
+const AllBorrowed{T} = AbstractBorrowed{T}
+const AllBound{T} = AbstractBound{T}
 const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
 const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllBound{T}}
