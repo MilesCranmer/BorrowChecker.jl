@@ -185,3 +185,16 @@ end
     @test f(@take! c.x) == 9
     @test is_moved(c)
 end
+
+@testitem "Property Access Error Handling" begin
+    struct TestStruct
+        x::Int
+    end
+    @bind :mut obj = TestStruct(1)
+    @test_throws "Cannot modify reference ownership" begin
+        @lifetime lt begin
+            @ref lt r = obj
+            r.owner = obj
+        end
+    end
+end

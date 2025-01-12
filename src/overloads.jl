@@ -109,7 +109,9 @@ end
 # --- END COLLECTION OPERATIONS ---
 
 # --- DICTIONARY OPERATIONS ---
-
+# Dictionary-specific operations
+Base.getindex(r::AllWrappers{<:AbstractDict}, key) = getindex(request_value(r, Val(:read)), key)
+Base.delete!(r::AllWrappers{<:AbstractDict}, key) = delete!(request_value(r, Val(:write)), key)
 # --- END DICTIONARY OPERATIONS ---
 
 # --- STRING OPERATIONS ---

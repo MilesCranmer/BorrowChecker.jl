@@ -688,3 +688,176 @@ end
         @test ref_arr2d[1] == [10, 99]
     end
 end
+
+@testitem "Dictionary Operations" begin
+    @bind :mut dict = Dict(:a => 1)
+    @lifetime lt begin
+        @ref lt :mut ref = dict
+        ref[:b] = 2
+        delete!(ref, :a)
+        @test length(ref) == 1
+        @test ref[:b] == 2
+    end
+end
+
+@testitem "Three-argument Math Operations" begin
+    @bind x = 1
+    @bind y = 2
+    @bind z = 3
+    nx = @take x
+    ny = @take y
+    nz = @take z
+    @test clamp(x, y, z) == 2
+    @test clamp(nx, y, z) == 2
+    @test clamp(x, ny, z) == 2
+    @test clamp(x, y, nz) == 2
+    @test clamp(nx, ny, z) == 2
+    @test clamp(nx, y, nz) == 2
+    @test clamp(x, ny, nz) == 2
+    @test fma(x, y, z) == 5
+end
+
+@testitem "LazyAccessor Operations" begin
+    mutable struct Point
+        x::Int
+        y::Int
+    end
+    @bind :mut p = Point(1, 2)
+    @lifetime lt begin
+        @ref lt :mut r = p
+        @test r.x isa LazyAccessor
+        r.x = 3
+    end
+    # Check the value after the lifetime block ends
+    @test p.x == 3
+end
+
+@testitem "Dictionary Error Paths" begin
+    # Test error on non-isbits keys
+    @bind :mut d = Dict([1, 2] => 10)  # Vector{Int} is non-isbits
+    @test_throws "Refusing to return non-isbits keys" keys(d)
+
+    # Test error on type conversion
+    @bind :mut d2 = Dict(1 => 2)
+    @lifetime lt begin
+        @ref lt :mut ref = d2
+        @test_throws MethodError ref[1] = "string"  # Can't convert String to Int
+    end
+end
+
+@testitem "String Operation Errors" begin
+    # Test string operations with invalid types
+    @bind s = "hello"
+    @bind :mut num = 42
+    @lifetime lt begin
+        @ref lt ref_s = s
+        @ref lt ref_n = num
+        @test_throws MethodError startswith(ref_n, "4")  # Number doesn't support startswith
+        @test_throws MethodError endswith(ref_s, ref_n)  # Can't endswith with a number
+    end
+end
+
+@testitem "Property Access Errors" begin
+    mutable struct TestStruct
+        x::Int
+        y::Vector{Int}
+    end
+
+    # Test property access errors
+    @bind :mut obj = TestStruct(1, [1, 2, 3])
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        # Test accessing non-existent property
+        @test_throws ErrorException ref.z
+    end
+
+    # Test multiple borrows in a new lifetime
+    @lifetime lt2 begin
+        @ref lt2 :mut ref2 = obj
+        @test_throws "Cannot create mutable reference" @ref lt2 :mut ref3 = obj
+    end
+end
+
+@testitem "Semantics Error Paths" begin
+    # Test error on invalid property access
+    mutable struct TestStruct
+        x::Int
+    end
+
+    # Test error on invalid property access through LazyAccessor
+    @bind :mut obj = TestStruct(1)
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        lazy = ref.x  # Get LazyAccessor
+        @test_throws ErrorException getproperty(lazy, :nonexistent)
+        @test_throws ErrorException setproperty!(lazy, :nonexistent, 42)
+    end
+
+    # Test error on invalid symbol validation
+    @bind :mut x = [1, 2, 3]
+    y = x  # Create invalid symbol association
+    @test_throws "Regular variable reassignment is not allowed" @clone z = y
+end
+
+@testitem "Macro Error Paths" begin
+    # Test error on invalid first argument to @clone
+    @test_throws LoadError @eval @clone :invalid x = 42
+
+    # Test error on invalid argument order in @ref
+    @test_throws "You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`" begin
+        @eval @ref :mut lt x = 42
+    end
+
+    @test_throws LoadError @eval @set x + y
+
+    @test_throws LoadError @eval @move x + y  # Not an assignment
+    @test_throws LoadError @eval @move :invalid x = y  # Invalid first argument
+
+    @test_throws LoadError @eval @set x  # Not an assignment
+
+    @test_throws LoadError @eval @ref x  # Not an assignment or for loop
+    @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
+    @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
+
+    mutable struct NonIsBits
+        x::Vector{Int}
+    end
+    @bind :mut arr = [NonIsBits([1])]
+    @lifetime lt begin
+        @ref lt :mut ref = arr
+        @test_throws ErrorException collect(ref)  # Non-isbits collection
+        @test_throws ErrorException first(ref)    # Non-isbits element
+    end
+
+    @bind num = 42
+    @lifetime lt begin
+        @ref lt ref = num
+        @test_throws MethodError startswith(ref, "4")  # Invalid type for startswith
+        @test_throws MethodError endswith(ref, "2")    # Invalid type for endswith
+    end
+
+    mutable struct TestStruct
+        x::Int
+    end
+    @bind :mut obj = TestStruct(1)
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        lazy = ref.x
+        @test_throws ErrorException getproperty(lazy, :nonexistent)
+        @test_throws ErrorException setproperty!(lazy, :nonexistent, 42)
+    end
+
+    mutable struct CustomType
+        x::Int
+    end
+
+    @bind :mut obj = CustomType(1)
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        @test_throws ErrorException ref.nonexistent  # Invalid property access
+        @test_throws ErrorException ref.nonexistent = 42  # Invalid property assignment
+
+        # Test multiple borrows error
+        @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
+    end
+end
