@@ -984,6 +984,8 @@ end
 
     # Test show for Borrowed
     @bind :mut vec = [1, 2, 3]
+    s = sprint(show, vec[1])
+    @test s == "1"  # Because it is isbits
     storage = []
 
     @lifetime lt begin
@@ -995,4 +997,13 @@ end
         )
         push!(storage, ref)
     end
+
+    # Now, for LazyAccessor of moved bound value:
+    @bind arr = [[1], [2], [3]]
+    r1 = arr[1]
+    s = sprint(show, r1)
+    @test s == "[1]"
+    @move arr2 = arr
+    s = sprint(show, r1)
+    @test s == "[moved]"
 end

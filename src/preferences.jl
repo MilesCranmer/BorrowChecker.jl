@@ -12,7 +12,7 @@ struct Cache{A,B}
     cache::Dict{A,B}
     lock::Threads.SpinLock
 
-    Cache{A,B}() where {A,B} = new{A,B}(Dict{A,B}(), Threads.SpinLock())
+    Cache{A,B}() where {A,B} = new{A,B}(Dict{A,B}(), Threads.SpinLock())  # COV_EXCL_LINE
 end
 
 const UUID_CACHE = Cache{UInt64,Base.UUID}()
