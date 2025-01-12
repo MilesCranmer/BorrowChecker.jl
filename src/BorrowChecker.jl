@@ -25,7 +25,7 @@ export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
 using .StaticTraitModule: is_static
-using .TypesModule: is_moved, get_owner, Lifetime, LazyAccessorOf, OrBorrowed, OrBorrowedMut
+using .TypesModule: Lifetime, LazyAccessorOf, OrBorrowed, OrBorrowedMut, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows
 #! format: on
 
 end

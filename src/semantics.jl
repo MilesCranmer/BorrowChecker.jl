@@ -17,23 +17,30 @@ using ..TypesModule:
     constructorof,
     is_mutable,
     mark_moved!,
+    mark_expired!,
     is_moved,
     is_expired,
     unsafe_get_value,
+    unsafe_set_value!,
     unsafe_access,
     has_lifetime,
     get_lifetime,
-    get_owner
+    get_owner,
+    get_symbol,
+    get_immutable_borrows,
+    get_mutable_borrows,
+    decrement_immutable_borrows!,
+    decrement_mutable_borrows!
 using ..StaticTraitModule: is_static
 using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 
 # Internal getters and setters
 
 function validate_symbol(r::AllBound, expected_symbol::Symbol)
-    if expected_symbol != r.symbol &&
-        r.symbol != :anonymous &&
+    if expected_symbol != get_symbol(r) &&
+        get_symbol(r) != :anonymous &&
         expected_symbol != :anonymous
-        throw(SymbolMismatchError(r.symbol, expected_symbol))
+        throw(SymbolMismatchError(get_symbol(r), expected_symbol))
     end
 end
 
@@ -49,12 +56,12 @@ validate_symbol(_, ::Symbol) = nothing
 function validate_mode(r::AllBound, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)
     if is_moved(r)
-        throw(MovedError(r.symbol))
-    elseif is_mutable(r) && r.mutable_borrows > 0
+        throw(MovedError(get_symbol(r)))
+    elseif is_mutable(r) && get_mutable_borrows(r) > 0
         throw(BorrowRuleError("Cannot access original while mutably borrowed"))
     elseif !is_mutable(r) && mode == :write
         throw(BorrowRuleError("Cannot write to immutable"))
-    elseif mode in (:write, :move) && r.immutable_borrows > 0
+    elseif mode in (:write, :move) && get_immutable_borrows(r) > 0
         throw(BorrowRuleError("Cannot $mode original while immutably borrowed"))
     end
     return nothing
@@ -63,9 +70,9 @@ function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     @assert mode in (:read, :write)
     owner = get_owner(r)
     if is_moved(owner)
-        throw(MovedError(owner.symbol))
+        throw(MovedError(get_symbol(owner)))
     elseif is_expired(r)
-        throw(ExpiredError(r.symbol))
+        throw(ExpiredError(get_symbol(r)))
     elseif mode == :write && !is_mutable(r)
         throw(BorrowRuleError("Cannot write to immutable reference"))
     end
@@ -85,15 +92,12 @@ function request_value(r::LazyAccessor, ::Val{mode}) where {mode}
     return unsafe_access(r)
 end
 
-function unsafe_set_value!(r::BoundMut, value)
-    return setfield!(r, :value, value, :sequentially_consistent)
-end
 function set_value!(r::AllBound, value)
     if !is_mutable(r)
         throw(BorrowRuleError("Cannot assign to immutable"))
     elseif is_moved(r)
-        throw(MovedError(r.symbol))
-    elseif r.mutable_borrows > 0 || r.immutable_borrows > 0
+        throw(MovedError(get_symbol(r)))
+    elseif get_mutable_borrows(r) > 0 || get_immutable_borrows(r) > 0
         throw(BorrowRuleError("Cannot assign to value while borrowed"))
     end
     return unsafe_set_value!(r, value)
@@ -103,23 +107,10 @@ function set_value!(::AllBorrowed, value)
 end
 
 @inline function Base.getproperty(o::AllBound, name::Symbol)
-    if name == :value
-        error("Use `@take` to directly access the value of a bound variable")
-    end
-    if name in (:moved, :immutable_borrows, :mutable_borrows, :symbol)
-        # TODO: This is not safe, because the user's type might
-        #       have properties of this name!
-        return getfield(o, name)
-    else
-        return LazyAccessor(o, Val(name))
-    end
+    return LazyAccessor(o, Val(name))
 end
 @inline function Base.getproperty(r::AllBorrowed, name::Symbol)
-    if name in (:owner, :lifetime, :symbol)
-        return getfield(r, name)
-    else
-        return LazyAccessor(r, Val(name))
-    end
+    return LazyAccessor(r, Val(name))
 end
 @inline function Base.getproperty(
     r::LazyAccessor{T,P,property}, name::Symbol
@@ -127,15 +118,10 @@ end
     return LazyAccessor(r, Val(name))
 end
 @inline function Base.setproperty!(o::AllBound, name::Symbol, v)
-    if name in (:moved, :immutable_borrows, :mutable_borrows)
-        setfield!(o, name, v, :sequentially_consistent)
-    else
-        setproperty!(request_value(o, Val(:write)), k, v)
-    end
+    setproperty!(request_value(o, Val(:write)), k, v)
     return o
 end
 @inline function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
-    name == :owner && error("Cannot modify reference ownership")
     setproperty!(request_value(r, Val(:write)), name, value)
     # TODO: I think we should return `nothing` here instead, or
     #       some other marker.
@@ -157,7 +143,7 @@ function Base.show(io::IO, o::AllBound)
     else
         constructor = constructorof(typeof(o))
         value = request_value(o, Val(:read))
-        symbol = o.symbol
+        symbol = get_symbol(o)
         print(io, "$(constructor){$(typeof(value))}($(value), :$(symbol))")
     end
 end
@@ -169,7 +155,7 @@ function Base.show(io::IO, r::AllBorrowed)
         constructor = constructorof(typeof(r))
         value = request_value(r, Val(:read))
         owner = get_owner(r)
-        symbol = r.symbol
+        symbol = get_symbol(r)
         print(io, "$(constructor){$(typeof(value)),$(typeof(owner))}($(value), :$(symbol))")
     end
 end
@@ -269,19 +255,24 @@ function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) wh
 end
 
 function cleanup!(lifetime::Lifetime)
-    lifetime.expired[] = true
+    is_expired(lifetime) && error("Cannot cleanup expired lifetime")
+    mark_expired!(lifetime)
 
     # Clean up immutable references
-    for owner in lifetime.immutable_refs
-        owner.immutable_borrows -= 1
+    Base.@lock lifetime.immutables_lock begin
+        for owner in lifetime.immutable_refs
+            decrement_immutable_borrows!(owner)
+        end
+        empty!(lifetime.immutable_refs)
     end
-    empty!(lifetime.immutable_refs)
 
     # Clean up mutable references
-    for owner in lifetime.mutable_refs
-        owner.mutable_borrows -= 1
+    Base.@lock lifetime.mutables_lock begin
+        for owner in lifetime.mutable_refs
+            decrement_mutable_borrows!(owner)
+        end
+        empty!(lifetime.mutable_refs)
     end
-    empty!(lifetime.mutable_refs)
 
     return nothing
 end
@@ -339,12 +330,17 @@ function ref_for(
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
     return Iterators.map(
         ((i, (x, s)),) -> let
-            if i > 1 && owner.mutable_borrows == 1
+            if i > 1
                 # Since this is a single array, we are
                 # technically only referencing it once.
-                pop!(lt.mutable_refs)
-                owner.mutable_borrows = 0
-                # TODO: This is very slow and not safe
+                if mut
+                    Base.@lock lt.mutables_lock pop!(lt.mutable_refs)
+                    decrement_mutable_borrows!(owner)
+                else
+                    Base.@lock lt.immutables_lock pop!(lt.immutable_refs)
+                    decrement_immutable_borrows!(owner)
+                end
+                # TODO: Verify this in tests, for extra (im)mutable before/after loop
             end
             ref(lt, x, ref_or_owner, s, Val(mut))
         end,

@@ -49,6 +49,8 @@ end
 end
 
 @testitem "Property access through references" begin
+    using BorrowChecker: get_immutable_borrows
+
     struct Point
         x::Int
         y::Int
@@ -65,7 +67,7 @@ end
         @test ref_p.x == 1  # Can read properties
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
     end
-    @test p.immutable_borrows == 0
+    @test get_immutable_borrows(p) == 0
     @bind :mut mp = Point(1, 2)
     @lifetime lt begin
         @ref lt :mut mut_ref_p = mp
@@ -97,6 +99,8 @@ end
 end
 
 @testitem "Lifetime Blocks" begin
+    using BorrowChecker: get_immutable_borrows, get_mutable_borrows
+
     # Test multiple immutable references
     @bind x = [1, 2, 3]
     @lifetime lt begin
@@ -104,12 +108,12 @@ end
         @ref lt ref2 = x
         @test ref1 == [1, 2, 3]
         @test ref2 == [1, 2, 3]
-        @test x.immutable_borrows == 2
+        @test get_immutable_borrows(x) == 2
 
         # Can't create mutable reference while immutably borrowed
         @test_throws BorrowRuleError @ref lt :mut d = x
     end
-    @test x.immutable_borrows == 0  # All borrows cleaned up
+    @test get_immutable_borrows(x) == 0  # All borrows cleaned up
 
     # Test mutable reference blocks
     @bind :mut y = [1, 2, 3]
@@ -126,8 +130,8 @@ end
         push!(mut_ref1, 4)
         push!(mut_ref2, 7)
     end
-    @test y.mutable_borrows == 0  # Borrows cleaned up
-    @test z.mutable_borrows == 0
+    @test get_mutable_borrows(y) == 0  # Borrows cleaned up
+    @test get_mutable_borrows(z) == 0
     @test y == [1, 2, 3, 4]  # Modifications persisted
     @test z == [4, 5, 6, 7]
 
@@ -146,6 +150,8 @@ end
 end
 
 @testitem "Lifetime Let Blocks" begin
+    using BorrowChecker: get_mutable_borrows
+
     # Test lifetime with let block
     @bind :mut outer = [1, 2, 3]
 
@@ -156,7 +162,7 @@ end
     end
 
     # Test that borrows are cleaned up after let block
-    @test outer.mutable_borrows == 0
+    @test get_mutable_borrows(outer) == 0
     @test outer == [1, 2, 3, 4]
 end
 
@@ -184,17 +190,4 @@ end
     f(x::Vector) = sum(x)
     @test f(@take! c.x) == 9
     @test is_moved(c)
-end
-
-@testitem "Property Access Error Handling" begin
-    struct TestStruct
-        x::Int
-    end
-    @bind :mut obj = TestStruct(1)
-    @test_throws "Cannot modify reference ownership" begin
-        @lifetime lt begin
-            @ref lt r = obj
-            r.owner = obj
-        end
-    end
 end

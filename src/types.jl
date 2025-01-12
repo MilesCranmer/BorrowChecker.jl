@@ -8,6 +8,14 @@ function mark_moved! end
 function is_moved end
 function unsafe_access end
 function get_owner end
+function get_lifetime end
+function get_symbol end
+function get_mutable_borrows end
+function get_immutable_borrows end
+function increment_mutable_borrows! end
+function decrement_mutable_borrows! end
+function increment_immutable_borrows! end
+function decrement_immutable_borrows! end
 
 """
     abstract type AbstractBound{T} end
@@ -92,13 +100,15 @@ mutable struct BoundMut{T} <: AbstractBound{T}
     end
 end
 
-struct Lifetime
+mutable struct Lifetime
     # TODO: Make this atomic
-    immutable_refs::Vector{Any}
-    mutable_refs::Vector{Any}
-    expired::Base.RefValue{Bool}
+    const immutable_refs::Vector{Any}
+    const immutables_lock::Threads.SpinLock
+    const mutable_refs::Vector{Any}
+    const mutables_lock::Threads.SpinLock
+    @atomic expired::Bool
 
-    Lifetime() = new([], [], Ref(false))
+    Lifetime() = new([], Threads.SpinLock(), [], Threads.SpinLock(), false)
 end
 # TODO: Need a way to trip the lifetime, so that refs
 #       can't be used outside!
@@ -136,8 +146,8 @@ struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
     ) where {T,O<:AbstractBound}
         if is_moved(owner)
-            throw(MovedError(owner.symbol))
-        elseif owner isa BoundMut && owner.mutable_borrows > 0
+            throw(MovedError(get_symbol(owner)))
+        elseif owner isa BoundMut && get_mutable_borrows(owner) > 0
             throw(
                 BorrowRuleError(
                     "Cannot create immutable reference: value is mutably borrowed"
@@ -145,8 +155,10 @@ struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
             )
         end
 
-        owner.immutable_borrows += 1
-        push!(lifetime.immutable_refs, owner)
+        increment_immutable_borrows!(owner)
+        Base.@lock lifetime.immutables_lock begin
+            push!(lifetime.immutable_refs, owner)
+        end
 
         return new{T,O}(value, owner, lifetime, symbol)
     end
@@ -187,22 +199,24 @@ struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif is_moved(owner)
-            throw(MovedError(owner.symbol))
-        elseif owner.immutable_borrows > 0
+            throw(MovedError(get_symbol(owner)))
+        elseif get_immutable_borrows(owner) > 0
             throw(
                 BorrowRuleError(
                     "Cannot create mutable reference: value is immutably borrowed"
                 ),
             )
-        elseif owner.mutable_borrows > 0
+        elseif get_mutable_borrows(owner) > 0
             throw(
                 BorrowRuleError(
                     "Cannot create mutable reference: value is already mutably borrowed"
                 ),
             )
         end
-        owner.mutable_borrows += 1
-        push!(lifetime.mutable_refs, owner)
+        increment_mutable_borrows!(owner)
+        Base.@lock lifetime.mutables_lock begin
+            push!(lifetime.mutable_refs, owner)
+        end
 
         return new{T,O}(value, owner, lifetime, symbol)
     end
@@ -315,6 +329,9 @@ function unsafe_get_value(r::AllBorrowed)
         return raw_value
     end
 end
+function unsafe_set_value!(r::BoundMut, value)
+    return setfield!(r, :value, value, :sequentially_consistent)
+end
 
 @inline function unsafe_access(x::LazyAccessor{T,<:Any,Val{property}}) where {T,property}
     parent = getfield(x, :parent)
@@ -332,14 +349,22 @@ end
 function mark_moved!(r::LazyAccessor)
     return mark_moved!(get_owner(r))
 end
+
 function is_moved(r::AllBound)
     return getfield(r, :moved, :sequentially_consistent)
 end
 function is_moved(r::AllBorrowed)
     return is_moved(get_owner(r))
 end
+
+function mark_expired!(lt::Lifetime)
+    return setfield!(lt, :expired, true, :sequentially_consistent)
+end
+function is_expired(lt::Lifetime)
+    return getfield(lt, :expired, :sequentially_consistent)
+end
 function is_expired(r::AllBorrowed)
-    return getfield(get_lifetime(r), :expired)[]
+    return is_expired(get_lifetime(r))
 end
 
 # Constructor utilities
@@ -361,5 +386,27 @@ get_owner(r::LazyAccessor) = get_owner(getfield(r, :target))
 
 get_lifetime(r::AllBorrowed) = getfield(r, :lifetime)
 get_lifetime(r::LazyAccessorOf{AllBorrowed}) = get_lifetime(getfield(r, :target))
+
+get_symbol(r::AllEager) = getfield(r, :symbol)
+
+function get_immutable_borrows(r::AllBound)
+    return getfield(r, :immutable_borrows, :sequentially_consistent)
+end
+
+get_mutable_borrows(r::BoundMut) = getfield(r, :mutable_borrows, :sequentially_consistent)
+
+@inline function _change_immutable_borrows!(r::AllBound, change::Int)
+    borrows = get_immutable_borrows(r)
+    return setfield!(r, :immutable_borrows, borrows + change, :sequentially_consistent)
+end
+@inline increment_immutable_borrows!(r::AllBound) = _change_immutable_borrows!(r, 1)
+@inline decrement_immutable_borrows!(r::AllBound) = _change_immutable_borrows!(r, -1)
+
+@inline function _change_mutable_borrows!(r::BoundMut, change::Int)
+    borrows = get_mutable_borrows(r)
+    return setfield!(r, :mutable_borrows, borrows + change, :sequentially_consistent)
+end
+@inline increment_mutable_borrows!(r::BoundMut) = _change_mutable_borrows!(r, 1)
+@inline decrement_mutable_borrows!(r::BoundMut) = _change_mutable_borrows!(r, -1)
 
 end

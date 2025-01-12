@@ -5,7 +5,7 @@ for the main API.
 module Experimental
 
 using Cassette: Cassette
-using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved
+using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved, get_symbol
 using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take!
@@ -18,7 +18,7 @@ function maybe_take!(x)
     return x
 end
 function maybe_take!(arg::AllBound)
-    is_moved(arg) && throw(MovedError(arg.symbol))
+    is_moved(arg) && throw(MovedError(get_symbol(arg)))
     value = unsafe_get_value(arg)
     if is_static(value)
         # This is Julia-level immutable, so
@@ -55,7 +55,7 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
         args[2] == :contents &&
         args[3] isa AllBound
         #
-        symbol = args[3].symbol
+        symbol = get_symbol(args[3])
         error("You are not allowed to capture bound variable `$(symbol)` inside a closure.")
     end
     if skip_method(f)

@@ -148,14 +148,14 @@ end
 end
 
 @testitem "Symbol Tracking" begin
-    using BorrowChecker: is_moved, get_owner
+    using BorrowChecker: is_moved, get_owner, get_symbol
 
     # Test symbol tracking for bound values
     @bind x = 42
-    @test x.symbol == :x
+    @test get_symbol(x) == :x
 
     @bind :mut y = [1, 2, 3]
-    @test y.symbol == :y
+    @test get_symbol(y) == :y
     @clone y2 = y
     @move y3 = y2
     @test is_moved(y2)
@@ -164,8 +164,8 @@ end
     # Test symbol tracking through moves
     @move z = x
     # Gets new symbol when moved/cloned
-    @test z.symbol == :z
-    @test x.symbol == :x
+    @test get_symbol(z) == :z
+    @test get_symbol(x) == :x
     @test !is_moved(z)
     # x is not moved since it's isbits
     @test !is_moved(x)
@@ -186,8 +186,8 @@ end
     # Test symbol tracking in references
     @lifetime lt begin
         @ref lt ref = y
-        @test y.symbol == :y  # Original symbol preserved
-        @test get_owner(ref).symbol == :y
+        @test get_symbol(y) == :y  # Original symbol preserved
+        @test get_symbol(get_owner(ref)) == :y
     end
 end
 
@@ -347,7 +347,7 @@ end
 end
 
 @testitem "Symbol validation" begin
-    using BorrowChecker: SymbolMismatchError, is_moved
+    using BorrowChecker: SymbolMismatchError, is_moved, get_symbol
 
     # Test that symbol checking works for @clone
     @bind :mut x = [1, 2, 3]
@@ -367,14 +367,14 @@ end
 
     # Test symbol validation for bound values
     @bind :mut x = 42
-    @test x.symbol == :x
+    @test get_symbol(x) == :x
     y = x  # This will create the wrong symbol association
     @test_throws SymbolMismatchError @take! y  # wrong symbol
 
     # Test symbol validation for references
     @lifetime lt begin
         @ref lt :mut rx = x
-        @test rx.symbol == :rx
+        @test get_symbol(rx) == :rx
         ry = rx
         # Symbol validation does NOT trigger
         # for ref
@@ -386,24 +386,24 @@ end
     y = x
     @test_throws SymbolMismatchError @move wrong = y
     @move z = x
-    @test z.symbol == :z
+    @test get_symbol(z) == :z
 
     # Test symbol validation for clone
     @bind a = [1, 2, 3]
     b = a
     @test_throws SymbolMismatchError @clone wrong = b
     @clone c = a
-    @test c.symbol == :c
+    @test get_symbol(c) == :c
 end
 
 @testitem "Basic for loop binding" begin
-    using BorrowChecker: is_moved, SymbolMismatchError
+    using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test basic for loop binding
     @bind :mut accumulator = 0
     @bind for x in 1:3
         @test x isa Bound{Int}
-        @test x.symbol == :x
+        @test get_symbol(x) == :x
         @set accumulator = accumulator + x
         y = x
         @test_throws SymbolMismatchError @take!(y)
@@ -412,13 +412,13 @@ end
 end
 
 @testitem "Mutable for loop binding" begin
-    using BorrowChecker: is_moved, SymbolMismatchError
+    using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test mutable for loop binding
     @bind :mut accumulator = 0
     @bind :mut for x in 1:3
         @test x isa BoundMut{Int}
-        @test x.symbol == :x
+        @test get_symbol(x) == :x
         @set x = x + 1  # Test mutability
         @set accumulator = accumulator + x
     end
@@ -593,7 +593,7 @@ end
 end
 
 @testitem "Reference for loop" begin
-    using BorrowChecker: is_moved
+    using BorrowChecker: is_moved, get_symbol
 
     # Test basic reference for loop
     @bind :mut x = [1, 2, 3]
@@ -602,7 +602,7 @@ end
         @bind :mut count = 0
         @ref lt for xi in x
             @test xi isa Borrowed{Int}
-            @test xi.symbol == :xi
+            @test get_symbol(xi) == :xi
             @set count = count + xi
         end
         @test count == 6
@@ -614,7 +614,7 @@ end
     @lifetime lt begin
         @ref lt for v in vec_array
             @test v isa Borrowed{Vector{Int}}
-            @test v.symbol == :v
+            @test get_symbol(v) == :v
             @test_throws BorrowRuleError push!(v, 4)  # Can't modify through immutable ref
         end
         @test !is_moved(vec_array)
@@ -628,7 +628,7 @@ end
             @test row isa Borrowed{Vector{Int}}
             @ref lt for x in row
                 @test x isa Borrowed{Int}
-                @test x.symbol == :x
+                @test get_symbol(x) == :x
                 @clone inner = x
                 push!(flat, @take!(inner))
             end
