@@ -10,6 +10,7 @@ using ..SemanticsModule:
     mark_moved!,
     set_value!,
     validate_symbol,
+    maybe_deepcopy,
     take,
     take!,
     move,
@@ -156,7 +157,7 @@ macro take(var)
     else
         # Even when borrow checker is disabled, we still want to clone
         # the value to avoid mutating the original.
-        return esc(:($(deepcopy)($(var))))
+        return esc(:($(maybe_deepcopy)($(var))))
     end
 end
 
@@ -314,7 +315,7 @@ macro clone(expr::Expr)
         else
             # Even when borrow checker is disabled, we still want to clone
             # the value to avoid mutating the original.
-            return esc(:($(dest) = $(deepcopy)($(src))))
+            return esc(:($(dest) = $(maybe_deepcopy)($(src))))
         end
     else
         error("@clone requires an assignment expression")
@@ -337,7 +338,7 @@ macro clone(mut_flag::QuoteNode, expr::Expr)
     else
         # Even when borrow checker is disabled, we still want to clone
         # the value to avoid mutating the original.
-        return esc(:($(dest) = $(deepcopy)($(src))))
+        return esc(:($(dest) = $(maybe_deepcopy)($(src))))
     end
 end
 

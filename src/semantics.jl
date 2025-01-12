@@ -184,6 +184,8 @@ function Base.show(io::IO, r::LazyAccessor)
     end
 end
 
+maybe_deepcopy(x) = is_static(x) ? x : deepcopy(x)
+
 function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = if is_static(T)
