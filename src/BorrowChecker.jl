@@ -12,8 +12,8 @@ include("macros.jl")
 include("overloads.jl")
 include("managed.jl")
 
-using .ErrorsModule:
-    BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
+#! format: off
+using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
 using .MacrosModule: @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 using .ManagedModule: @managed
@@ -25,5 +25,6 @@ export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
 using .TypesModule: is_moved, get_owner, Lifetime
+#! format: on
 
 end
