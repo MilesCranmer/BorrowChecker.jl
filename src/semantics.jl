@@ -329,24 +329,32 @@ function ref_for(
     value = request_value(ref_or_owner, Val(:read))
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
     return Iterators.map(
-        ((i, (x, s)),) -> let
-            if i > 1
-                # Since this is a single array, we are
-                # technically only referencing it once.
-                if mut
-                    Base.@lock lt.mutables_lock pop!(lt.mutable_refs)
-                    decrement_mutable_borrows!(owner)
-                else
-                    Base.@lock lt.immutables_lock pop!(lt.immutable_refs)
-                    decrement_immutable_borrows!(owner)
-                end
-                # TODO: Verify this in tests, for extra (im)mutable before/after loop
-            end
-            ref(lt, x, ref_or_owner, s, Val(mut))
-        end,
-        enumerate(zip(value, symbols)),
+        RefMapper(lt, ref_or_owner, owner, Val(mut)), enumerate(zip(value, symbols))
     )
     # TODO: Make this more robust
+end
+
+struct RefMapper{mut,R,O<:AllBound}
+    lifetime::Lifetime
+    ref::R
+    owner::O
+    v_mut::Val{mut}
+end
+function (m::RefMapper{mut})((i, (x, s))) where {mut}
+    # Since this is a single array, we are
+    # technically only referencing it once.
+    if i > 1
+        if mut
+            Base.@lock m.lifetime.mutables_lock pop!(m.lifetime.mutable_refs)
+            decrement_mutable_borrows!(m.owner)
+        else
+            # TODO: pop! is not safe here! We could be popping the incorrect owner!
+            Base.@lock m.lifetime.immutables_lock pop!(m.lifetime.immutable_refs)
+            decrement_immutable_borrows!(m.owner)
+        end
+        # TODO: Verify this in tests, for extra (im)mutable before/after loop
+    end
+    return ref(m.lifetime, x, m.ref, s, Val(mut))
 end
 
 end
