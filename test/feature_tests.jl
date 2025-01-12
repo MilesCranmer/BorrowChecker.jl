@@ -860,4 +860,98 @@ end
         # Test multiple borrows error
         @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
     end
+
+    @bind x = 1
+    @bind y = 1
+    lt = BorrowChecker.Lifetime()
+
+    # Test @ref error paths
+    @test_throws LoadError @eval @ref :invalid lt x = 42
+    @test_throws LoadError @eval @ref lt x + y
+
+    # Test @clone error paths
+    @test_throws LoadError @eval @clone x + y
+    @test_throws LoadError @eval @clone :mut x + y
+end
+
+@testitem "Disabled Borrow Checker" begin
+    # Test @take with disabled borrow checker
+    module TakeTest
+    using BorrowChecker: disable_borrow_checker!, @take, @bind
+    using Test
+    disable_borrow_checker!(@__MODULE__)
+    function run_test()
+        @bind x = [1, 2, 3]
+        # `@take` should still do a deepcopy
+        @test @take(x) !== [1, 2, 3]
+    end
+    end
+    TakeTest.run_test()
+
+    # Test @lifetime with disabled borrow checker
+    module LifetimeTest
+    using BorrowChecker: disable_borrow_checker!, @lifetime, @ref
+    using Test
+    disable_borrow_checker!(@__MODULE__)
+    function run_test()
+        x = 42
+        @lifetime lt begin
+            @ref lt ref = x
+            @test ref == 42
+        end
+    end
+    end
+    LifetimeTest.run_test()
+end
+
+@testitem "Collection Operation Errors" begin
+    # Test collection operation errors
+    mutable struct NonIsBits
+        x::Int
+    end
+
+    @bind :mut arr = [NonIsBits(1)]
+    @test_throws "Use `@bind for var in iter` instead" collect(arr)
+end
+
+@testitem "Dictionary Operation Errors" begin
+    mutable struct NonIsBits
+        x::Int
+    end
+
+    # Test container operation errors
+    @bind :mut dict = Dict(NonIsBits(1) => 10)
+    @bind :mut dictref = Ref(Dict(NonIsBits(1) => 10))
+    @lifetime lt begin
+        @ref lt :mut ref = dict
+        @test_throws "Refusing to return non-isbits keys" keys(ref)  # Non-isbits values through reference
+
+        @ref lt :mut ref2 = dictref
+        @test_throws "Refusing to return non-isbits keys" keys(ref2[])  # Non-isbits values through reference
+    end
+
+    # Test dictionary operation errors
+    @bind :mut d = Dict{Int,Int}()
+    @lifetime lt begin
+        @ref lt :mut ref = d
+        @test_throws KeyError ref[1]  # Key not found
+    end
+end
+
+@testitem "Property Access Errors" begin
+    # Test semantics error paths
+    mutable struct TestStruct
+        x::Int
+    end
+    @bind :mut obj = TestStruct(1)
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        @test_throws ErrorException ref.nonexistent  # Invalid property access
+        @test_throws ErrorException ref.nonexistent = 42  # Invalid property assignment
+        @test ref.x == 1
+        @test sprint(show, ref.x) == "1"
+
+        # Test multiple borrows error
+        @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
+    end
 end
