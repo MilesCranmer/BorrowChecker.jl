@@ -1253,3 +1253,29 @@ end
     @bind src = ["a", "b", "c"]
     @test_throws MethodError copy!(dest, src)
 end
+
+@testitem "String operations" begin
+    # Test ncodeunits
+    @bind str = "hello"
+    @test ncodeunits(str) == 5
+
+    # Test startswith
+    @bind prefix = "he"
+    @bind full = "hello"
+    @test startswith(full, prefix)
+    @test startswith(full, "he")  # String literal
+    @test startswith("hello", prefix)  # Regular string with bound
+
+    # Test endswith
+    @bind suffix = "lo"
+    @test endswith(full, suffix)
+    @test endswith(full, "lo")  # String literal
+    @test endswith("hello", suffix)  # Regular string with bound
+
+    # Test with references
+    @lifetime lt begin
+        @ref lt ref = full
+        @test startswith(ref, prefix)
+        @test endswith(ref, suffix)
+    end
+end

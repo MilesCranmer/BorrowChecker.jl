@@ -45,7 +45,7 @@ function skip_method(f::Union{Function,Type})
     own_function = parentmodule(parentmodule(f)) == parentmodule(@__MODULE__)
     return own_function || f in SKIP_METHODS
 end
-skip_method(_) = false
+skip_method(_) = false  # COV_EXCL_LINE
 
 # Overdub all method calls, other than the ones defined in our library,
 # to automatically take ownership of Bound/BoundMut arguments
