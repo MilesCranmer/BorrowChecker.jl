@@ -24,6 +24,7 @@ using ..TypesModule:
     has_lifetime,
     get_lifetime,
     get_owner
+using ..StaticTraitModule: is_static
 using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 
 # Internal getters and setters
@@ -187,7 +188,7 @@ end
 
 function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
-    value = if isbitstype(T)
+    value = if is_static(T)
         # For isbits types, we do not need to worry
         # about the original getting modified, and thus
         # we do NOT need to deepcopy it.
@@ -204,7 +205,7 @@ end
 function take(src::Union{AllBound,AllBorrowed,LazyAccessor}, src_symbol)
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = request_value(src, Val(:read))
-    if isbits(value)
+    if is_static(value)
         return value
     else
         return deepcopy(value)
@@ -219,7 +220,7 @@ function move(
     src::Union{AllBound{T},LazyAccessor{T}}, src_symbol, dest_symbol, ::Val{mut}
 ) where {T,mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
-    value = if isbitstype(T)
+    value = if is_static(T)
         # For isbits types, we do not need to worry
         # about the original getting modified, and thus
         # we do NOT need to deepcopy it.
@@ -261,7 +262,7 @@ function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) wh
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     # Get the value from either a borrowed or bound value:
     value = let v = request_value(src, Val(:read))
-        isbits(v) ? v : deepcopy(v)
+        is_static(v) ? v : deepcopy(v)
     end
 
     return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)

@@ -95,8 +95,40 @@ end
 end
 
 @testitem "mutability check works" begin
-    @test isbitstype(Int)
-    @test !isbitstype(Vector{Int})
+    using BorrowChecker: is_static
+
+    @test is_static(1)
+    @test is_static(Int)
+    @test !is_static([1])
+    @test !is_static(Vector{Int})
+    @test is_static(Val(1))
+    @test is_static('a')
+
+    # These are not isbits, but ARE is_staic:
+    @test !isbits(:a)
+    @test is_static(:a)
+    @test !isbits(Int64)
+    @test is_static(Type{Int})
+
+    struct Container1
+        x::Any
+    end
+    @test !isbitstype(Container1)
+    @test !is_static(Container1)
+
+    struct Container2
+        x::Float32
+        y::Tuple
+    end
+    @test !isbitstype(Container2)
+    @test !is_static(Container2)
+
+    struct Container3
+        x::Float32
+        y::Tuple{Int,Int}
+    end
+    @test isbitstype(Container3)
+    @test is_static(Container3)
 end
 
 @testitem "Mutability changes through moves" begin

@@ -4,6 +4,7 @@ using MacroTools
 using MacroTools: rmlines
 
 include("utils.jl")
+include("static_trait.jl")
 include("errors.jl")
 include("types.jl")
 include("preferences.jl")
@@ -24,6 +25,7 @@ export Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
 export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
+using .StaticTraitModule: is_static
 using .TypesModule: is_moved, get_owner, Lifetime, LazyAccessorOf, OrBorrowed, OrBorrowedMut
 #! format: on
 

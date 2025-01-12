@@ -15,6 +15,7 @@ using ..TypesModule:
     unsafe_access,
     get_owner,
     get_lifetime
+using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused
@@ -24,7 +25,7 @@ _maybe_read(x::AllWrappers) = request_value(x, Val(:read))
 
 # Container operations
 function Base.getindex(o::AllEager{A}, i...) where {T,A<:Union{Ref{T},AbstractArray{T}}}
-    if isbitstype(T)
+    if is_static(T)
         return getindex(request_value(o, Val(:read)), map(_maybe_read, i)...)
     else
         return LazyAccessor(o, (map(_maybe_read, i)...,))
@@ -32,7 +33,7 @@ function Base.getindex(o::AllEager{A}, i...) where {T,A<:Union{Ref{T},AbstractAr
 end
 function Base.getindex(o::AllEager{A}, i) where {A<:Tuple}
     out = getindex(request_value(o, Val(:read)), _maybe_read(i))
-    if isbits(out)
+    if is_static(out)
         return out
     else
         return LazyAccessor(o, (i,))
@@ -102,7 +103,7 @@ end
 function Base.keys(r::AllWrappers)
     value = request_value(r, Val(:read))
     k = keys(value)
-    if !isbitstype(eltype(k))
+    if !is_static(eltype(k))
         error("Refusing to return non-isbits keys of a collection. Use `keys(@take!(d))` if needed.")
     end
     return k
