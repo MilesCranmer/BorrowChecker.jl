@@ -955,3 +955,44 @@ end
         @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
     end
 end
+
+@testitem "Show and PropertyNames Coverage" begin
+    using BorrowChecker
+    using BorrowChecker: is_moved, get_owner
+
+    # Test propertynames
+    mutable struct TestStruct
+        x::Int
+    end
+    @bind :mut obj = TestStruct(1)
+    @lifetime lt begin
+        @ref lt :mut ref = obj
+        @test propertynames(ref) == (:x,)
+    end
+
+    # Test show for Bound
+    @bind :mut arr = [1, 2, 3]
+    s = sprint(show, arr)
+    @test occursin("BoundMut{Vector{Int64}}([1, 2, 3], :arr)", s)
+    @move moved_arr = arr
+    s = sprint(show, moved_arr)
+    @test occursin("Bound{Vector{Int64}}([1, 2, 3], :moved_arr)", s)
+
+    # And, test moved versions:
+    s = sprint(show, arr)
+    @test "[moved]" == s
+
+    # Test show for Borrowed
+    @bind :mut vec = [1, 2, 3]
+    storage = []
+
+    @lifetime lt begin
+        @ref lt :mut ref = vec
+        s = sprint(show, ref)
+        @test occursin(
+            r".*BorrowedMut\{Vector\{Int64\},.*BoundMut\{Vector\{Int64\}\}\}\(\[1, 2, 3\], :ref\)",
+            s,
+        )
+        push!(storage, ref)
+    end
+end

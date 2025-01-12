@@ -162,6 +162,7 @@ function Base.show(io::IO, o::AllBound)
 end
 function Base.show(io::IO, r::AllBorrowed)
     if is_moved(r)
+        # TODO: I don't think we can ever get here?
         print(io, "[reference to moved value]")
     else
         constructor = constructorof(typeof(r))
