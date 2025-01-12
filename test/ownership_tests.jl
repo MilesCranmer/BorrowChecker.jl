@@ -103,6 +103,8 @@ end
     @test !is_static(Vector{Int})
     @test is_static(Val(1))
     @test is_static('a')
+    @test is_static(Union{Int,Float32})
+    @test !is_static(TypeVar(:T))
 
     # These are not isbits, but ARE is_staic:
     @test !isbits(:a)
