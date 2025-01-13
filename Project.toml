@@ -5,11 +5,13 @@ version = "0.0.5"
 
 [deps]
 Cassette = "7057c7e9-c182-5462-911a-8362d720325c"
+CassetteBase = "6dd3e646-b1c5-42c7-94be-00277fa12e22"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Preferences = "21216c6a-2e73-6563-6e65-726566657250"
 
 [compat]
 Cassette = "0.3"
+CassetteBase = "=0.1.0"
 MacroTools = "0.5"
 Preferences = "1.4"
 julia = "1.11"
