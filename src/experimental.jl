@@ -4,6 +4,8 @@ for the main API.
 """
 module Experimental
 
+include("CassetteOverlay.jl/CassetteOverlay.jl")
+
 using Cassette: Cassette
 using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved, get_symbol
 using ..StaticTraitModule: is_static
