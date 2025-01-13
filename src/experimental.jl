@@ -4,21 +4,19 @@ for the main API.
 """
 module Experimental
 
-include("CassetteOverlay/CassetteOverlay.jl")
-
-using Cassette: Cassette
+using ..CassetteOverlay
 using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved, get_symbol
 using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take!
 using ..PreferencesModule: is_borrow_checker_enabled
+using ..ErrorsModule: MovedError, BorrowRuleError
 
-# Create the Cassette context for ownership transfer
-Cassette.@context ManagedCtx
-
+# First define the regular functions
 function maybe_take!(x)
     return x
 end
+
 function maybe_take!(arg::AllBound)
     is_moved(arg) && throw(MovedError(get_symbol(arg)))
     value = unsafe_get_value(arg)
@@ -34,40 +32,34 @@ function maybe_take!(arg::AllBound)
     end
 end
 
-#! format: off
-const SKIP_METHODS = (
-    Base.getindex, Base.setindex!,
-    Base.getproperty, Base.setproperty!,
-    Base.getfield, Base.setfield!,
-)
-#! format: on
-function skip_method(f::Union{Function,Type})
-    # Don't modify our own methods!
-    own_function = parentmodule(parentmodule(f)) == parentmodule(@__MODULE__)
-    return own_function || f in SKIP_METHODS
-end
-skip_method(_) = false  # COV_EXCL_LINE
+# Create the method table for our overlay
+@MethodTable BorrowCheckerOverlay
 
-# Overdub all method calls, other than the ones defined in our library,
-# to automatically take ownership of Bound/BoundMut arguments
-function Cassette.overdub(ctx::ManagedCtx, f, args...)
-    if f == Core.setfield! &&
-        length(args) == 3 &&
-        args[1] isa Core.Box &&
-        args[2] == :contents &&
-        args[3] isa AllBound
-        #
-        symbol = get_symbol(args[3])
-        error("You are not allowed to capture bound variable `$(symbol)` inside a closure.")
-    end
-    if skip_method(f)
-        return Cassette.fallback(ctx, f, args...)
-    else
-        return Cassette.recurse(ctx, f, map(maybe_take!, args)...)
-    end
+# # Handle regular function calls
+# @overlay BorrowCheckerOverlay function (pass::Any)(f::Function, args...)
+#     @nospecialize f args
+#     @nonoverlay println("DEBUG: Function overlay called with f = ", f, " and args = ", args)
+#     # Transform each argument via maybe_take!
+#     unwrapped_args = @nonoverlay map(maybe_take!, args)
+#     @nonoverlay println("DEBUG: Unwrapped args = ", unwrapped_args, @nonoverlay typeof(unwrapped_args))
+#     # Call the raw function using nonoverlay to prevent recursion
+#     return @nonoverlay f(unwrapped_args...)
+# end
+
+# Catch-all overlay for any function call that didn't match the more specific methods
+@overlay BorrowCheckerOverlay function (pass::Any)(f::Any, args...)
+    @nospecialize f args
+    @nonoverlay println("DEBUG: Catch-all overlay called with f = ", f, " and args = ", args)
+    # Transform each argument via maybe_take!
+    unwrapped_args = @nonoverlay map(maybe_take!, args)
+    @nonoverlay println("DEBUG: Unwrapped args = ", unwrapped_args, @nonoverlay typeof(unwrapped_args))
+    # Call the raw function using nonoverlay to prevent recursion
+    return @nonoverlay f(unwrapped_args...)
 end
 
-const CleanManagedCtx = Cassette.disablehooks(ManagedCtx())
+# Create the pass - this will automatically generate the main pass method
+# that handles do-blocks via first(fargs)(Base.tail(fargs)...)
+const borrow_checker_pass = @overlaypass BorrowCheckerOverlay
 
 """
     @managed f()
@@ -83,7 +75,11 @@ macro managed(expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     return esc(
         quote
-            $(Cassette).@overdub($(CleanManagedCtx), $(expr))
+            $(borrow_checker_pass)() do
+                begin
+                    $expr
+                end
+            end
         end,
     )
 end

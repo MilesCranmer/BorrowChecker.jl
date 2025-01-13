@@ -6,6 +6,7 @@ using MacroTools: rmlines
 include("utils.jl")
 include("static_trait.jl")
 include("errors.jl")
+include("CassetteOverlay/CassetteOverlay.jl")
 include("types.jl")
 include("preferences.jl")
 include("semantics.jl")
