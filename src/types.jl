@@ -18,11 +18,11 @@ function increment_immutable_borrows! end
 function decrement_immutable_borrows! end
 
 """
-    abstract type AbstractBound{T} end
+    abstract type AbstractOwned{T} end
 
-Abstract supertype for all bound value types in the BorrowChecker system.
+Abstract supertype for all owned value types in the BorrowChecker system.
 """
-abstract type AbstractBound{T} end
+abstract type AbstractOwned{T} end
 
 """
     abstract type AbstractBorrowed{T} end
@@ -32,10 +32,10 @@ Abstract supertype for all borrowed reference types in the BorrowChecker system.
 abstract type AbstractBorrowed{T} end
 
 """
-    Bound{T}
+    Owned{T}
 
-An immutable bound value. Common operations:
-- Create using `@bind x = value`
+An immutable owned value. Common operations:
+- Create using `@own x = value`
 - Access value using `@take!` (moves) or `@take` (copies)
 - Borrow using `@ref`
 - Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
@@ -49,27 +49,27 @@ Once moved, the value cannot be accessed again.
 - `immutable_borrows::Int`: Count of active immutable borrows
 - `symbol::Symbol`: Variable name for error reporting
 """
-mutable struct Bound{T} <: AbstractBound{T}
+mutable struct Owned{T} <: AbstractOwned{T}
     const value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
     const symbol::Symbol
 
-    function Bound{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+    function Owned{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return new{T}(value, moved, 0, symbol)
     end
-    function Bound(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return Bound{T}(value, moved, symbol)
+    function Owned(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return Owned{T}(value, moved, symbol)
     end
 end
 # TODO: Store a random hash in `get_task_storage` and
 #       validate it to ensure we have not moved tasks.
 
 """
-    BoundMut{T}
+    OwnedMut{T}
 
-A mutable bound value. Common operations:
-- Create using `@bind :mut x = value`
+A mutable owned value. Common operations:
+- Create using `@own :mut x = value`
 - Access value using `@take!` (moves) or `@take` (copies)
 - Modify using `@set`
 - Borrow using `@ref` or `@ref :mut`
@@ -85,18 +85,18 @@ Once moved, the value cannot be accessed again.
 - `mutable_borrows::Int`: Count of active mutable borrows
 - `symbol::Symbol`: Variable name for error reporting
 """
-mutable struct BoundMut{T} <: AbstractBound{T}
+mutable struct OwnedMut{T} <: AbstractOwned{T}
     @atomic value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
     @atomic mutable_borrows::Int
     const symbol::Symbol
 
-    function BoundMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+    function OwnedMut{T}(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
         return new{T}(value, moved, 0, 0, symbol)
     end
-    function BoundMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
-        return BoundMut{T}(value, moved, symbol)
+    function OwnedMut(value::T, moved::Bool=false, symbol::Symbol=:anonymous) where {T}
+        return OwnedMut{T}(value, moved, symbol)
     end
 end
 
@@ -119,9 +119,9 @@ struct NoLifetime end
 Base.in(x, ::NoLifetime) = x
 
 """
-    Borrowed{T,O<:AbstractBound}
+    Borrowed{T,O<:AbstractOwned}
 
-An immutable reference to a bound value. Common operations:
+An immutable reference to an owned value. Common operations:
 - Create using `@ref lt x = value`
 - Access value using `@take` (copies)
 - Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
@@ -132,11 +132,11 @@ The reference is valid only within its lifetime scope.
 # Internal fields (not part of public API):
 
 - `value::T`: The referenced value
-- `owner::O`: The original bound value
+- `owner::O`: The original owned value
 - `lifetime::Lifetime`: The scope in which this reference is valid
 - `symbol::Symbol`: Variable name for error reporting
 """
-struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
+struct Borrowed{T,O<:AbstractOwned} <: AbstractBorrowed{T}
     value::T
     owner::O
     lifetime::Lifetime
@@ -144,10 +144,10 @@ struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
 
     function Borrowed(
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {T,O<:AbstractBound}
+    ) where {T,O<:AbstractOwned}
         if is_moved(owner)
             throw(MovedError(get_symbol(owner)))
-        elseif owner isa BoundMut && get_mutable_borrows(owner) > 0
+        elseif owner isa OwnedMut && get_mutable_borrows(owner) > 0
             throw(
                 BorrowRuleError(
                     "Cannot create immutable reference: value is mutably borrowed"
@@ -164,15 +164,15 @@ struct Borrowed{T,O<:AbstractBound} <: AbstractBorrowed{T}
     end
     function Borrowed(
         owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {O<:AbstractBound}
+    ) where {O<:AbstractOwned}
         return Borrowed(unsafe_get_value(owner), owner, lifetime, symbol)
     end
 end
 
 """
-    BorrowedMut{T,O<:BoundMut}
+    BorrowedMut{T,O<:OwnedMut}
 
-A mutable reference to a bound value. Common operations:
+A mutable reference to an owned value. Common operations:
 - Create using `@ref lt :mut x = value`
 - Access value using `@take` (copies)
 - Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
@@ -183,11 +183,11 @@ and no immutable references can exist simultaneously.
 # Internal fields (not part of public API):
 
 - `value::T`: The referenced value
-- `owner::O`: The original bound value
+- `owner::O`: The original owned value
 - `lifetime::Lifetime`: The scope in which this reference is valid
 - `symbol::Symbol`: Variable name for error reporting
 """
-struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
+struct BorrowedMut{T,O<:OwnedMut} <: AbstractBorrowed{T}
     value::T
     owner::O
     lifetime::Lifetime
@@ -195,7 +195,7 @@ struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
 
     function BorrowedMut(
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {T,O<:AbstractBound}
+    ) where {T,O<:AbstractOwned}
         if !is_mutable(owner)
             throw(BorrowRuleError("Cannot create mutable reference of immutable"))
         elseif is_moved(owner)
@@ -222,7 +222,7 @@ struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
     end
     function BorrowedMut(
         owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {O<:AbstractBound}
+    ) where {O<:AbstractOwned}
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime, symbol)
     end
     function BorrowedMut(::AbstractBorrowed, ::Lifetime)
@@ -231,15 +231,15 @@ struct BorrowedMut{T,O<:BoundMut} <: AbstractBorrowed{T}
 end
 
 """
-    LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
+    LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}}
 
-A lazy accessor for properties or indices of bound or borrowed values.
+A lazy accessor for properties or indices of owned or borrowed values.
 Maintains ownership semantics while allowing property/index access without copying or moving.
 
-Created automatically when accessing properties or indices of bound/borrowed values:
+Created automatically when accessing properties or indices of owned/borrowed values:
 
 ```julia
-@bind x = (a=1, b=2)
+@own x = (a=1, b=2)
 x.a  # Returns a LazyAccessor
 ```
 
@@ -248,9 +248,9 @@ x.a  # Returns a LazyAccessor
 - `parent::P`: The parent value being accessed
 - `property::S`: The property/index being accessed
 - `property_type::Type{T}`: Type of the accessed property/index
-- `target::O`: The original bound/borrowed value
+- `target::O`: The original owned/borrowed value
 """
-struct LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
+struct LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}}
     parent::P
     property::S
     property_type::Type{T}
@@ -258,7 +258,7 @@ struct LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
 
     function LazyAccessor(
         x::P, ::Val{property}
-    ) where {P<:Union{Bound,BoundMut,Borrowed,BorrowedMut},property}
+    ) where {P<:Union{Owned,OwnedMut,Borrowed,BorrowedMut},property}
         parent = unsafe_get_value(x)
         property_type = typeof(getproperty(parent, property))
         return new{property_type,typeof(parent),Val{property},P}(
@@ -275,7 +275,7 @@ struct LazyAccessor{T,P,S,O<:Union{AbstractBound,AbstractBorrowed}}
     end
     function LazyAccessor(
         x::P, idx::Tuple
-    ) where {P<:Union{Bound,BoundMut,Borrowed,BorrowedMut}}
+    ) where {P<:Union{Owned,OwnedMut,Borrowed,BorrowedMut}}
         parent = unsafe_get_value(x)
         property_type = typeof(getindex(parent, idx...))
         return new{property_type,typeof(parent),typeof(idx),P}(
@@ -301,10 +301,10 @@ end
 
 # Type aliases and traits
 const AllBorrowed{T} = AbstractBorrowed{T}
-const AllBound{T} = AbstractBound{T}
-const AllImmutable{T} = Union{Borrowed{T},Bound{T}}
-const AllMutable{T} = Union{BorrowedMut{T},BoundMut{T}}
-const AllEager{T} = Union{AllBorrowed{T},AllBound{T}}
+const AllOwned{T} = AbstractOwned{T}
+const AllImmutable{T} = Union{Borrowed{T},Owned{T}}
+const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
+const AllEager{T} = Union{AllBorrowed{T},AllOwned{T}}
 const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
 const LazyAccessorOf{O} = LazyAccessor{T,P,S,<:O} where {T,P,S}
 const OrBorrowed{T} = Union{T,Borrowed{<:T},LazyAccessor{<:T,P,S,<:Borrowed} where {P,S}}
@@ -319,8 +319,8 @@ is_mutable(r::AllImmutable) = false
 # COV_EXCL_STOP
 
 # Internal getters and setters
-unsafe_get_value(r::BoundMut) = getfield(r, :value, :sequentially_consistent)
-unsafe_get_value(r::Bound) = getfield(r, :value)
+unsafe_get_value(r::OwnedMut) = getfield(r, :value, :sequentially_consistent)
+unsafe_get_value(r::Owned) = getfield(r, :value)
 function unsafe_get_value(r::AllBorrowed)
     raw_value = getfield(r, :value)
     if raw_value === get_owner(r)
@@ -329,7 +329,7 @@ function unsafe_get_value(r::AllBorrowed)
         return raw_value
     end
 end
-function unsafe_set_value!(r::BoundMut, value)
+function unsafe_set_value!(r::OwnedMut, value)
     return setfield!(r, :value, value, :sequentially_consistent)
 end
 
@@ -343,14 +343,14 @@ end
     return getindex(parent, i...)::T
 end
 
-function mark_moved!(r::AllBound)
+function mark_moved!(r::AllOwned)
     return setfield!(r, :moved, true, :sequentially_consistent)
 end
 function mark_moved!(r::LazyAccessor)
     return mark_moved!(get_owner(r))
 end
 
-function is_moved(r::AllBound)
+function is_moved(r::AllOwned)
     return getfield(r, :moved, :sequentially_consistent)
 end
 function is_moved(r::AllBorrowed)
@@ -369,18 +369,18 @@ end
 
 # Constructor utilities
 # COV_EXCL_START
-constructorof(::Type{<:Bound}) = Bound
-constructorof(::Type{<:BoundMut}) = BoundMut
+constructorof(::Type{<:Owned}) = Owned
+constructorof(::Type{<:OwnedMut}) = OwnedMut
 constructorof(::Type{<:Borrowed}) = Borrowed
 constructorof(::Type{<:BorrowedMut}) = BorrowedMut
 
-has_lifetime(::AllBound) = false
+has_lifetime(::AllOwned) = false
 has_lifetime(::AllBorrowed) = true
 has_lifetime(::LazyAccessor) = false
 # COV_EXCL_STOP
 # TODO: Should LazyAccessor have its owner be Borrowed?
 
-get_owner(r::AllBound) = r
+get_owner(r::AllOwned) = r
 get_owner(r::AllBorrowed) = getfield(r, :owner)
 get_owner(r::LazyAccessor) = get_owner(getfield(r, :target))
 
@@ -389,24 +389,24 @@ get_lifetime(r::LazyAccessorOf{AllBorrowed}) = get_lifetime(getfield(r, :target)
 
 get_symbol(r::AllEager) = getfield(r, :symbol)
 
-function get_immutable_borrows(r::AllBound)
+function get_immutable_borrows(r::AllOwned)
     return getfield(r, :immutable_borrows, :sequentially_consistent)
 end
 
-get_mutable_borrows(r::BoundMut) = getfield(r, :mutable_borrows, :sequentially_consistent)
+get_mutable_borrows(r::OwnedMut) = getfield(r, :mutable_borrows, :sequentially_consistent)
 
-@inline function _change_immutable_borrows!(r::AllBound, change::Int)
+@inline function _change_immutable_borrows!(r::AllOwned, change::Int)
     borrows = get_immutable_borrows(r)
     return setfield!(r, :immutable_borrows, borrows + change, :sequentially_consistent)
 end
-@inline increment_immutable_borrows!(r::AllBound) = _change_immutable_borrows!(r, 1)
-@inline decrement_immutable_borrows!(r::AllBound) = _change_immutable_borrows!(r, -1)
+@inline increment_immutable_borrows!(r::AllOwned) = _change_immutable_borrows!(r, 1)
+@inline decrement_immutable_borrows!(r::AllOwned) = _change_immutable_borrows!(r, -1)
 
-@inline function _change_mutable_borrows!(r::BoundMut, change::Int)
+@inline function _change_mutable_borrows!(r::OwnedMut, change::Int)
     borrows = get_mutable_borrows(r)
     return setfield!(r, :mutable_borrows, borrows + change, :sequentially_consistent)
 end
-@inline increment_mutable_borrows!(r::BoundMut) = _change_mutable_borrows!(r, 1)
-@inline decrement_mutable_borrows!(r::BoundMut) = _change_mutable_borrows!(r, -1)
+@inline increment_mutable_borrows!(r::OwnedMut) = _change_mutable_borrows!(r, 1)
+@inline decrement_mutable_borrows!(r::OwnedMut) = _change_mutable_borrows!(r, -1)
 
 end

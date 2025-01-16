@@ -4,7 +4,7 @@ using BorrowChecker
 @testitem "Immutable References" begin
     using BorrowChecker: is_moved
 
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = x
         @test ref == [1, 2, 3]  # Can read through reference
@@ -16,7 +16,7 @@ using BorrowChecker
 end
 
 @testitem "Expired references" begin
-    @bind x = [42]
+    @own x = [42]
     y = Any[]
     @lifetime lt begin
         @ref lt ref = x
@@ -35,7 +35,7 @@ end
 end
 
 @testitem "Lifetime nesting restrictions" begin
-    @bind arr = [10, 20, 30]
+    @own arr = [10, 20, 30]
     @lifetime outerLT begin
         @ref outerLT refA = arr
         @lifetime innerLT begin
@@ -55,8 +55,8 @@ end
         x::Int
         y::Int
     end
-    @bind p = Point(1, 2)
-    @test p isa Bound{Point}
+    @own p = Point(1, 2)
+    @test p isa Owned{Point}
     @lifetime lt begin
         @ref lt ref_p = p
         @test ref_p isa Borrowed{Point}
@@ -68,7 +68,7 @@ end
         @test_throws BorrowRuleError ref_p.x = 10  # Can't modify properties
     end
     @test get_immutable_borrows(p) == 0
-    @bind :mut mp = Point(1, 2)
+    @own :mut mp = Point(1, 2)
     @lifetime lt begin
         @ref lt :mut mut_ref_p = mp
         @test mut_ref_p.x == 1
@@ -76,7 +76,7 @@ end
 end
 
 @testitem "Mutable Property Access" begin
-    @bind :mut y = [1, 2, 3]
+    @own :mut y = [1, 2, 3]
     @lifetime lt begin
         @ref lt :mut mut_ref = y
         @test mut_ref == [1, 2, 3]  # Can read through reference
@@ -90,7 +90,7 @@ end
 end
 
 @testitem "Referencing moved values" begin
-    @bind z = [1, 2, 3]
+    @own z = [1, 2, 3]
     @move w = z
     @lifetime lt begin
         @test_throws MovedError @ref lt d = z
@@ -102,7 +102,7 @@ end
     using BorrowChecker: get_immutable_borrows, get_mutable_borrows
 
     # Test multiple immutable references
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref1 = x
         @ref lt ref2 = x
@@ -116,8 +116,8 @@ end
     @test get_immutable_borrows(x) == 0  # All borrows cleaned up
 
     # Test mutable reference blocks
-    @bind :mut y = [1, 2, 3]
-    @bind :mut z = [4, 5, 6]
+    @own :mut y = [1, 2, 3]
+    @own :mut z = [4, 5, 6]
     @lifetime lt begin
         @ref lt :mut mut_ref1 = y
         # Can't create another mutable reference to y
@@ -136,8 +136,8 @@ end
     @test z == [4, 5, 6, 7]
 
     # Test mixing mutable and immutable references to different variables
-    @bind :mut a = [1, 2, 3]
-    @bind b = [4, 5, 6]
+    @own :mut a = [1, 2, 3]
+    @own b = [4, 5, 6]
     @lifetime lt begin
         @ref lt :mut mut_ref = a
         @ref lt imm_ref = b
@@ -153,7 +153,7 @@ end
     using BorrowChecker: get_mutable_borrows
 
     # Test lifetime with let block
-    @bind :mut outer = [1, 2, 3]
+    @own :mut outer = [1, 2, 3]
 
     @lifetime lt let
         @ref lt :mut inner = outer
@@ -167,7 +167,7 @@ end
 end
 
 @testitem "Prevents write on mutable array when referenced" begin
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = x
         @test_throws BorrowRuleError x[1] = 5
@@ -181,7 +181,7 @@ end
         x::Vector{Int}
     end
 
-    @bind :mut c = Container([1, 2, 3])
+    @own :mut c = Container([1, 2, 3])
     c.x[1] = 4
     @test c.x == [4, 2, 3]
 
