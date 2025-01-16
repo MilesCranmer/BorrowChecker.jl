@@ -53,15 +53,15 @@ In BorrowChecker.jl, we demonstrate a very simple implementation of some of thes
 ```julia
 using BorrowChecker
 
-@bind x = [1, 2, 3]
-@bind y = x
+@own x = [1, 2, 3]
+@own y = x
 println(length(x))
 # ERROR: Cannot use x: value has been moved
 ```
 
-You see, the `@bind` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The second operation then moves the object to `y`, and flips the `.moved` flag on `x` so it can no longer be used by regular operations.
+You see, the `@own` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The second operation then moves the object to `y`, and flips the `.moved` flag on `x` so it can no longer be used by regular operations.
 
-However, this does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@bind`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+However, this does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
 [^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
 
@@ -78,15 +78,15 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ### Basics
 
-- `@bind [:mut] x = value`: Create a new bound/owned value (mutable if `:mut` is specified)
-    - These are `Bound{T}` and `BoundMut{T}` objects, respectively.
-- `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@bind` for moving values._
+- `@own [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
+    - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
+- `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
-- `@take[!] var`: Unwrap a bound value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
+- `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
 
 ### Automatic Ownership Transfer
 
-- `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Bound{T}` or `BoundMut{T}` input arguments.
+- `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Owned{T}` or `OwnedMut{T}` input arguments.
     - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
 
 ### References and Lifetimes
@@ -97,16 +97,16 @@ Now, with that out of the way, let's see the reference and then some more detail
 
 ### Assignment
 
-- `@set x = value`: Assign a new value to an existing bound mutable variable
+- `@set x = value`: Assign a new value to an existing owned mutable variable
 
 ### Loops
 
-- `@bind [:mut] for var in iter`: Create a loop over an iterable, binding each element to `var`. The original `iter` is marked as moved.
-- `@ref lt [:mut] for var in iter`: Create a loop over a bound iterable, generating references to each element, for the duration of `lt`.
+- `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
+- `@ref lt [:mut] for var in iter`: Create a loop over an owned iterable, generating references to each element, for the duration of `lt`.
 
 ### Disabling BorrowChecker
 
-You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like `@bind`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
+You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like `@own`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
 
 You can also set the _default_ behavior from within a module:
 
@@ -130,8 +130,8 @@ First, let's look at basic ownership.
 ```julia
 julia> using BorrowChecker
 
-julia> @bind x = [1]
-Bound{Vector{Int64}}([1])
+julia> @own x = [1]
+Owned{Vector{Int64}}([1])
 ```
 
 This is meant to emulate `let x = vec![1]` in Rust.
@@ -160,22 +160,22 @@ ERROR: Cannot use x: value has been moved
 Now, let's look at a mutable value:
 
 ```julia
-julia> @bind :mut y = 1
-BoundMut{Int64}(1)
+julia> @own :mut y = 1
+OwnedMut{Int64}(1)
 ```
 
 We change the contents of this variable using `@set`:
 
 ```julia
 julia> @set y = 2
-BoundMut{Int64}(2)
+OwnedMut{Int64}(2)
 ```
 
 Note that we can't do this with immutable values:
 
 ```julia
-julia> @bind x, y, z = 1:3  # tuple unpacking works
-(Bound{Int64}(1), Bound{Int64}(2), Bound{Int64}(3))
+julia> @own x, y, z = 1:3  # tuple unpacking works
+(Owned{Int64}(1), Owned{Int64}(2), Owned{Int64}(3))
 
 julia> @set x = 2
 ERROR: Cannot assign to immutable
@@ -184,24 +184,24 @@ ERROR: Cannot assign to immutable
 This also works with arrays:
 
 ```julia
-julia> @bind array = [1, 2, 3]
-Bound{Vector{Int64}}([1, 2, 3])
+julia> @own array = [1, 2, 3]
+Owned{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
 ERROR: Cannot write to immutable
 
-julia> @bind :mut array = [1, 2, 3]
-BoundMut{Vector{Int64}}([1, 2, 3])
+julia> @own :mut array = [1, 2, 3]
+OwnedMut{Vector{Int64}}([1, 2, 3])
 
 julia> push!(array, 4)
-BoundMut{Vector{Int64}}([1, 2, 3, 4])
+OwnedMut{Vector{Int64}}([1, 2, 3, 4])
 ```
 
 Just like with immutable values, we can move ownership:
 
 ```julia
 julia> @move array2 = array
-Bound{Vector{Int64}}([1, 2, 3, 4])
+Owned{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array
 [moved]
@@ -213,7 +213,7 @@ julia> array2[1] = 5
 ERROR: Cannot write to immutable
 
 julia> @move :mut array3 = array2  # Move to mutable
-BoundMut{Vector{Int64}}([1, 2, 3, 4])
+OwnedMut{Vector{Int64}}([1, 2, 3, 4])
 
 julia> array3[1] = 5  # Now we can modify it
 ```
@@ -221,11 +221,11 @@ julia> array3[1] = 5  # Now we can modify it
 You can also clone values using `@clone`, which calls `deepcopy` under the hood:
 
 ```julia
-julia> @bind x = [1, 2, 3]
-Bound{Vector{Int64}}([1, 2, 3])
+julia> @own x = [1, 2, 3]
+Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @clone :mut y = x  # Create mutable clone
-BoundMut{Vector{Int64}}([1, 2, 3])
+OwnedMut{Vector{Int64}}([1, 2, 3])
 ```
 
 ### Borrowing
@@ -234,13 +234,13 @@ References must be created within a `@lifetime` block. Let's look at
 immutable references first:
 
 ```julia
-julia> @bind :mut data = [1, 2, 3];
+julia> @own :mut data = [1, 2, 3];
 
 julia> @lifetime a begin
            @ref a ref = data
            ref
        end
-Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
+Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
 ```
 
 Once we have created the reference `ref`, we are no longer allowed to modify
@@ -249,7 +249,7 @@ After the lifetime ends, we can edit `data` again:
 
 ```julia
 julia> data[1] = 4; data
-BoundMut{Vector{Int64}}([4, 2, 3])
+OwnedMut{Vector{Int64}}([4, 2, 3])
 ```
 
 Note that we can have multiple _immutable_ references at once:
@@ -290,22 +290,22 @@ julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need im
            @assert v == [1, 2, 3]
        end;
 
-julia> @bind vec = [1, 2, 3]
-Bound{Vector{Int64}}([1, 2, 3])
+julia> @own vec = [1, 2, 3]
+Owned{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime a begin
            borrow_vector(@ref a d = vec)  # Immutable borrow
        end
 
 julia> vec
-Bound{Vector{Int64}}([1, 2, 3])
+Owned{Vector{Int64}}([1, 2, 3])
 ```
 
 We are also able to clone from reference:
 
 ```julia
-julia> @bind :mut data = [1, 2, 3]
-BoundMut{Vector{Int64}}([1, 2, 3])
+julia> @own :mut data = [1, 2, 3]
+OwnedMut{Vector{Int64}}([1, 2, 3])
 
 julia> @lifetime a begin
            @ref a ref = data
@@ -313,8 +313,8 @@ julia> @lifetime a begin
            clone[2] = 4
            @show clone ref
        end;
-clone = BoundMut{Vector{Int64}}([1, 4, 3])
-ref = Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
+clone = OwnedMut{Vector{Int64}}([1, 4, 3])
+ref = Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
 ```
 
 ### Loops
@@ -322,10 +322,10 @@ ref = Borrowed{Vector{Int64},BoundMut{Vector{Int64}}}([1, 2, 3])
 Finally, we can use ownership semantics in for loops. By default, loop variables are immutable:
 
 ```julia
-julia> @bind :mut accumulator = 0
-BoundMut{Int64}(0)
+julia> @own :mut accumulator = 0
+OwnedMut{Int64}(0)
 
-julia> @bind :mut for x in 1:3
+julia> @own :mut for x in 1:3
            @set x = x + 1  # Can modify x since it's mutable
            @set accumulator = accumulator + x
        end

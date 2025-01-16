@@ -5,7 +5,7 @@ for the main API.
 module Experimental
 
 using Cassette: Cassette
-using ..TypesModule: AllBound, Bound, BoundMut, Borrowed, BorrowedMut, is_moved, get_symbol
+using ..TypesModule: AllOwned, Owned, OwnedMut, Borrowed, BorrowedMut, is_moved, get_symbol
 using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take!
@@ -17,7 +17,7 @@ Cassette.@context ManagedCtx
 function maybe_take!(x)
     return x
 end
-function maybe_take!(arg::AllBound)
+function maybe_take!(arg::AllOwned)
     is_moved(arg) && throw(MovedError(get_symbol(arg)))
     value = unsafe_get_value(arg)
     if is_static(value)
@@ -47,16 +47,16 @@ end
 skip_method(_) = false  # COV_EXCL_LINE
 
 # Overdub all method calls, other than the ones defined in our library,
-# to automatically take ownership of Bound/BoundMut arguments
+# to automatically take ownership of Owned/OwnedMut arguments
 function Cassette.overdub(ctx::ManagedCtx, f, args...)
     if f == Core.setfield! &&
         length(args) == 3 &&
         args[1] isa Core.Box &&
         args[2] == :contents &&
-        args[3] isa AllBound
+        args[3] isa AllOwned
         #
         symbol = get_symbol(args[3])
-        error("You are not allowed to capture bound variable `$(symbol)` inside a closure.")
+        error("You are not allowed to capture owned variable `$(symbol)` inside a closure.")
     end
     if skip_method(f)
         return Cassette.fallback(ctx, f, args...)
@@ -70,7 +70,7 @@ const CleanManagedCtx = Cassette.disablehooks(ManagedCtx())
 """
     @managed f()
 
-Run code with automatic ownership transfer enabled. Any `Bound` or `BoundMut` arguments
+Run code with automatic ownership transfer enabled. Any `Owned` or `OwnedMut` arguments
 passed to functions within the block will automatically have their ownership transferred
 using the equivalent of `@take!`.
 

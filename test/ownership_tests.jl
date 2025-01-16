@@ -4,16 +4,16 @@ using BorrowChecker
 @testitem "Basic Ownership" begin
     using BorrowChecker: is_moved
 
-    # Create bound value
-    @bind x = 42
+    # Create owned value
+    @own x = 42
     @lifetime lt begin
         @ref lt ref = x
         @test ref == 42
         @test !is_moved(x)
     end
 
-    # Create mutable bound value
-    @bind :mut y = [1, 2, 3]
+    # Create mutable owned value
+    @own :mut y = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = y
         @test ref == [1, 2, 3]
@@ -25,7 +25,7 @@ end
     using BorrowChecker: is_moved
 
     # Basic move with @move y = x syntax
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @move y = x  # Move to immutable
     @lifetime lt begin
         @ref lt ref = y
@@ -39,7 +39,7 @@ end
     @test_throws MovedError @move z = x
 
     # Can move multiple times through chain
-    @bind a = [1, 2, 3]
+    @own a = [1, 2, 3]
     @move :mut y = a  # Move to mutable
     @move z = y  # Move to immutable
     @lifetime lt begin
@@ -56,7 +56,7 @@ end
     using BorrowChecker: is_moved
 
     # Test that accessing a moved value throws MovedError
-    @bind c = [10, 20]
+    @own c = [10, 20]
     @move d = c
     @test is_moved(c)
     @test_throws MovedError c[1]
@@ -64,7 +64,7 @@ end
 
 @testitem "Primitive Types" begin
     # Primitives are isbits types, so they are cloned rather than moved
-    @bind x = 42
+    @own x = 42
     @move y = x
     @lifetime lt begin
         @ref lt ref = y
@@ -75,7 +75,7 @@ end
     end
 
     # Same with @take!
-    @bind z = 42
+    @own z = 42
     @test (@take! z) == 42
     @lifetime lt begin
         # z is still valid since it was cloned:
@@ -88,7 +88,7 @@ end
     using BorrowChecker: is_moved
 
     # Test that taking isbits values doesn't actually move them
-    @bind x = 123
+    @own x = 123
     val = @take! x
     @test val == 123
     @test !is_moved(x)
@@ -138,7 +138,7 @@ end
     using BorrowChecker: is_moved
 
     # Test moving from immutable to mutable
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @test_throws BorrowRuleError push!(x, 4)  # Can't modify immutable
     @move :mut y = x  # Move to mutable
     push!(y, 4)  # Can modify after move
@@ -146,7 +146,7 @@ end
     @test is_moved(x)
 
     # Test moving from mutable to immutable
-    @bind :mut z = [1, 2, 3]
+    @own :mut z = [1, 2, 3]
     push!(z, 4)  # Can modify mutable
     @move w = z  # Move to immutable
     @test_throws BorrowRuleError push!(w, 5)  # Can't modify after move to immutable
@@ -154,7 +154,7 @@ end
     @test w == [1, 2, 3, 4]
 
     # Test chain of mutability changes
-    @bind a = [1]
+    @own a = [1]
     @move :mut b = a  # immutable -> mutable
     push!(b, 2)
     @move c = b  # mutable -> immutable
@@ -168,7 +168,7 @@ end
 @testitem "Basic clone semantics" begin
     using BorrowChecker: is_moved
 
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @clone y = x  # Clone to immutable
     @test y == [1, 2, 3]
     @test !is_moved(x)  # Original not moved
@@ -178,7 +178,7 @@ end
 
 @testitem "Clone to mutable" begin
     using BorrowChecker: is_moved
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @clone :mut z = x
     push!(z, 4)  # Can modify mutable clone
     @test z == [1, 2, 3, 4]
@@ -189,7 +189,7 @@ end
 @testitem "Clone of mutable value" begin
     using BorrowChecker: is_moved
 
-    @bind :mut a = [1, 2, 3]
+    @own :mut a = [1, 2, 3]
     push!(a, 4)
     @clone b = a  # Clone to immutable
     @test b == [1, 2, 3, 4]
@@ -207,7 +207,7 @@ end
         y::Vector{Int}
     end
 
-    @bind :mut p = Point([1], [2])
+    @own :mut p = Point([1], [2])
     @clone :mut q = p
     @lifetime lt begin
         # Get references to all fields we'll need
@@ -239,11 +239,11 @@ end
 @testitem "Clone of borrowed value" begin
     using BorrowChecker: is_moved
 
-    @bind :mut v = [1, 2, 3]
+    @own :mut v = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = v
         @clone w = ref  # Clone from reference
-        @test w isa Bound{Vector{Int}}
+        @test w isa Owned{Vector{Int}}
         @test w == [1, 2, 3]
         @test !is_moved(v)  # Original not moved
     end
@@ -252,7 +252,7 @@ end
     @test v == [1, 2, 3, 4]
 
     # Clone of moved value should fail
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @move y = x
     @test_throws MovedError @clone z = x
 end
@@ -270,7 +270,7 @@ end
     @test isbitstype(Point2D)
 
     # Test move behavior (should clone)
-    @bind p = Point2D(1.0, 2.0)
+    @own p = Point2D(1.0, 2.0)
     @move q = p
     # Actually, this cloned!
     @test !is_moved(p)
@@ -285,7 +285,7 @@ end
     end
 
     # Test take behavior (should clone)
-    @bind r = Point2D(3.0, 4.0)
+    @own r = Point2D(3.0, 4.0)
     @test (@take! r).x == 3.0
     @lifetime lt begin
         @ref lt ref = r
@@ -293,29 +293,29 @@ end
     end
 end
 
-@testitem "Using @bind like @move" begin
+@testitem "Using @own like @move" begin
     using BorrowChecker: is_moved
 
-    @bind x = Ref(42)
-    @bind y = x
-    @test y isa Bound{<:Ref{Int}}
+    @own x = Ref(42)
+    @own y = x
+    @test y isa Owned{<:Ref{Int}}
     @test is_moved(x)
     @test y[] == 42
     @test !is_moved(y)  # isbits, so not moved
 end
 
-@testitem "Borrowed objects cannot be bound" begin
-    @bind x = Ref(42)
+@testitem "Borrowed objects cannot be owned" begin
+    @own x = Ref(42)
     @lifetime lt begin
         @ref lt ref = x
-        @test_throws BorrowRuleError @bind y = ref
+        @test_throws BorrowRuleError @own y = ref
     end
 end
 
 @testitem "non-destructive take" begin
     using BorrowChecker: is_moved
 
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @test (@take x) == [1, 2, 3]
     @test !is_moved(x)
     @test x == [1, 2, 3]

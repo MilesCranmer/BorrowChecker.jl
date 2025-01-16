@@ -9,7 +9,7 @@ using BorrowChecker
     increment_counter!(ref::Ref) = (ref[] += 1)
     function bc_create_thread_race()
         # (Oops, I forgot to make this Atomic!)
-        @bind :mut shared_counter = Ref(0)
+        @own :mut shared_counter = Ref(0)
         Threads.@threads for _ in 1:10000
             increment_counter!(@take! shared_counter)
         end
@@ -18,21 +18,20 @@ using BorrowChecker
 
     # This is the correct design, and thus won't throw
     function counter(thread_count::Integer)
-        @bind :mut local_counter = 0
+        @own :mut local_counter = 0
         for _ in 1:thread_count
             @set local_counter = local_counter + 1
         end
         @take! local_counter
     end
     function bc_correct_counter()
-        @bind num_threads = 4
-        @bind total_count = 10000
-        @bind count_per_thread = total_count ÷ num_threads
-        @bind :mut tasks = Task[]
+        @own num_threads = 4
+        @own total_count = 10000
+        @own count_per_thread = total_count ÷ num_threads
+        @own :mut tasks = Task[]
         for t_id in 1:num_threads
-            @bind thread_count =
-                count_per_thread + (t_id == 1) * (total_count % num_threads)
-            @bind t = Threads.@spawn counter($(@take! thread_count))
+            @own thread_count = count_per_thread + (t_id == 1) * (total_count % num_threads)
+            @own t = Threads.@spawn counter($(@take! thread_count))
             push!(tasks, @take!(t))
         end
         return sum(map(fetch, @take!(tasks)))
@@ -62,8 +61,8 @@ end
         return nothing
     end
 
-    @bind :mut p = Particle(Point(0.0, 0.0), Point(1.0, 1.0))
-    @bind dt = 0.1
+    @own :mut p = Particle(Point(0.0, 0.0), Point(1.0, 1.0))
+    @own dt = 0.1
 
     BorrowChecker.Experimental.@managed let
         update_velocity!(p, dt)
@@ -92,15 +91,15 @@ end
         return nothing
     end
 
-    @bind :mut particles = [
+    @own :mut particles = [
         Particle(Point(0.0, 0.0), Point(1.0, 1.0)),
         Particle(Point(0.0, 0.0), Point(1.0, -0.5)),
         Particle(Point(0.0, 0.0), Point(2.0, 0.5)),
     ]
 
-    @bind nsteps = 100
-    @bind dt = 0.1
-    @bind for step in 1:nsteps
+    @own nsteps = 100
+    @own dt = 0.1
+    @own for step in 1:nsteps
         @lifetime a let
             @ref a :mut for p in particles
                 update_velocity!(p, @take(dt))
@@ -136,9 +135,9 @@ end
         y::Float64
     end
 
-    @bind :mut points = [Ref(Point(rand(2)...)) for _ in 1:100]
+    @own :mut points = [Ref(Point(rand(2)...)) for _ in 1:100]
     @clone points_clone = points
-    @bind perturbation = Point(rand(2)...)
+    @own perturbation = Point(rand(2)...)
     @lifetime a begin
         @ref a :mut for p in points
             p[] = Point(p[].x + perturbation.x, p[].y + perturbation.y)

@@ -15,13 +15,13 @@ include("experimental.jl")
 
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
-using .TypesModule: Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
-using .MacrosModule: @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
+using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor
+using .MacrosModule: @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
 using .PreferencesModule: disable_borrow_checker!
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
-export Bound, BoundMut, Borrowed, BorrowedMut, LazyAccessor
-export @bind, @move, @ref, @take, @take!, @set, @lifetime, @clone
+export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor
+export @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
 using .StaticTraitModule: is_static

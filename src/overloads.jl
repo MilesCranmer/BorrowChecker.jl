@@ -1,11 +1,11 @@
 module OverloadsModule
 
 using ..TypesModule:
-    Bound,
-    BoundMut,
+    Owned,
+    OwnedMut,
     Borrowed,
     BorrowedMut,
-    AllBound,
+    AllOwned,
     AllBorrowed,
     AllEager,
     AllWrappers,
@@ -56,10 +56,10 @@ function Base.setindex!(r::LazyAccessor, value, i...)
     return nothing
 end
 
-function Base.view(::AllBound{A}, i...) where {A<:Union{AbstractArray,Tuple}}
+function Base.view(::AllOwned{A}, i...) where {A<:Union{AbstractArray,Tuple}}
     throw(
         BorrowRuleError(
-            "Cannot create view of a bound object. " *
+            "Cannot create view of an owned object. " *
             "You can create an immutable reference with `@ref` and then create a view of that.",
         ),
     )
@@ -89,7 +89,7 @@ for op in (:hash, :string)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
 function Base.promote_rule(::Type{<:AllWrappers}, ::Type)
-    # We never want to convert an bound or borrowed object, so
+    # We never want to convert an owned or borrowed object, so
     # we refuse to define a common promotion rule.
     return Any
 end
@@ -116,8 +116,8 @@ Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k
 for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
-function Base.iterate(::Union{AllBound,LazyAccessorOf{<:AllBound}})
-    error("Use `@bind for var in iter` instead.")
+function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})
+    error("Use `@own for var in iter` instead.")
 end
 function Base.iterate(r::Union{Borrowed,LazyAccessorOf{<:Borrowed}}, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)

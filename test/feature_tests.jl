@@ -11,8 +11,8 @@ using BorrowChecker
     end
 
     # Test taking ownership in function calls
-    @bind :mut x = [1, 2, 3]
-    @bind :mut result = consume_vector(@take! x)
+    @own :mut x = [1, 2, 3]
+    @own :mut result = consume_vector(@take! x)
     @test result == [1, 2, 3, 4]
     @test is_moved(x)
     @lifetime lt begin
@@ -27,7 +27,7 @@ using BorrowChecker
         @test v == [1, 2, 3]
     end
 
-    @bind y = [1, 2, 3]
+    @own y = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = y  # Immutable borrow
         @test !is_moved(y)  # y is still valid
@@ -40,7 +40,7 @@ using BorrowChecker
         return push!(v, 4)
     end
 
-    @bind :mut z = [1, 2, 3]
+    @own :mut z = [1, 2, 3]
     @lifetime lt begin
         @ref lt :mut ref = z  # Mutable borrow
         push!(ref, 4)
@@ -54,7 +54,7 @@ end
 
 @testitem "Assignment Syntax" begin
     # Test normal assignment with @set on mutable
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
         @ref lt ref = x
@@ -62,16 +62,16 @@ end
     end
 
     # Test assignment to immutable fails
-    @bind y = [1, 2, 3]
+    @own y = [1, 2, 3]
     @test_throws BorrowRuleError @set y = [4, 5, 6]
 
     # Test assignment after move
-    @bind :mut z = [1, 2, 3]
+    @own :mut z = [1, 2, 3]
     @move w = z
     @test_throws MovedError @set z = [4, 5, 6]
 
     # Test assignment with references
-    @bind :mut v = [1, 2, 3]
+    @own :mut v = [1, 2, 3]
     @lifetime lt begin
         @ref lt :mut ref = v
         push!(ref, 4)
@@ -86,12 +86,12 @@ end
 end
 
 @testitem "Macros error branches coverage" begin
-    # 1) Two-arg @bind with first arg != :mut => macro expansion error => LoadError
-    @test_throws LoadError @eval @bind :xxx x = 42
+    # 1) Two-arg @own with first arg != :mut => macro expansion error => LoadError
+    @test_throws LoadError @eval @own :xxx x = 42
 
-    # 2) @bind with expression that is not `= ...` or `for ...`
+    # 2) @own with expression that is not `= ...` or `for ...`
     expr_bind = quote
-        @bind x + y
+        @own x + y
     end
     @test_throws LoadError eval(expr_bind)
 
@@ -117,7 +117,7 @@ end
 end
 
 @testitem "Borrowed Arrays" begin
-    @bind x = [1, 2, 3]
+    @own x = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = x
         @test ref == [1, 2, 3]
@@ -139,7 +139,7 @@ end
     mutable struct A
         a::Float64
     end
-    @bind x = [A(1.0), A(2.0), A(3.0)]
+    @own x = [A(1.0), A(2.0), A(3.0)]
     @lifetime lt begin
         @ref lt ref = x
         @test ref[1].a == 1.0
@@ -150,11 +150,11 @@ end
 @testitem "Symbol Tracking" begin
     using BorrowChecker: is_moved, get_owner, get_symbol
 
-    # Test symbol tracking for bound values
-    @bind x = 42
+    # Test symbol tracking for owned values
+    @own x = 42
     @test get_symbol(x) == :x
 
-    @bind :mut y = [1, 2, 3]
+    @own :mut y = [1, 2, 3]
     @test get_symbol(y) == :y
     @clone y2 = y
     @move y3 = y2
@@ -171,7 +171,7 @@ end
     @test !is_moved(x)
 
     # Test error messages include the correct symbol
-    @bind :mut a = [1, 2, 3]  # non-isbits
+    @own :mut a = [1, 2, 3]  # non-isbits
     @move b = a
     @test is_moved(a)  # a should be moved
     err = try
@@ -192,19 +192,19 @@ end
 end
 
 @testitem "Math Operations" begin
-    # Test binary operations with bound values
-    @bind x = 2
-    @bind :mut y = 3
+    # Test binary operations with owned values
+    @own x = 2
+    @own :mut y = 3
 
-    # Test bound op number
+    # Test owned op number
     @test x + 1 == 3
     @test y * 2 == 6
 
-    # Test number op bound
+    # Test number op owned
     @test 1 + x == 3
     @test 2 * y == 6
 
-    # Test bound op bound
+    # Test owned op owned
     @test x + y == 5
     @test x * y == 6
 
@@ -214,7 +214,7 @@ end
     @test sin(y) == sin(3)
 
     # Test operations preserve ownership rules for non-isbits
-    @bind :mut vec = [1, 2, 3]
+    @own :mut vec = [1, 2, 3]
     @move vec2 = vec
     @test_throws MovedError vec[1]
 
@@ -238,7 +238,7 @@ end
     using BorrowChecker: is_moved
 
     # Test that symbol checking works for @take!
-    @bind :mut x = 42
+    @own :mut x = 42
     y = x  # This is illegal - should use @move
     @test_throws(
         "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
@@ -246,7 +246,7 @@ end
     )
 
     # Test that symbol checking works for @move
-    @bind :mut a = [1, 2, 3]
+    @own :mut a = [1, 2, 3]
     b = a  # This is illegal - should use @move
     @test_throws(
         "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
@@ -255,7 +255,7 @@ end
 end
 
 @testitem "Iteration" begin
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = x
         for (i, xi) in enumerate(ref)
@@ -266,7 +266,7 @@ end
 end
 
 @testitem "Managed ownership transfer" begin
-    using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
+    using BorrowChecker: BorrowChecker, MovedError, @own, @take!, is_moved
     using BorrowChecker.Experimental: @managed
 
     # Define a function that expects a raw Int
@@ -276,7 +276,7 @@ end
     end
 
     # Test with ownership context
-    @bind x = Ref(1)
+    @own x = Ref(1)
     # Regular call will hit a MethodError
     @test_throws MethodError add_one!(x)
 
@@ -291,7 +291,7 @@ end
 end
 
 @testitem "Managed ownership transfer with keyword arguments" begin
-    using BorrowChecker: BorrowChecker, MovedError, @bind, @take!, is_moved
+    using BorrowChecker: BorrowChecker, MovedError, @own, @take!, is_moved
     using BorrowChecker.Experimental: @managed
 
     # Define a function that expects raw values in both positional and keyword arguments
@@ -301,8 +301,8 @@ end
     end
 
     # Test with ownership context
-    @bind x = Ref(1)
-    @bind offset = Ref(5)
+    @own x = Ref(1)
+    @own offset = Ref(5)
 
     # With ownership context, it should automatically convert both positional and keyword args
     result = @managed add_with_offset!(x, offset=offset)
@@ -324,24 +324,24 @@ end
         return x.c = 99  # triggers setproperty! on a property "c" that doesn't exist
     end
 
-    @bind skipobj = MySkippingType(10, 20)
-    @test skipobj isa Bound{MySkippingType}
+    @own skipobj = MySkippingType(10, 20)
+    @test skipobj isa Owned{MySkippingType}
 
     @test_throws "type MySkippingType has no field c" begin
         BorrowChecker.Experimental.@managed setprop_for_skip!(skipobj)
     end
 end
 
-@testitem "Cassette context forbids capturing bound variables" begin
-    using BorrowChecker: BorrowChecker, @bind
+@testitem "Cassette context forbids capturing owned variables" begin
+    using BorrowChecker: BorrowChecker, @own
 
     function g()
-        @bind x = 1
+        @own x = 1
         inner() = (x = x + 1; nothing)
         inner()
         return x
     end
-    @test_throws "You are not allowed to capture bound variable `x` inside a closure." begin
+    @test_throws "You are not allowed to capture owned variable `x` inside a closure." begin
         BorrowChecker.Experimental.@managed g()
     end
 end
@@ -350,7 +350,7 @@ end
     using BorrowChecker: SymbolMismatchError, is_moved, get_symbol
 
     # Test that symbol checking works for @clone
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     y = x  # This is illegal - should use @move or @clone
     @test_throws(
         "Variable `y` holds an object that was reassigned from `x`.\n" *
@@ -360,13 +360,13 @@ end
     )
 
     # Test that cloning works with correct symbols
-    @bind :mut a = [1, 2, 3]
+    @own :mut a = [1, 2, 3]
     @clone b = a  # This is fine
     @test b == [1, 2, 3]
     @test !is_moved(a)  # Original not moved
 
-    # Test symbol validation for bound values
-    @bind :mut x = 42
+    # Test symbol validation for owned values
+    @own :mut x = 42
     @test get_symbol(x) == :x
     y = x  # This will create the wrong symbol association
     @test_throws SymbolMismatchError @take! y  # wrong symbol
@@ -382,14 +382,14 @@ end
     end
 
     # # Test symbol validation for move
-    @bind :mut x = 42
+    @own :mut x = 42
     y = x
     @test_throws SymbolMismatchError @move wrong = y
     @move z = x
     @test get_symbol(z) == :z
 
     # Test symbol validation for clone
-    @bind a = [1, 2, 3]
+    @own a = [1, 2, 3]
     b = a
     @test_throws SymbolMismatchError @clone wrong = b
     @clone c = a
@@ -400,9 +400,9 @@ end
     using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test basic for loop binding
-    @bind :mut accumulator = 0
-    @bind for x in 1:3
-        @test x isa Bound{Int}
+    @own :mut accumulator = 0
+    @own for x in 1:3
+        @test x isa Owned{Int}
         @test get_symbol(x) == :x
         @set accumulator = accumulator + x
         y = x
@@ -415,9 +415,9 @@ end
     using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test mutable for loop binding
-    @bind :mut accumulator = 0
-    @bind :mut for x in 1:3
-        @test x isa BoundMut{Int}
+    @own :mut accumulator = 0
+    @own :mut for x in 1:3
+        @test x isa OwnedMut{Int}
         @test get_symbol(x) == :x
         @set x = x + 1  # Test mutability
         @set accumulator = accumulator + x
@@ -429,8 +429,8 @@ end
     using BorrowChecker: is_moved, SymbolMismatchError
 
     # Test nested for loop binding
-    @bind :mut matrix = []
-    @bind for i in [Ref(1), Ref(2)]  # We test non-isbits to verify moved semantics
+    @own :mut matrix = []
+    @own for i in [Ref(1), Ref(2)]  # We test non-isbits to verify moved semantics
         @take! i
         @test_throws MovedError @take! i
     end
@@ -439,10 +439,10 @@ end
 @testitem "Nested for loop binding" begin
     using BorrowChecker: is_moved, SymbolMismatchError
 
-    @bind :mut matrix = []
-    @bind for i in [Ref(1), Ref(2)]
-        @bind :mut row = []
-        @bind for j in [Ref(1), Ref(2)]
+    @own :mut matrix = []
+    @own for i in [Ref(1), Ref(2)]
+        @own :mut row = []
+        @own for j in [Ref(1), Ref(2)]
             @clone i_copy = i
             push!(row, (@take!(i_copy).x, @take!(j).x))
 
@@ -458,10 +458,10 @@ end
 @testitem "Mutable nested for loop binding" begin
     using BorrowChecker: is_moved, SymbolMismatchError
 
-    @bind :mut matrix = []
-    @bind :mut for i in [Ref(1), Ref(2)]
-        @bind :mut row = []
-        @bind :mut for j in [Ref(1), Ref(2)]
+    @own :mut matrix = []
+    @own :mut for i in [Ref(1), Ref(2)]
+        @own :mut row = []
+        @own :mut for j in [Ref(1), Ref(2)]
             @clone i_copy = i
             @set j = Ref(15)
             push!(row, (@take!(i_copy).x, @take!(j).x))
@@ -473,10 +473,10 @@ end
 
 @testitem "Preferences disable" begin
     # First test that the borrow checker is enabled by default
-    @bind x = [1]  # Use Vector{Int} instead of Int
-    @test x isa Bound{Vector{Int}}
+    @own x = [1]  # Use Vector{Int} instead of Int
+    @test x isa Owned{Vector{Int}}
     @move y = x
-    @test y isa Bound{Vector{Int}}
+    @test y isa Owned{Vector{Int}}
     @test_throws MovedError @take! x
 
     # Now test that it can be disabled via preferences
@@ -492,8 +492,8 @@ end
 # Additional disable_borrow_checker tests
 @testitem "disable_borrow_checker coverage" begin
     module MyTestDisable
-    using BorrowChecker: disable_borrow_checker!, @bind
-    @bind x = [1, 2, 3]
+    using BorrowChecker: disable_borrow_checker!, @own
+    @own x = [1, 2, 3]
 
     function try_disable()
         return disable_borrow_checker!(@__MODULE__)
@@ -514,19 +514,19 @@ end
 
     # Another module that disables first
     module MyTestDisable2
-    using BorrowChecker: disable_borrow_checker!, @bind
+    using BorrowChecker: disable_borrow_checker!, @own
     disable_borrow_checker!(@__MODULE__)
-    @bind x = [1, 2, 3]  # pass-through
+    @own x = [1, 2, 3]  # pass-through
     end
     @test true
 end
 
 @testitem "Multiple disable_borrow_checker! calls" begin
     module ExtraDisableTest
-    using BorrowChecker: disable_borrow_checker!, @bind
+    using BorrowChecker: disable_borrow_checker!, @own
     disable_borrow_checker!(@__MODULE__)  # We do it immediately => pass-through
 
-    @bind attempt = [999]  # Should be pass-through now
+    @own attempt = [999]  # Should be pass-through now
 
     function double_disable()
         return disable_borrow_checker!(@__MODULE__)  # might trigger "already cached"
@@ -546,38 +546,38 @@ end
     using BorrowChecker: is_moved
 
     # Test basic tuple unpacking
-    @bind x, y, z = (1, 2, 3)
-    @test x isa Bound{Int}
+    @own x, y, z = (1, 2, 3)
+    @test x isa Owned{Int}
     @test x == 1
-    @test z isa Bound{Int}
+    @test z isa Owned{Int}
     @test z == 3
 
-    @bind :mut x, y, z = (1, 2, 3)
-    @test x isa BoundMut{Int}
+    @own :mut x, y, z = (1, 2, 3)
+    @test x isa OwnedMut{Int}
     @test x == 1
-    @test z isa BoundMut{Int}
+    @test z isa OwnedMut{Int}
     @test z == 3
 
-    @bind x, y, z = 1:3
-    @test x isa Bound{Int}
-    @test z isa Bound{Int}
+    @own x, y, z = 1:3
+    @test x isa Owned{Int}
+    @test z isa Owned{Int}
     @test x == 1
     @test z == 3
 
-    @bind :mut x, y, z = 1:3
-    @test x isa BoundMut{Int}
-    @test z isa BoundMut{Int}
+    @own :mut x, y, z = 1:3
+    @test x isa OwnedMut{Int}
+    @test z isa OwnedMut{Int}
     @test x == 1
     @test z == 3
 end
 
 # Additional tuple unpacking tests
 @testitem "BorrowRuleError on tuple expression" begin
-    @bind imm = (1, 2, 3)
+    @own imm = (1, 2, 3)
     @test_throws BorrowRuleError @set imm = (4, 5, 6)
-    @bind im1, im2, im3 = imm
+    @own im1, im2, im3 = imm
     @test_throws BorrowRuleError @set im1 = 99
-    @bind :mut im1, im2, im3 = imm
+    @own :mut im1, im2, im3 = imm
     @set im1 = 99
     @test im1 == 99
 end
@@ -585,7 +585,7 @@ end
 @testitem "Tuple unpacking in macro expansion" begin
     using BorrowChecker: is_moved
 
-    @bind :mut (x, y) = (1, 2)
+    @own :mut (x, y) = (1, 2)
     @test x == 1
     @test y == 2
     @test !is_moved(x)
@@ -596,10 +596,10 @@ end
     using BorrowChecker: is_moved, get_symbol
 
     # Test basic reference for loop
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     @lifetime lt begin
         # Test immutable reference loop
-        @bind :mut count = 0
+        @own :mut count = 0
         @ref lt for xi in x
             @test xi isa Borrowed{Int}
             @test get_symbol(xi) == :xi
@@ -610,7 +610,7 @@ end
     end
 
     # Test reference loop with non-isbits types
-    @bind :mut vec_array = [[1], [2], [3]]
+    @own :mut vec_array = [[1], [2], [3]]
     @lifetime lt begin
         @ref lt for v in vec_array
             @test v isa Borrowed{Vector{Int}}
@@ -621,8 +621,8 @@ end
     end
 
     # Test nested reference loops
-    @bind :mut matrix = [[1, 2], [3, 4]]
-    @bind :mut flat = Int[]
+    @own :mut matrix = [[1, 2], [3, 4]]
+    @own :mut flat = Int[]
     @lifetime lt begin
         @ref lt for row in matrix
             @test row isa Borrowed{Vector{Int}}
@@ -638,21 +638,21 @@ end
 end
 
 @testitem "Array Views" begin
-    # Test that views are not allowed on bound arrays
-    @bind x = [1, 2, 3, 4]
+    # Test that views are not allowed on owned arrays
+    @own x = [1, 2, 3, 4]
     @test_throws BorrowRuleError view(x, 1:2)
 
     # Test that views work on borrowed arrays
     @lifetime lt begin
         @ref lt ref = x
         @test view(ref, 1:2) isa Borrowed{<:AbstractVector{Int}}
-        @test_throws BorrowRuleError @bind bound_view = view(ref, 1:2)
+        @test_throws BorrowRuleError @own bound_view = view(ref, 1:2)
     end
 end
 
 @testitem "Reference numeric operations" begin
-    @bind x = 5
-    @bind y = 10
+    @own x = 5
+    @own y = 10
     @lifetime a begin
         @ref a rx = x
         @ref a ry = y
@@ -662,7 +662,7 @@ end
     end
 end
 @testitem "Dictionary & LazyAccessor coverage" begin
-    @bind :mut d = Dict(:a => 1, :b => 2)
+    @own :mut d = Dict(:a => 1, :b => 2)
     @test haskey(d, :a)
     @test !haskey(d, :c)
 
@@ -676,11 +676,11 @@ end
     @test length(d) == 0
 
     # Non-isbits key => triggers throw(...) => ErrorException
-    @bind :mut d2 = Dict([1] => 10, [2] => 20)
+    @own :mut d2 = Dict([1] => 10, [2] => 20)
     @test_throws ErrorException keys(d2)
 
     # LazyAccessor setindex! coverage
-    @bind :mut arr2d = [[10, 20], [30, 40]]
+    @own :mut arr2d = [[10, 20], [30, 40]]
     @lifetime lt begin
         @ref lt :mut ref_arr2d = arr2d
         subacc = ref_arr2d[1]  # LazyAccessor
@@ -690,7 +690,7 @@ end
 end
 
 @testitem "Dictionary Operations" begin
-    @bind :mut dict = Dict(:a => 1)
+    @own :mut dict = Dict(:a => 1)
     @lifetime lt begin
         @ref lt :mut ref = dict
         ref[:b] = 2
@@ -701,9 +701,9 @@ end
 end
 
 @testitem "Three-argument Math Operations" begin
-    @bind x = 1
-    @bind y = 2
-    @bind z = 3
+    @own x = 1
+    @own y = 2
+    @own z = 3
     nx = @take x
     ny = @take y
     nz = @take z
@@ -722,7 +722,7 @@ end
         x::Int
         y::Int
     end
-    @bind :mut p = Point(1, 2)
+    @own :mut p = Point(1, 2)
     @lifetime lt begin
         @ref lt :mut r = p
         @test r.x isa LazyAccessor
@@ -734,11 +734,11 @@ end
 
 @testitem "Dictionary Error Paths" begin
     # Test error on non-isbits keys
-    @bind :mut d = Dict([1, 2] => 10)  # Vector{Int} is non-isbits
+    @own :mut d = Dict([1, 2] => 10)  # Vector{Int} is non-isbits
     @test_throws "Refusing to return non-isbits keys" keys(d)
 
     # Test error on type conversion
-    @bind :mut d2 = Dict(1 => 2)
+    @own :mut d2 = Dict(1 => 2)
     @lifetime lt begin
         @ref lt :mut ref = d2
         @test_throws MethodError ref[1] = "string"  # Can't convert String to Int
@@ -747,8 +747,8 @@ end
 
 @testitem "String Operation Errors" begin
     # Test string operations with invalid types
-    @bind s = "hello"
-    @bind :mut num = 42
+    @own s = "hello"
+    @own :mut num = 42
     @lifetime lt begin
         @ref lt ref_s = s
         @ref lt ref_n = num
@@ -764,7 +764,7 @@ end
     end
 
     # Test property access errors
-    @bind :mut obj = TestStruct(1, [1, 2, 3])
+    @own :mut obj = TestStruct(1, [1, 2, 3])
     @lifetime lt begin
         @ref lt :mut ref = obj
         # Test accessing non-existent property
@@ -785,7 +785,7 @@ end
     end
 
     # Test error on invalid property access through LazyAccessor
-    @bind :mut obj = TestStruct(1)
+    @own :mut obj = TestStruct(1)
     @lifetime lt begin
         @ref lt :mut ref = obj
         lazy = ref.x  # Get LazyAccessor
@@ -794,7 +794,7 @@ end
     end
 
     # Test error on invalid symbol validation
-    @bind :mut x = [1, 2, 3]
+    @own :mut x = [1, 2, 3]
     y = x  # Create invalid symbol association
     @test_throws "Regular variable reassignment is not allowed" @clone z = y
 end
@@ -822,14 +822,14 @@ end
     mutable struct NonIsBits
         x::Vector{Int}
     end
-    @bind :mut arr = [NonIsBits([1])]
+    @own :mut arr = [NonIsBits([1])]
     @lifetime lt begin
         @ref lt :mut ref = arr
         @test_throws ErrorException collect(ref)  # Non-isbits collection
         @test_throws ErrorException first(ref)    # Non-isbits element
     end
 
-    @bind num = 42
+    @own num = 42
     @lifetime lt begin
         @ref lt ref = num
         @test_throws MethodError startswith(ref, "4")  # Invalid type for startswith
@@ -839,7 +839,7 @@ end
     mutable struct TestStruct
         x::Int
     end
-    @bind :mut obj = TestStruct(1)
+    @own :mut obj = TestStruct(1)
     @lifetime lt begin
         @ref lt :mut ref = obj
         lazy = ref.x
@@ -851,7 +851,7 @@ end
         x::Int
     end
 
-    @bind :mut obj = CustomType(1)
+    @own :mut obj = CustomType(1)
     @lifetime lt begin
         @ref lt :mut ref = obj
         @test_throws ErrorException ref.nonexistent  # Invalid property access
@@ -861,8 +861,8 @@ end
         @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
     end
 
-    @bind x = 1
-    @bind y = 1
+    @own x = 1
+    @own y = 1
     lt = BorrowChecker.Lifetime()
 
     # Test @ref error paths
@@ -877,11 +877,11 @@ end
 @testitem "Disabled Borrow Checker" begin
     # Test @take with disabled borrow checker
     module TakeTest
-    using BorrowChecker: disable_borrow_checker!, @take, @bind
+    using BorrowChecker: disable_borrow_checker!, @take, @own
     using Test
     disable_borrow_checker!(@__MODULE__)
     function run_test()
-        @bind x = [1, 2, 3]
+        @own x = [1, 2, 3]
         # `@take` should still do a deepcopy
         @test @take(x) !== [1, 2, 3]
     end
@@ -910,8 +910,8 @@ end
         x::Int
     end
 
-    @bind :mut arr = [NonIsBits(1)]
-    @test_throws "Use `@bind for var in iter` instead" collect(arr)
+    @own :mut arr = [NonIsBits(1)]
+    @test_throws "Use `@own for var in iter` instead" collect(arr)
 end
 
 @testitem "Dictionary Operation Errors" begin
@@ -920,8 +920,8 @@ end
     end
 
     # Test container operation errors
-    @bind :mut dict = Dict(NonIsBits(1) => 10)
-    @bind :mut dictref = Ref(Dict(NonIsBits(1) => 10))
+    @own :mut dict = Dict(NonIsBits(1) => 10)
+    @own :mut dictref = Ref(Dict(NonIsBits(1) => 10))
     @lifetime lt begin
         @ref lt :mut ref = dict
         @test_throws "Refusing to return non-isbits keys" keys(ref)  # Non-isbits values through reference
@@ -931,7 +931,7 @@ end
     end
 
     # Test dictionary operation errors
-    @bind :mut d = Dict{Int,Int}()
+    @own :mut d = Dict{Int,Int}()
     @lifetime lt begin
         @ref lt :mut ref = d
         @test_throws KeyError ref[1]  # Key not found
@@ -943,7 +943,7 @@ end
     mutable struct TestStruct
         x::Int
     end
-    @bind :mut obj = TestStruct(1)
+    @own :mut obj = TestStruct(1)
     @lifetime lt begin
         @ref lt :mut ref = obj
         @test_throws ErrorException ref.nonexistent  # Invalid property access
@@ -964,26 +964,26 @@ end
     mutable struct TestStruct
         x::Int
     end
-    @bind :mut obj = TestStruct(1)
+    @own :mut obj = TestStruct(1)
     @lifetime lt begin
         @ref lt :mut ref = obj
         @test propertynames(ref) == (:x,)
     end
 
-    # Test show for Bound
-    @bind :mut arr = [1, 2, 3]
+    # Test show for Owned
+    @own :mut arr = [1, 2, 3]
     s = sprint(show, arr)
-    @test occursin("BoundMut{Vector{Int64}}([1, 2, 3], :arr)", s)
+    @test occursin("OwnedMut{Vector{Int64}}([1, 2, 3], :arr)", s)
     @move moved_arr = arr
     s = sprint(show, moved_arr)
-    @test occursin("Bound{Vector{Int64}}([1, 2, 3], :moved_arr)", s)
+    @test occursin("Owned{Vector{Int64}}([1, 2, 3], :moved_arr)", s)
 
     # And, test moved versions:
     s = sprint(show, arr)
     @test "[moved]" == s
 
     # Test show for Borrowed
-    @bind :mut vec = [1, 2, 3]
+    @own :mut vec = [1, 2, 3]
     s = sprint(show, vec[1])
     @test s == "1"  # Because it is isbits
     storage = []
@@ -992,14 +992,14 @@ end
         @ref lt :mut ref = vec
         s = sprint(show, ref)
         @test occursin(
-            r".*BorrowedMut\{Vector\{Int64\},.*BoundMut\{Vector\{Int64\}\}\}\(\[1, 2, 3\], :ref\)",
+            r".*BorrowedMut\{Vector\{Int64\},.*OwnedMut\{Vector\{Int64\}\}\}\(\[1, 2, 3\], :ref\)",
             s,
         )
         push!(storage, ref)
     end
 
-    # Now, for LazyAccessor of moved bound value:
-    @bind arr = [[1], [2], [3]]
+    # Now, for LazyAccessor of moved owned value:
+    @own arr = [[1], [2], [3]]
     r1 = arr[1]
     s = sprint(show, r1)
     @test s == "[1]"
@@ -1010,7 +1010,7 @@ end
 
 @testitem "Tuple Operations" begin
     # Test tuple indexing
-    @bind t = (1, [2], 3)
+    @own t = (1, [2], 3)
     @test t[1] == 1  # isbits element
     @test t[2] == [2]  # non-isbits element
     @test t[2] isa LazyAccessor  # non-isbits elements return LazyAccessor
@@ -1023,8 +1023,8 @@ end
         @test ref[2] isa LazyAccessor
     end
 
-    # Test tuple operations with bound values
-    @bind :mut mt = ([1], [2], [3])
+    # Test tuple operations with owned values
+    @own :mut mt = ([1], [2], [3])
     @lifetime lt begin
         @ref lt :mut ref = mt
         @test ref[1] == [1]
@@ -1033,9 +1033,9 @@ end
 end
 
 @testitem "Comparison Operators" begin
-    # Test comparison operators with bound values
-    @bind x = 42
-    @bind y = 42
+    # Test comparison operators with owned values
+    @own x = 42
+    @own y = 42
 
     @test x == y
     @test x == 42
@@ -1058,12 +1058,12 @@ end
     end
 
     # Nothing operator
-    @bind n = nothing
+    @own n = nothing
     @test isnothing(n)
 
     # Test ordering operators
-    @bind a = 1
-    @bind b = 2
+    @own a = 1
+    @own b = 2
     @test a < b
     @test a <= b
     @test a < 2
@@ -1082,7 +1082,7 @@ end
     end
 
     # Test isnothing
-    @bind n = nothing
+    @own n = nothing
     @test isnothing(n)
     @lifetime lt begin
         @ref lt rn = n
@@ -1091,15 +1091,15 @@ end
 end
 
 @testitem "copy! Operation" begin
-    # Test copy! with bound values
-    @bind :mut dest = [1, 2, 3]
-    @bind src = [4, 5, 6]
+    # Test copy! with owned values
+    @own :mut dest = [1, 2, 3]
+    @own src = [4, 5, 6]
     copy!(dest, src)
     @test dest == [4, 5, 6]
 
     # And with Dict
-    @bind :mut dest2 = Dict()
-    @bind src2 = Dict(:a => 1, :b => 2)
+    @own :mut dest2 = Dict()
+    @own src2 = Dict(:a => 1, :b => 2)
     @lifetime lt begin
         @ref lt :mut rdest = dest2
         @ref lt rsrc = src2
@@ -1109,9 +1109,9 @@ end
 end
 
 @testitem "_maybe_read Coverage" begin
-    # Test _maybe_read with bound values in indexing
-    @bind :mut arr = [[1], [2], [3]]
-    @bind idx = 2
+    # Test _maybe_read with owned values in indexing
+    @own :mut arr = [[1], [2], [3]]
+    @own idx = 2
     @test arr[idx] == [2]  # Uses _maybe_read on the index
 
     # Test with references
@@ -1122,8 +1122,8 @@ end
     end
 
     # Test with dictionary
-    @bind :mut dict = Dict(:a => 1, :b => 2)
-    @bind key = :a
+    @own :mut dict = Dict(:a => 1, :b => 2)
+    @own key = :a
     @test dict[key] == 1  # Uses _maybe_read on the key
 
     @lifetime lt begin
@@ -1149,14 +1149,14 @@ end
     @test accepts_borrowed([1, 2, 3]) == 3
 
     # Test with borrowed value
-    @bind vec = [1, 2, 3]
+    @own vec = [1, 2, 3]
     @lifetime lt begin
         @ref lt ref = vec
         @test accepts_borrowed(ref) == 3
     end
 
     # Test with mutable borrowed value
-    @bind :mut mvec = [1, 2, 3]
+    @own :mut mvec = [1, 2, 3]
     @lifetime lt begin
         @ref lt :mut mref = mvec
         accepts_borrowed_mut(mref)
@@ -1164,7 +1164,7 @@ end
     end
 
     # Test with LazyAccessor
-    @bind :mut container = [[1, 2, 3]]
+    @own :mut container = [[1, 2, 3]]
     @lifetime lt begin
         @ref lt ref = container
         # First test immutable access
@@ -1174,7 +1174,7 @@ end
 
 @testitem "Complex Tuple Operations" begin
     # Test tuple with nested non-isbits
-    @bind t = ([1], ([2], [3]), [4])
+    @own t = ([1], ([2], [3]), [4])
     @test t[1] isa LazyAccessor
     @test t[2] isa LazyAccessor
     @test t[3] isa LazyAccessor
@@ -1191,7 +1191,7 @@ end
     end
 
     # Test tuple unpacking with references
-    @bind :mut tup = ([1], [2], [3])
+    @own :mut tup = ([1], [2], [3])
     @lifetime lt begin
         @ref lt :mut ref = tup
         @test ref[1] == [1]
@@ -1200,33 +1200,33 @@ end
     end
 
     # Test error cases
-    @bind :mut mt = ([1], [2])
+    @own :mut mt = ([1], [2])
     @move other = mt
     @test_throws MovedError mt[1]
 end
 
 @testitem "Additional Error Cases" begin
     # Test error on invalid tuple index
-    @bind t = (1, 2, 3)
+    @own t = (1, 2, 3)
     @test_throws BoundsError t[4]
     @lifetime lt begin
         @ref lt ref = t
         @test_throws BoundsError ref[4]
     end
 
-    # Test error on invalid array index with bound index
-    @bind arr = [1, 2, 3]
-    @bind idx = 4
+    # Test error on invalid array index with owned index
+    @own arr = [1, 2, 3]
+    @own idx = 4
     @test_throws BoundsError arr[idx]
 
-    # Test error on invalid dictionary key with bound key
-    @bind dict = Dict(:a => 1)
-    @bind key = :b
+    # Test error on invalid dictionary key with owned key
+    @own dict = Dict(:a => 1)
+    @own key = :b
     @test_throws KeyError dict[key]
 
     # Test error on type mismatch in comparison
-    @bind x = 1
-    @bind s = "hello"
+    @own x = 1
+    @own s = "hello"
     @test_throws MethodError x < s
     @lifetime lt begin
         @ref lt rx = x
@@ -1235,28 +1235,28 @@ end
     end
 
     # Test error on invalid copy!
-    @bind :mut dest = [1, 2, 3]
-    @bind src = ["a", "b", "c"]
+    @own :mut dest = [1, 2, 3]
+    @own src = ["a", "b", "c"]
     @test_throws MethodError copy!(dest, src)
 end
 
 @testitem "String operations" begin
     # Test ncodeunits
-    @bind str = "hello"
+    @own str = "hello"
     @test ncodeunits(str) == 5
 
     # Test startswith
-    @bind prefix = "he"
-    @bind full = "hello"
+    @own prefix = "he"
+    @own full = "hello"
     @test startswith(full, prefix)
     @test startswith(full, "he")  # String literal
-    @test startswith("hello", prefix)  # Regular string with bound
+    @test startswith("hello", prefix)  # Regular string with owned
 
     # Test endswith
-    @bind suffix = "lo"
+    @own suffix = "lo"
     @test endswith(full, suffix)
     @test endswith(full, "lo")  # String literal
-    @test endswith("hello", suffix)  # Regular string with bound
+    @test endswith("hello", suffix)  # Regular string with owned
 
     # Test with references
     @lifetime lt begin

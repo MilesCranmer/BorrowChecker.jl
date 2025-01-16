@@ -1,11 +1,11 @@
 module SemanticsModule
 
 using ..TypesModule:
-    Bound,
-    BoundMut,
+    Owned,
+    OwnedMut,
     Borrowed,
     BorrowedMut,
-    AllBound,
+    AllOwned,
     AllBorrowed,
     AllEager,
     AllWrappers,
@@ -36,7 +36,7 @@ using ..ErrorsModule: MovedError, BorrowRuleError, SymbolMismatchError, ExpiredE
 
 # Internal getters and setters
 
-function validate_symbol(r::AllBound, expected_symbol::Symbol)
+function validate_symbol(r::AllOwned, expected_symbol::Symbol)
     if expected_symbol != get_symbol(r) &&
         get_symbol(r) != :anonymous &&
         expected_symbol != :anonymous
@@ -53,7 +53,7 @@ end
 # Skip validation for primitive types
 validate_symbol(_, ::Symbol) = nothing
 
-function validate_mode(r::AllBound, ::Val{mode}) where {mode}
+function validate_mode(r::AllOwned, ::Val{mode}) where {mode}
     @assert mode in (:read, :write, :move)
     if is_moved(r)
         throw(MovedError(get_symbol(r)))
@@ -78,7 +78,7 @@ function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     end
     return nothing
 end
-function request_value(r::AllBound, ::Val{mode}) where {mode}
+function request_value(r::AllOwned, ::Val{mode}) where {mode}
     validate_mode(r, Val(mode))
     return unsafe_get_value(r)
 end
@@ -92,7 +92,7 @@ function request_value(r::LazyAccessor, ::Val{mode}) where {mode}
     return unsafe_access(r)
 end
 
-function set_value!(r::AllBound, value)
+function set_value!(r::AllOwned, value)
     if !is_mutable(r)
         throw(BorrowRuleError("Cannot assign to immutable"))
     elseif is_moved(r)
@@ -106,7 +106,7 @@ function set_value!(::AllBorrowed, value)
     throw(BorrowRuleError("Cannot assign to borrowed"))
 end
 
-@inline function Base.getproperty(o::AllBound, name::Symbol)
+@inline function Base.getproperty(o::AllOwned, name::Symbol)
     return LazyAccessor(o, Val(name))
 end
 @inline function Base.getproperty(r::AllBorrowed, name::Symbol)
@@ -117,7 +117,7 @@ end
 ) where {T,P,property}
     return LazyAccessor(r, Val(name))
 end
-@inline function Base.setproperty!(o::AllBound, name::Symbol, v)
+@inline function Base.setproperty!(o::AllOwned, name::Symbol, v)
     setproperty!(request_value(o, Val(:write)), k, v)
     return o
 end
@@ -137,7 +137,7 @@ end
 function Base.propertynames(o::AllEager)
     return propertynames(unsafe_get_value(o))
 end
-function Base.show(io::IO, o::AllBound)
+function Base.show(io::IO, o::AllOwned)
     if is_moved(o)
         print(io, "[moved]")
     else
@@ -172,7 +172,7 @@ end
 
 maybe_deepcopy(x) = is_static(x) ? x : deepcopy(x)
 
-function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
+function take!(src::Union{AllOwned{T},LazyAccessor{T}}, src_symbol) where {T}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = if is_static(T)
         # For isbits types, we do not need to worry
@@ -188,7 +188,7 @@ function take!(src::Union{AllBound{T},LazyAccessor{T}}, src_symbol) where {T}
     return value
 end
 
-function take(src::Union{AllBound,AllBorrowed,LazyAccessor}, src_symbol)
+function take(src::Union{AllOwned,AllBorrowed,LazyAccessor}, src_symbol)
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = request_value(src, Val(:read))
     if is_static(value)
@@ -203,7 +203,7 @@ take!(x, _) = x
 take(x, _) = deepcopy(x)
 
 function move(
-    src::Union{AllBound{T},LazyAccessor{T}}, src_symbol, dest_symbol, ::Val{mut}
+    src::Union{AllOwned{T},LazyAccessor{T}}, src_symbol, dest_symbol, ::Val{mut}
 ) where {T,mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     value = if is_static(T)
@@ -217,21 +217,21 @@ function move(
         mark_moved!(src)
         v
     end
-    return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
+    return mut ? OwnedMut(value, false, dest_symbol) : Owned(value, false, dest_symbol)
 end
 
-function bind(src, _, dest_symbol::Symbol, ::Val{mut}) where {mut}
-    return mut ? BoundMut(src, false, dest_symbol) : Bound(src, false, dest_symbol)
+function own(src, _, dest_symbol::Symbol, ::Val{mut}) where {mut}
+    return mut ? OwnedMut(src, false, dest_symbol) : Owned(src, false, dest_symbol)
 end
-function bind(src::AllBound, src_expr, dest_symbol::Symbol, ::Val{mut}) where {mut}
+function own(src::AllOwned, src_expr, dest_symbol::Symbol, ::Val{mut}) where {mut}
     src_symbol = src_expr isa Symbol ? src_expr : :anonymous
     return move(src, src_symbol, dest_symbol, Val(mut))
 end
-function bind(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
-    throw(BorrowRuleError("Cannot bind a borrowed object."))
+function own(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
+    throw(BorrowRuleError("Cannot own a borrowed object."))
 end
 
-function set(dest::AllBound, dest_symbol, value)
+function set(dest::AllOwned, dest_symbol, value)
     dest_symbol isa Symbol && validate_symbol(dest, dest_symbol)
     return set_value!(dest, value)
 end
@@ -246,12 +246,12 @@ end
 
 function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) where {mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
-    # Get the value from either a borrowed or bound value:
+    # Get the value from either a borrowed or owned value:
     value = let v = request_value(src, Val(:read))
         is_static(v) ? v : deepcopy(v)
     end
 
-    return mut ? BoundMut(value, false, dest_symbol) : Bound(value, false, dest_symbol)
+    return mut ? OwnedMut(value, false, dest_symbol) : Owned(value, false, dest_symbol)
 end
 
 function cleanup!(lifetime::Lifetime)
@@ -280,7 +280,7 @@ end
 function ref(
     lt::Lifetime, ref_or_owner::AllWrappers, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
-    is_owner = ref_or_owner isa AllBound
+    is_owner = ref_or_owner isa AllOwned
     owner = get_owner(ref_or_owner)
 
     if has_lifetime(ref_or_owner)
@@ -302,10 +302,10 @@ function ref(
 end
 
 # These methods are used for references to a field _in_ an object
-function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{false})
+function ref(lt::Lifetime, value, owner::AllOwned, dest_symbol::Symbol, ::Val{false})
     return Borrowed(value, owner, lt, dest_symbol)
 end
-function ref(lt::Lifetime, value, owner::AllBound, dest_symbol::Symbol, ::Val{true})
+function ref(lt::Lifetime, value, owner::AllOwned, dest_symbol::Symbol, ::Val{true})
     return BorrowedMut(value, owner, lt, dest_symbol)
 end
 function ref(
@@ -314,17 +314,17 @@ function ref(
     return ref(lt, value, get_owner(r), dest_symbol, Val(mut))
 end
 
-function bind_for(iter, symbol, ::Val{mut}) where {mut}
+function own_for(iter, symbol, ::Val{mut}) where {mut}
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
-    return Iterators.map(((x, s),) -> bind(x, :anonymous, s, Val(mut)), zip(iter, symbols))
+    return Iterators.map(((x, s),) -> own(x, :anonymous, s, Val(mut)), zip(iter, symbols))
 end
-function bind_for(iter::AllBound, symbol, ::Val{mut}) where {mut}
-    return bind_for(take(iter, :anonymous), symbol, Val(mut))
+function own_for(iter::AllOwned, symbol, ::Val{mut}) where {mut}
+    return own_for(take(iter, :anonymous), symbol, Val(mut))
 end
 
 function ref_for(
     lt::Lifetime, ref_or_owner::Union{B,LazyAccessorOf{B}}, symbol, ::Val{mut}
-) where {mut,B<:Union{AllBound,Borrowed}}
+) where {mut,B<:Union{AllOwned,Borrowed}}
     owner = get_owner(ref_or_owner)
     value = request_value(ref_or_owner, Val(:read))
     symbols = symbol isa Symbol ? Iterators.repeated(symbol) : symbol
@@ -334,7 +334,7 @@ function ref_for(
     # TODO: Make this more robust
 end
 
-struct RefMapper{mut,R,O<:AllBound}
+struct RefMapper{mut,R,O<:AllOwned}
     lifetime::Lifetime
     ref::R
     owner::O
@@ -355,7 +355,7 @@ function (m::RefMapper{mut})((i, (x, s))) where {mut}
     end
     return ref(m.lifetime, x, m.ref, s, Val(mut))
 end
-function pop_owner!(refs::Vector, owner::AllBound, lock)
+function pop_owner!(refs::Vector, owner::AllOwned, lock)
     Base.@lock lock begin
         i = findlast(Base.Fix1(===, owner), refs)
         if isnothing(i)

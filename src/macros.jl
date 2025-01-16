@@ -4,7 +4,7 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule:
-    Bound, BoundMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllBound
+    Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllOwned
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -14,8 +14,8 @@ using ..SemanticsModule:
     take,
     take!,
     move,
-    bind,
-    bind_for,
+    own,
+    own_for,
     set,
     clone,
     ref,
@@ -24,36 +24,36 @@ using ..SemanticsModule:
 using ..PreferencesModule: is_borrow_checker_enabled
 
 """
-    @bind x = value
-    @bind :mut x = value
-    @bind x, y, z = (value1, value2, value3)
-    @bind :mut x, y = (value1, value2)
-    @bind for var in iter
+    @own x = value
+    @own :mut x = value
+    @own x, y, z = (value1, value2, value3)
+    @own :mut x, y = (value1, value2)
+    @own for var in iter
         # body
     end
-    @bind :mut for var in iter
+    @own :mut for var in iter
         # body
     end
 
-Create a new bound ("owned") variable. If `:mut` is specified, the value will be mutable.
+Create a new owned variable. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
 
-You may also use `@bind` in a `for` loop to create a bound value for each iteration.
+You may also use `@own` in a `for` loop to create an owned value for each iteration.
 """
-macro bind(expr::Expr)
+macro own(expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
-    return _bind(expr, false)
+    return _own(expr, false)
 end
 
-macro bind(mut_flag::QuoteNode, expr::Expr)
+macro own(mut_flag::QuoteNode, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
-        error("First argument to @bind must be :mut if two arguments are provided")
+        error("First argument to @own must be :mut if two arguments are provided")
     end
-    return _bind(expr, true)
+    return _own(expr, true)
 end
 
-function _bind(expr::Expr, mut::Bool)
+function _own(expr::Expr, mut::Bool)
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         lhs = expr.args[1]
@@ -63,7 +63,7 @@ function _bind(expr::Expr, mut::Bool)
             names = lhs.args
             return esc(
                 quote
-                    $(lhs) = $(bind_for)($(rhs), ($(map(QuoteNode, names)...),), Val($mut))
+                    $(lhs) = $(own_for)($(rhs), ($(map(QuoteNode, names)...),), Val($mut))
                     $(lhs)
                 end,
             )
@@ -73,7 +73,7 @@ function _bind(expr::Expr, mut::Bool)
             value = expr.args[2]
             return esc(
                 :(
-                    $(name) = $(bind)(
+                    $(name) = $(own)(
                         $(value), $(QuoteNode(value)), $(QuoteNode(name)), Val($mut)
                     )
                 ),
@@ -86,13 +86,13 @@ function _bind(expr::Expr, mut::Bool)
         body = expr.args[2]
         return esc(
             quote
-                for $loop_var in $(bind_for)($(iter), $(QuoteNode(loop_var)), Val($mut))
+                for $loop_var in $(own_for)($(iter), $(QuoteNode(loop_var)), Val($mut))
                     $body
                 end
             end,
         )
     else
-        error("@bind requires an assignment expression or for loop")
+        error("@own requires an assignment expression or for loop")
     end
 end
 
