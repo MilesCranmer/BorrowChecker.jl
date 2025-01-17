@@ -1281,3 +1281,25 @@ end
         @test hash(rx) == hash([1, 2, 3])
     end
 end
+
+@testitem "Size with dimension" begin
+    @own arr = ones(2, 3)
+    @test size(arr, 1) == 2
+    @test size(arr, 2) == 3
+
+    @lifetime lt begin
+        @ref lt r = arr
+        @test size(r, 1) == 2
+        @test size(r, 2) == 3
+    end
+end
+
+@testitem "Dictionary keys with isbits" begin
+    @own dict = Dict(1 => "one", 2 => "two")
+    @test Set(keys(dict)) == Set([1, 2])
+
+    @lifetime lt begin
+        @ref lt r = dict
+        @test Set(keys(r)) == Set([1, 2])
+    end
+end
