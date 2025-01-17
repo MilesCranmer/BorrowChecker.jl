@@ -102,9 +102,6 @@ function set_value!(r::AllOwned, value)
     end
     return unsafe_set_value!(r, value)
 end
-function set_value!(::AllBorrowed, value)
-    throw(BorrowRuleError("Cannot assign to borrowed"))
-end
 
 @inline function Base.getproperty(o::AllOwned, name::Symbol)
     return LazyAccessor(o, Val(name))

@@ -8,7 +8,6 @@ using ..TypesModule:
 using ..SemanticsModule:
     request_value,
     mark_moved!,
-    set_value!,
     validate_symbol,
     maybe_deepcopy,
     take,
