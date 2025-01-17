@@ -819,6 +819,11 @@ end
     @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
     @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
 
+    @test_throws LoadError @eval @ref x  # Not an assignment or for loop
+    @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
+    @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
+    @test_throws "requires an assignment expression or for loop" @eval @ref lt :mut (x + y)  # Not an assignment or for loop
+
     mutable struct NonIsBits
         x::Vector{Int}
     end
