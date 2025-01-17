@@ -88,11 +88,6 @@ end
 for op in (:hash, :string)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
-function Base.promote_rule(::Type{<:AllWrappers}, ::Type)
-    # We never want to convert an owned or borrowed object, so
-    # we refuse to define a common promotion rule.
-    return Any
-end
 # --- END BASIC OPERATIONS ---
 
 # --- COLLECTION OPERATIONS ---
