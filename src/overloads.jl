@@ -85,9 +85,8 @@ for op in (:(==), :haskey, :isequal)
         Base.$(op)(r::AllWrappers, other::AllWrappers) = $(op)(request_value(r, Val(:read)), request_value(other, Val(:read)))
     end
 end
-for op in (:hash, :string)
-    @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
-end
+Base.string(r::AllWrappers) = string(request_value(r, Val(:read)))
+Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
 # --- END BASIC OPERATIONS ---
 
 # --- COLLECTION OPERATIONS ---
