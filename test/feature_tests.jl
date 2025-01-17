@@ -1265,3 +1265,19 @@ end
         @test endswith(ref, suffix)
     end
 end
+
+@testitem "String and Hash methods" begin
+    # Test string and hash with owned values
+    @own x = [1, 2, 3]
+    @test x == [1, 2, 3]
+    @test string(x) == string([1, 2, 3])
+    @test hash(x) == hash([1, 2, 3])
+    @test hash(x, UInt(42)) == hash([1, 2, 3], UInt(42))
+
+    # Test with references
+    @lifetime lt begin
+        @ref lt rx = x
+        @test string(rx) == string([1, 2, 3])
+        @test hash(rx) == hash([1, 2, 3])
+    end
+end
