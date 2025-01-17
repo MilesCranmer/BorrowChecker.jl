@@ -356,6 +356,9 @@ end
 function is_moved(r::AllBorrowed)
     return is_moved(get_owner(r))
 end
+function is_moved(r::LazyAccessor)
+    return is_moved(get_owner(r))
+end
 
 function mark_expired!(lt::Lifetime)
     return setfield!(lt, :expired, true, :sequentially_consistent)

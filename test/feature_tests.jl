@@ -315,6 +315,36 @@ end
     @test is_moved(offset)
 end
 
+# TODO: This would be a good demo to include in the docs
+@testitem "Managed ownership transfer even through lazy accessor" begin
+    using BorrowChecker
+    using BorrowChecker: is_moved
+    using BorrowChecker.Experimental: @managed
+
+    struct A
+        x::Vector{Int}
+    end
+
+    f!(x::Vector{Int}) = push!(x, 3)
+    @own a = A([2])
+    @managed begin
+        # This should result in `a` being moved!
+        f!(a.x)
+    end
+    @test is_moved(a)
+
+    # Unless, `a.x` is a static value:
+    struct B
+        x::Int
+    end
+    @own b = B(2)
+    g(x) = x
+    @managed begin
+        g(b.x)
+    end
+    @test !is_moved(b)
+end
+
 @testitem "Cassette forwards errors" begin
     mutable struct MySkippingType
         a::Int

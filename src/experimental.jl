@@ -5,7 +5,8 @@ for the main API.
 module Experimental
 
 using Cassette: Cassette
-using ..TypesModule: AllOwned, Owned, OwnedMut, Borrowed, BorrowedMut, is_moved, get_symbol
+using ..TypesModule: AllOwned, Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessorOf
+using ..TypesModule: is_moved, get_symbol, get_owner, unsafe_access
 using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
 using ..MacrosModule: @take!
@@ -25,6 +26,16 @@ function maybe_take!(arg::AllOwned)
         # we don't need to worry about the original
         # getting modified, and thus we do NOT need
         # to deepcopy it.
+        return value
+    else
+        mark_moved!(arg)
+        return value
+    end
+end
+function maybe_take!(arg::LazyAccessorOf{AllOwned})
+    is_moved(arg) && throw(MovedError(get_symbol(arg)))
+    value = unsafe_access(arg)
+    if is_static(value)
         return value
     else
         mark_moved!(arg)
