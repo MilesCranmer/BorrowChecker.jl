@@ -324,3 +324,31 @@ end
     @test is_moved(x)
     @test_throws MovedError @take x
 end
+
+@testitem "Property access on owned values" begin
+    using BorrowChecker: is_moved
+
+    # Test with mutable struct
+    mutable struct TestStruct
+        x::Int
+        y::Vector{Int}
+    end
+
+    # Test mutable owned
+    @own :mut obj = TestStruct(1, [2])
+    obj.x = 3
+    @test obj.x == 3
+    @test push!(obj.y, 4) === nothing
+    @test obj.y[2] == 4
+    obj.y[1] = 5
+    @test obj.y[1] == 5
+
+    # Test immutable owned
+    @own immut_obj = TestStruct(1, [2])
+    @test_throws BorrowRuleError immut_obj.x = 3
+
+    # Test after move
+    @own :mut moved_obj = TestStruct(1, [2])
+    @move other = moved_obj
+    @test_throws MovedError moved_obj.x = 3
+end

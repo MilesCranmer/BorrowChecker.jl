@@ -117,8 +117,8 @@ end
 ) where {T,P,property}
     return LazyAccessor(r, Val(name))
 end
-@inline function Base.setproperty!(o::AllOwned, name::Symbol, v)
-    setproperty!(request_value(o, Val(:write)), k, v)
+@inline function Base.setproperty!(o::AllOwned, name::Symbol, value)
+    setproperty!(request_value(o, Val(:write)), name, value)
     return o
 end
 @inline function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
