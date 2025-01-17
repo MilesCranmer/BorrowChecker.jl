@@ -818,10 +818,6 @@ end
     @test_throws LoadError @eval @ref x  # Not an assignment or for loop
     @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
     @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
-
-    @test_throws LoadError @eval @ref x  # Not an assignment or for loop
-    @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
-    @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
     @test_throws "requires an assignment expression or for loop" @eval @ref lt :mut (x + y)  # Not an assignment or for loop
 
     mutable struct NonIsBits
@@ -882,13 +878,18 @@ end
 @testitem "Disabled Borrow Checker" begin
     # Test @take with disabled borrow checker
     module TakeTest
-    using BorrowChecker: disable_borrow_checker!, @take, @own
+    using BorrowChecker: disable_borrow_checker!, @take, @own, @clone
     using Test
     disable_borrow_checker!(@__MODULE__)
     function run_test()
         @own x = [1, 2, 3]
         # `@take` should still do a deepcopy
         @test @take(x) !== [1, 2, 3]
+        # As should `@clone`
+        @clone y = x
+        @clone :mut z = x
+        @test y !== [1, 2, 3]
+        @test z !== [1, 2, 3]
     end
     end
     TakeTest.run_test()
