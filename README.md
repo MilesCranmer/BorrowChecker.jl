@@ -11,7 +11,7 @@
 This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 > [!WARNING]
-> BorrowChecker.jl does not promise memory safety. This library simulates aspects of Rust's ownership model, but it does not do this at a compiler level, nor with any of the same guarantees. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
+> BorrowChecker.jl does not promise memory safety. This library simulates aspects of Rust's ownership model, but it does not do this at a compiler level, and does not do this with any of the same guarantees. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
 
 ## Usage
 
