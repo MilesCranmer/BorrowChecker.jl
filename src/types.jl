@@ -69,7 +69,7 @@ end
     OwnedMut{T}
 
 A mutable owned value. Common operations:
-- Create using `@own [:mut] x = value`
+- Create using `@own :mut x = value`
 - Access value using `@take!` (moves) or `@take` (copies)
 - Modify using `@set`
 - Borrow using `@ref` or `@ref :mut`

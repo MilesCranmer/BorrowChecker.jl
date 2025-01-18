@@ -111,7 +111,7 @@ for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})
-    error("Use `@own for var in iter` instead.")
+    error("Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead.")
 end
 function Base.iterate(r::Union{Borrowed,LazyAccessorOf{<:Borrowed}}, state=Unused())
     out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)

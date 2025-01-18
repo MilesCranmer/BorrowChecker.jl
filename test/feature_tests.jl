@@ -967,7 +967,7 @@ end
     end
 
     @own :mut arr = [NonIsBits(1)]
-    @test_throws "Use `@own for var in iter` instead" collect(arr)
+    @test_throws "Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead" collect(arr)
 end
 
 @testitem "Dictionary Operation Errors" begin
