@@ -223,7 +223,7 @@ end
 
 When you need to pass immutable references of a value to a function, you would modify the signature to accept a `Borrowed{T}` type. This is similar to the `&T` syntax in Rust. And, similarly, `BorrowedMut{T}` is similar to `&mut T`.
 
-There are the `OrBorrowed{T}` and `OrBorrowedMut{T}` aliases for easily extending a signature. Let's say you have some function:
+There are the `OrBorrowed{T}` (basically `==Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for easily extending a signature. Let's say you have some function:
 
 ```julia
 struct Bar{T}
