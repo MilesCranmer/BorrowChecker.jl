@@ -304,46 +304,29 @@ If `:mut` is specified, the destination will be mutable.
 Otherwise, the destination will be immutable.
 """
 macro clone(expr::Expr)
-    if Meta.isexpr(expr, :(=))
-        # Handle immutable case
-        dest = expr.args[1]
-        src = expr.args[2]
-        if is_borrow_checker_enabled(__module__)
-            return esc(
-                :(
-                    $(dest) = $(clone)(
-                        $(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(false)
-                    )
-                ),
-            )
-        else
-            # Even when borrow checker is disabled, we still want to clone
-            # the value to avoid mutating the original.
-            return esc(:($(dest) = $(maybe_deepcopy)($(src))))
-        end
-    else
-        error("@clone requires an assignment expression")
-    end
+    is_borrow_checker_enabled(__module__) ||
+        return esc(:($(expr.args[1]) = $(maybe_deepcopy)($(expr.args[2]))))
+    return _clone(expr, false)
 end
 
 macro clone(mut_flag::QuoteNode, expr::Expr)
-    if mut_flag != QuoteNode(:mut)
+    is_borrow_checker_enabled(__module__) ||
+        return esc(:($(expr.args[1]) = $(maybe_deepcopy)($(expr.args[2]))))
+    if mut_flag.value != :mut
         error("First argument to @clone must be :mut if two arguments are provided")
     end
+    return _clone(expr, true)
+end
+
+function _clone(expr::Expr, mut::Bool)
     if !Meta.isexpr(expr, :(=))
-        error("@clone :mut requires an assignment expression")
+        error("@clone requires an assignment expression")
     end
     dest = expr.args[1]
     src = expr.args[2]
-    if is_borrow_checker_enabled(__module__)
-        return esc(
-            :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val(true)))
-        )
-    else
-        # Even when borrow checker is disabled, we still want to clone
-        # the value to avoid mutating the original.
-        return esc(:($(dest) = $(maybe_deepcopy)($(src))))
-    end
+    return esc(
+        :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val($mut)))
+    )
 end
 
 end
