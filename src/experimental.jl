@@ -64,7 +64,7 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
         length(args) == 3 &&
         args[1] isa Core.Box &&
         args[2] == :contents &&
-        args[3] isa AllOwned
+        args[3] isa Union{AllOwned,LazyAccessorOf{AllOwned}}
         #
         symbol = get_symbol(args[3])
         error("You are not allowed to capture owned variable `$(symbol)` inside a closure.")
