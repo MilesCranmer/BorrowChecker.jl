@@ -321,14 +321,7 @@ is_mutable(r::AllImmutable) = false
 # Internal getters and setters
 unsafe_get_value(r::OwnedMut) = getfield(r, :value, :sequentially_consistent)
 unsafe_get_value(r::Owned) = getfield(r, :value)
-function unsafe_get_value(r::AllBorrowed)
-    raw_value = getfield(r, :value)
-    if raw_value === get_owner(r)
-        return unsafe_get_value(get_owner(r))
-    else
-        return raw_value
-    end
-end
+unsafe_get_value(r::AllBorrowed) = getfield(r, :value)
 function unsafe_set_value!(r::OwnedMut, value)
     return setfield!(r, :value, value, :sequentially_consistent)
 end
