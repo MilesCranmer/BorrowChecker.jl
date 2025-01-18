@@ -106,4 +106,4 @@ function Base.push!(r::AllWrappers, items...)
 end
 ```
 
-While this violates the expected return type, it is a necessary evil for safety. The `nothing` return will cause loud errors if you normally try to use it. This is good! Loud bugs are collaborators; silent bugs are saboteurs.
+While this violates the expected return type, it is a necessary evil for safety. The `nothing` return will cause loud errors if you have code that relies on this design. This is good! Loud bugs are collaborators; silent bugs are saboteurs.

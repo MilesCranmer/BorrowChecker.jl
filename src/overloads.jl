@@ -110,6 +110,7 @@ Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k
 for op in (:push!, :append!, :empty!, :resize!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
+# TODO: Add `insert!` and `delete!`
 function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})
     error("Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead.")
 end
@@ -131,7 +132,7 @@ end
 # --- DICTIONARY OPERATIONS ---
 # Dictionary-specific operations
 Base.getindex(r::AllWrappers{<:AbstractDict}, key) = getindex(request_value(r, Val(:read)), _maybe_read(key))
-Base.delete!(r::AllWrappers{<:AbstractDict}, key) = delete!(request_value(r, Val(:write)), _maybe_read(key))
+Base.delete!(r::AllWrappers{<:AbstractDict}, key) = (delete!(request_value(r, Val(:write)), _maybe_read(key)); nothing)
 # --- END DICTIONARY OPERATIONS ---
 
 # --- STRING OPERATIONS ---

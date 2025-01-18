@@ -116,18 +116,16 @@ end
 end
 @inline function Base.setproperty!(o::AllOwned, name::Symbol, value)
     setproperty!(request_value(o, Val(:write)), name, value)
-    return o
+    return nothing
 end
 @inline function Base.setproperty!(r::AllBorrowed, name::Symbol, value)
     setproperty!(request_value(r, Val(:write)), name, value)
-    # TODO: I think we should return `nothing` here instead, or
-    #       some other marker.
-    return value
+    return nothing
 end
 @inline function Base.setproperty!(r::LazyAccessor, name::Symbol, value)
     target = getfield(r, :target)
     setproperty!(request_value(target, Val(:write)), name, value)
-    return value
+    return nothing
 end
 
 # Convenience functions
