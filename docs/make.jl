@@ -17,12 +17,15 @@ readme = replace(readme, r"<[/]?div.*" => s"")
 # Create the index.md
 open(dirname(@__FILE__) * "/src/index.md", "w") do io
     # Add meta information
-    write(io, """
-    ```@meta
-    CurrentModule = BorrowChecker
-    ```
+    write(
+        io,
+        """
+```@meta
+CurrentModule = BorrowChecker
+```
 
-    """)
+""",
+    )
     write(io, readme)
 end
 
@@ -36,16 +39,10 @@ makedocs(;
         canonical="https://astroautomata.com/BorrowChecker.jl",
         edit_link="main",
         assets=String[],
-        repolink = "https://github.com/mcranmer/BorrowChecker.jl"
+        repolink="https://github.com/mcranmer/BorrowChecker.jl",
     ),
-    pages=[
-        "Home" => "index.md",
-        "API Reference" => "api.md",
-    ],
+    pages=["Home" => "index.md", "API Reference" => "api.md"],
     warnonly=[:missing_docs],  # Allow missing docstrings
 )
 
-deploydocs(;
-    repo="github.com/MilesCranmer/BorrowChecker.jl",
-    devbranch="main",
-) 
+deploydocs(; repo="github.com/MilesCranmer/BorrowChecker.jl", devbranch="main")
