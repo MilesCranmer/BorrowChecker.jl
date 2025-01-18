@@ -81,7 +81,7 @@ Now, with that out of the way, let's see the reference and then some more detail
 - `@own [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
     - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
-- `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified)
+- `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
 - `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
 
 ### Automatic Ownership Transfer
@@ -171,6 +171,20 @@ and performs a `deepcopy` when needed:
 @own total = sum_vector(@take(data))  # Creates a copy
 push!(data, 4)  # Original still usable
 ```
+
+Note also that for improving safety when using BorrowChecker.jl, the macro will actually store the _symbol_ used.
+This helps catch mistakes like:
+
+```julia
+julia> @own x = [1, 2, 3];
+
+julia> y = x;  # Unsafe! Should use @clone, @move, or @own
+
+julia> @take(y)
+ERROR: Variable `y` holds an object that was reassigned from `x`.
+```
+
+This won't catch all misuses but it can help prevent some.
 
 ### References and Lifetimes
 
@@ -366,4 +380,23 @@ ERROR: Cannot write to immutable
 
 julia> a.x += 1
 ERROR: Cannot use a: value has been moved
+```
+
+### Cloning Values
+
+Sometimes you want to create a completely independent copy of a value.
+While you could use `@own new = @take(old)`, the `@clone` macro provides a clearer way to express this intent:
+
+```julia
+@own :mut original = [1, 2, 3]
+@clone copy = original  # Creates an immutable deep copy
+@clone :mut mut_copy = original  # Creates a mutable deep copy
+
+push!(mut_copy, 4)  # Can modify the mutable copy
+@test_throws BorrowRuleError push!(copy, 4)  # Can't modify the immutable copy
+push!(original, 5)  # Original still usable
+
+@test original == [1, 2, 3, 5]
+@test copy == [1, 2, 3]
+@test mut_copy == [1, 2, 3, 4]
 ```
