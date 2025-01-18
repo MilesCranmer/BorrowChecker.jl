@@ -18,7 +18,7 @@ using ..TypesModule:
 using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
-using ..UtilsModule: Unused
+using ..UtilsModule: Unused, isunused
 
 _maybe_read(x) = x
 _maybe_read(x::AllWrappers) = request_value(x, Val(:read))
@@ -90,32 +90,63 @@ Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
 # --- END BASIC OPERATIONS ---
 
 # --- COLLECTION OPERATIONS ---
-# Basic collection operations
-for op in (:length, :isempty, :size, :axes, :firstindex, :lastindex, :eachindex)
+
+# ---- Non-mutating; safe to return ----
+for op in (
+    :length, :isempty, :size, :axes, :firstindex, :lastindex,
+    :eachindex, :any, :all, :ndims, :eltype, :strides,
+)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
-function Base.keys(r::AllWrappers)
-    value = request_value(r, Val(:read))
-    k = keys(value)
-    if !is_static(eltype(k))
-        error("Refusing to return non-isbits keys of a collection. Use `keys(@take!(d))` if needed.")
-    end
-    return k
-end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i))
+
+# ---- Non-mutating; possibly unsafe to return ----
+for op in (
+    :keys, :values, :unique, :sort, :reverse,
+    :sum, :prod, :maximum, :minimum, :extrema
+)
+    @eval function Base.$(op)(r::AllWrappers; kws...)
+        k = $(op)(request_value(r, Val(:read)); kws...)
+        if !is_static(eltype(k))
+            error(
+                "Refusing to return non-isbits result of " * string($(op)) *
+                ", because this can result in aliasing with the original array. " *
+                "Use `" * string($(op)) * "(@take!(d))` instead."
+            )
+        end
+        return k
+    end
+end
+
+# ---- Non-mutating; unsafe to return ----
+Base.sizehint!(r::AllWrappers, n) = (sizehint!(request_value(r, Val(:read)), _maybe_read(n)); nothing)
+
+# ---- Mutating; safe to return ----
+# These are safe to return, because the value is inaccessible from
+# the original owner.
 for op in (:pop!, :popfirst!)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:write)))
 end
 Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k))
-for op in (:push!, :append!, :empty!, :resize!)
+
+# ---- Mutating; unsafe to return ----
+# These return a new reference to the passed object which is not safe,
+# so either the user needs to keep the variable around, or use `@take!`.
+for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
+Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)), _maybe_read(n)); nothing)
+for op in (:empty!, :sort!, :reverse!)
+    @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
+end
+
+# ---- Other ----
 # TODO: Add `insert!` and `delete!`
 function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})
     error("Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead.")
 end
 function Base.iterate(r::Union{Borrowed,LazyAccessorOf{<:Borrowed}}, state=Unused())
-    out = iterate(request_value(r, Val(:read)), (state isa Unused ? () : (state,))...)
+    out = iterate(request_value(r, Val(:read)), (isunused(state) ? () : (state,))...)
     out === nothing && return nothing
     (iter, state) = out
     return (Borrowed(iter, get_owner(r), get_lifetime(r)), state)
