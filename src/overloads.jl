@@ -109,8 +109,8 @@ for op in (
         k = $(op)(request_value(r, Val(:read)); kws...)
         if !is_static(eltype(k))
             error(
-                "Refusing to return non-isbits result of " * string($(op)) *
-                ", because this can result in aliasing with the original array. " *
+                "Refusing to return result of " * string($(op)) *
+                " with a non-isbits element type, because this can result in unintended aliasing with the original array. " *
                 "Use `" * string($(op)) * "(@take!(d))` instead."
             )
         end

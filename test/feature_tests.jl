@@ -799,7 +799,10 @@ end
 @testitem "Dictionary Error Paths" begin
     # Test error on non-isbits keys
     @own :mut d = Dict([1, 2] => 10)  # Vector{Int} is non-isbits
-    @test_throws "Refusing to return non-isbits keys" keys(d)
+    @test_throws(
+        "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
+        keys(d)
+    )
 
     # Test error on type conversion
     @own :mut d2 = Dict(1 => 2)
@@ -1001,10 +1004,16 @@ end
     @own :mut dictref = Ref(Dict(NonIsBits(1) => 10))
     @lifetime lt begin
         @ref ~lt :mut ref = dict
-        @test_throws "Refusing to return non-isbits keys" keys(ref)  # Non-isbits values through reference
+        @test_throws(
+            "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
+            keys(ref)
+        )
 
         @ref ~lt :mut ref2 = dictref
-        @test_throws "Refusing to return non-isbits keys" keys(ref2[])  # Non-isbits values through reference
+        @test_throws(
+            "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
+            keys(ref2[])
+        )
     end
 
     # Test dictionary operation errors
@@ -1379,4 +1388,52 @@ end
         @ref ~lt r = dict
         @test Set(keys(r)) == Set([1, 2])
     end
+end
+
+@testitem "Collection operations" begin
+    using BorrowChecker: is_moved
+
+    # Test non-mutating operations that are safe to return
+    @own arr = [1, 2, 3, 4]
+    @test length(arr) == 4
+    @test !is_moved(arr)
+    @test ndims(arr) == 1
+    @test eltype(arr) == Int
+    @test !isempty(arr)
+    @test !is_moved(arr)
+
+    @own bool_arr = [true, false, true]
+    @test !all(bool_arr)
+    @test any(bool_arr)
+    @test !is_moved(bool_arr)
+
+    # Test operations that return isbits results
+    @own nums = [1.5, 2.5, 3.5]
+    @test sum(nums) == 7.5
+    @test !is_moved(nums)
+    @test prod(nums) == 13.125
+    @test maximum(nums) == 3.5
+    @test minimum(nums) == 1.5
+    @test extrema(nums) == (1.5, 3.5)
+    @test !is_moved(nums)
+
+    # Test operations that should error on non-isbits return
+    @own :mut strings = ["b", "c", "a"]
+    @test_throws "Refusing to return result of unique with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `unique(@take!(d))` instead." unique(
+        strings
+    )
+    @test_throws "Refusing to return result of sort with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `sort(@take!(d))` instead." sort(
+        strings
+    )
+    @test_throws "Refusing to return result of reverse with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `reverse(@take!(d))` instead." reverse(
+        strings
+    )
+    @test sort!(strings) === nothing
+    @test strings == ["a", "b", "c"]
+
+    # Test mutating operations
+    @own :mut nums = [1, 2, 3]
+    @test pop!(nums) == 3
+    @test push!(nums, 4) === nothing
+    @test @take!(nums) == [1, 2, 4]
 end
