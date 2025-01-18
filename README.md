@@ -400,3 +400,12 @@ push!(original, 5)  # Original still usable
 @test copy == [1, 2, 3]
 @test mut_copy == [1, 2, 3, 4]
 ```
+
+Another macro is `@move`, which is a more explicit version of `@own new = @take!(old)`:
+
+```julia
+@own :mut original = [1, 2, 3]
+@move new = original  # Creates an immutable deep copy
+
+@test_throws MovedError push!(original, 4)
+```
