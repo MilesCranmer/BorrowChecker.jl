@@ -409,3 +409,5 @@ Another macro is `@move`, which is a more explicit version of `@own new = @take!
 
 @test_throws MovedError push!(original, 4)
 ```
+
+Note that `@own new = old` will also work as a convenience, but `@move` is more explicit and also asserts that the new value is owned.
