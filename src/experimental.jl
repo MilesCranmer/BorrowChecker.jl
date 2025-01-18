@@ -71,8 +71,14 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
     end
     if skip_method(f)
         return Cassette.fallback(ctx, f, args...)
+    elseif f == Core.kwcall
+        (kws, actual_f, actual_args...) = args
+        mapped_kws = NamedTuple{keys(kws)}(map(maybe_take!, values(kws)))
+        mapped_args = map(maybe_take!, actual_args)
+        return Cassette.recurse(ctx, f, mapped_kws, actual_f, mapped_args...)
     else
-        return Cassette.recurse(ctx, f, map(maybe_take!, args)...)
+        mapped_args = map(maybe_take!, args)
+        return Cassette.recurse(ctx, f, mapped_args...)
     end
 end
 

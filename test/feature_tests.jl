@@ -345,6 +345,26 @@ end
     @test !is_moved(b)
 end
 
+@testitem "Managed ownership with kwcall" begin
+    using BorrowChecker
+    using BorrowChecker: is_moved
+    using BorrowChecker.Experimental: @managed
+
+    function f(x::Int, a::Int; y::Int)
+        return x + a + y
+    end
+
+    @own x = 1
+    @own a = 1
+    @own y = 2
+    @test (@managed f(x, a; y)) == 4
+
+    f!(; vec) = push!(vec, 3)
+    @own vec = [1, 2, 3]
+    @managed f!(; vec)
+    @test is_moved(vec)
+end
+
 @testitem "Cassette forwards errors" begin
     mutable struct MySkippingType
         a::Int
