@@ -103,11 +103,11 @@ function Base.keys(r::AllWrappers)
     return k
 end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i))
-for op in (:pop!, :popfirst!, :empty!, :resize!)
+for op in (:pop!, :popfirst!)
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:write)))
 end
 Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k))
-for op in (:push!, :append!)
+for op in (:push!, :append!, :empty!, :resize!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})

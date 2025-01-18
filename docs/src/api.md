@@ -85,11 +85,11 @@ function Base.:(*)(l::AllWrappers{<:Number}, r::AllWrappers{<:Number})
 end
 ```
 
-2. Mutating operations (like `empty!`) that need write access:
+2. Mutating operations (like `pop!`) that need write access:
 
 ```julia
-function Base.empty!(r::AllWrappers)
-    return Base.empty!(request_value(r, Val(:write)))
+function Base.pop!(r::AllWrappers)
+    return Base.pop!(request_value(r, Val(:write)))
 end
 ```
 
