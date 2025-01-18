@@ -11,7 +11,10 @@
 > [!WARNING]
 > NOTE: This package is under active development and the syntax has not stabilized. Expect it to change significantly between versions.
 
-This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks.
+> [!WARNING]
+> BorrowChecker.jl does NOT promise memory safety. This library simulates aspects of Rust's ownership model, but it does not do this at a compiler level, or with any of the same guarantees. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
+
+This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 ## Usage
 
@@ -65,15 +68,6 @@ You see, the `@own` operation has _bound_ the variable `x` with the object `[1, 
 However, this does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
 [^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
-
-First, some important disclaimers:
-
-
-> [!WARNING]
-> BorrowChecker.jl does NOT promise safety in any way. This library implements an _extremely_ simplistic and hacky take on a part of Rust's ownership model. It will not prevent you from misusing it, or using regular Julia features, or doing all sorts of incorrect things. This tool should only be used in development and testing, but should not be relied on in production code to do correct things.
-
-
-Now, with that out of the way, let's see the reference and then some more detailed examples!
 
 ## API
 
