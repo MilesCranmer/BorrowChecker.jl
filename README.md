@@ -123,213 +123,247 @@ This can then be overridden by the LocalPreferences.toml file.
 
 ## Further Examples
 
-### Ownership
+### Basic Ownership
 
-First, let's look at basic ownership.
+Let's look at the basic ownership system. When you create an owned value, it's immutable by default:
 
 ```julia
-julia> using BorrowChecker
-
-julia> @own x = [1]
-Owned{Vector{Int64}}([1])
+@own x = [1, 2, 3]
+push!(x, 4)  # ERROR: Cannot write to immutable
 ```
 
-This is meant to emulate `let x = vec![1]` in Rust.
-We can compare it to objects, and the borrow checker will
-confirm that we can read it:
+For mutable values, use the `:mut` flag:
 
 ```julia
-julia> x == [1]
-true
+@own :mut data = [1, 2, 3]
+push!(data, 4)  # Works! data is mutable
 ```
 
-We could also do this by unpacking the value, which _moves_
-ownership:
+Note that various functions have been overloaded with the write access settings, such as `push!`, `getindex`, etc.
+
+The `@own` macro creates an `Owned{T}` or `OwnedMut{T}` object. Most functions will not be written to accept these, so you can use `@take` (copying) or `@take!` (moving) to extract the owned value:
 
 ```julia
-julia> (@take! x) == [1]
-true
+# Functions that expect regular Julia types:
+push_twice!(x::Vector{Int}) = (push!(x, 4); push!(x, 5); x)
 
-julia> x
-[moved]
+@own x = [1, 2, 3]
+@own y = push_twice!(@take!(x))  # Moves ownership of x
 
-julia> x == [2]
-ERROR: Cannot use x: value has been moved
+push!(x, 4)  # ERROR: Cannot use x: value has been moved
 ```
 
-Now, let's look at a mutable value:
+However, for recursively immutable types (like tuples of integers), `@take!` is smart enough to know that the original can't change, and thus it won't mark a moved:
 
 ```julia
-julia> @own :mut y = 1
-OwnedMut{Int64}(1)
+@own point = (1, 2)
+sum1 = write_to_file(@take!(point))  # point is still usable
+sum2 = write_to_file(@take!(point))  # Works again!
 ```
 
-We change the contents of this variable using `@set`:
+This is the same behavior as in Rust (c.f., the `Copy` trait).
+
+There is also the `@take(...)` macro which never marks the original as moved,
+and performs a `deepcopy` when needed:
 
 ```julia
-julia> @set y = 2
-OwnedMut{Int64}(2)
+@own :mut data = [1, 2, 3]
+@own total = sum_vector(@take(data))  # Creates a copy
+push!(data, 4)  # Original still usable
 ```
 
-Note that we can't do this with immutable values:
+### References and Lifetimes
+
+References let you temporarily _borrow_ values. This is useful for passing values to functions without moving them. These are created within an explicit `@lifetime` block:
 
 ```julia
-julia> @own x, y, z = 1:3  # tuple unpacking works
-(Owned{Int64}(1), Owned{Int64}(2), Owned{Int64}(3))
+@own :mut data = [1, 2, 3]
 
-julia> @set x = 2
-ERROR: Cannot assign to immutable
+@lifetime lt begin
+    @ref lt r = data
+    @ref lt r2 = data  # Can create multiple _immutable_ references!
+    @test r == [1, 2, 3]
+
+    # While ref exists, data can't be modified:
+    data[1] = 4 # ERROR: Cannot write original while immutably borrowed
+end
+
+# After lifetime ends, we can modify again!
+data[1] = 4
 ```
 
-This also works with arrays:
+Just like in Rust, while you can create multiple _immutable_ references, you can only have one _mutable_ reference at a time:
 
 ```julia
-julia> @own array = [1, 2, 3]
-Owned{Vector{Int64}}([1, 2, 3])
+@own :mut data = [1, 2, 3]
 
-julia> push!(array, 4)
-ERROR: Cannot write to immutable
+@lifetime lt begin
+    @ref lt :mut r = data
+    @ref lt :mut r2 = data  # ERROR: Cannot create mutable reference: value is already mutably borrowed
+    @ref lt r2 = data  # ERROR: Cannot create immutable reference: value is mutably borrowed
 
-julia> @own :mut array = [1, 2, 3]
-OwnedMut{Vector{Int64}}([1, 2, 3])
-
-julia> push!(array, 4)
-OwnedMut{Vector{Int64}}([1, 2, 3, 4])
+    # Can modify via mutable reference:
+    r[1] = 4
+end
 ```
 
-Just like with immutable values, we can move ownership:
+When you need to pass immutable references of a value to a function, you would modify the signature to accept a `Borrowed{T}` type. This is similar to the `&T` syntax in Rust. And, similarly, `BorrowedMut{T}` is similar to `&mut T`.
+
+There are the `OrBorrowed{T}` and `OrBorrowedMut{T}` aliases for easily extending a signature. Let's say you have some function:
 
 ```julia
-julia> @move array2 = array
-Owned{Vector{Int64}}([1, 2, 3, 4])
+struct Bar{T}
+    x::Vector{T}
+end
 
-julia> array
-[moved]
-
-julia> array[1] = 5
-ERROR: Cannot use array: value has been moved
-
-julia> array2[1] = 5
-ERROR: Cannot write to immutable
-
-julia> @move :mut array3 = array2  # Move to mutable
-OwnedMut{Vector{Int64}}([1, 2, 3, 4])
-
-julia> array3[1] = 5  # Now we can modify it
+function foo(bar::Bar{T}) where {T}
+    sum(bar.x)
+end
 ```
 
-You can also clone values using `@clone`, which calls `deepcopy` under the hood:
+Now, you'd like to modify this so that it can accept _references_ to `Bar` objects from other functions. Since `foo` doesn't need to mutate `bar`, we can modify this as follows:
 
 ```julia
-julia> @own x = [1, 2, 3]
-Owned{Vector{Int64}}([1, 2, 3])
-
-julia> @clone :mut y = x  # Create mutable clone
-OwnedMut{Vector{Int64}}([1, 2, 3])
+function foo(bar::OrBorrowed{Bar{T}}) where {T}
+    sum(bar.x)
+end
 ```
 
-### Borrowing
-
-References must be created within a `@lifetime` block. Let's look at
-immutable references first:
+Now, we can modify our calling code (which might be multithreaded) to be something like:
 
 ```julia
-julia> @own :mut data = [1, 2, 3];
+@own :mut bar = Bar([1, 2, 3])
 
-julia> @lifetime a begin
-           @ref a ref = data
-           ref
+@lifetime lt begin
+    @ref lt r1 = bar
+    @ref lt r2 = bar
+    
+    @own tasks = [
+        Threads.@spawn(foo(r1))
+        Threads.@spawn(foo(r2))
+    ]
+    @show map(fetch, @take!(tasks))
+end
+
+# After lifetime ends, we can modify `bar` again
+```
+Immutable references are safe to pass in a multi-threaded context, so this is a good way to prevent thread races.
+Using immutable references enforces that (a) the original object cannot be modified, and (b) there are no mutable references active.
+
+Another trick: don't worry about references being used _after_ the lifetime ends, because the `lt` variable will be expired!
+
+```julia
+julia> @own x = 1
+       @own :mut cheating = []
+       @lifetime lt begin
+           @ref lt r = x
+           push!(cheating, r)
        end
-Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
+       
+
+julia> @show cheating[1]
+ERROR: Cannot use r: value's lifetime has expired
 ```
 
-Once we have created the reference `ref`, we are no longer allowed to modify
-`data` until the lifetime `lt` ends. This helps prevent data races.
-After the lifetime ends, we can edit `data` again:
+This makes the use of references inside threads safe, because the threads _must_ finish inside the scope of the lifetime.
+
+Though we can't create multiple mutable references, you _are_ allowed to create multiple mutable references to elements of a collection via the `@ref for` syntax:
 
 ```julia
-julia> data[1] = 4; data
-OwnedMut{Vector{Int64}}([4, 2, 3])
+@own :mut data = [[1], [2], [3]]
+
+@lifetime lt begin
+    @ref lt :mut for r in data
+        push!(r, 4)
+    end
+end
+
+@show data  # [[1, 4], [2, 4], [3, 4]]
 ```
 
-Note that we can have multiple _immutable_ references at once:
+### Automatic Ownership
+
+The (experimental) `@managed` block can be used to perform borrow checking automatically. It basically transforms all functions, everywhere, to perform `@take!` on function calls that take `Owned{T}` or `OwnedMut{T}` arguments:
 
 ```julia
-julia> @lifetime a begin
-           @ref a ref1 = data
-           @ref a ref2 = data
-           ref1 == ref2
-       end
-true
+struct Particle
+    position::Vector{Float64}
+    velocity::Vector{Float64}
+end
+
+function update!(p::Particle)
+    p.position .+= p.velocity
+    return p
+end
 ```
 
-For mutable references, we can only have one at a time:
+With `@managed`, you don't need to manually move ownership:
 
 ```julia
-julia> @lifetime a begin
-           @ref a :mut mut_ref = data
-           @ref a :mut mut_ref2 = data
-       end
-ERROR: Cannot create mutable reference: value is already mutably borrowed
-```
+julia> using BorrowChecker.Experimental: @managed
 
-And we can't mix mutable and immutable references:
-
-```julia
-julia> @lifetime a begin
-           @ref a ref = data
-           @ref a :mut mut_ref = data
-       end
-ERROR: Cannot create mutable reference: value is immutably borrowed
-```
-
-We can also use references to temporarily borrow values in functions:
-
-```julia
-julia> function borrow_vector(v::Borrowed)  # Signature confirms we only need immutable references
-           @assert v == [1, 2, 3]
+julia> @own :mut p = Particle([0.0, 0.0], [1.0, 1.0])
+       @managed begin
+           update!(p)
        end;
 
-julia> @own vec = [1, 2, 3]
-Owned{Vector{Int64}}([1, 2, 3])
-
-julia> @lifetime a begin
-           borrow_vector(@ref a d = vec)  # Immutable borrow
-       end
-
-julia> vec
-Owned{Vector{Int64}}([1, 2, 3])
+julia> p
+[moved]
 ```
 
-We are also able to clone from reference:
+This works via [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl) overdubbing, which recursively modifies all function calls in the entire call stack - not just the top-level function, but also any functions it calls, and any functions those functions call, and so on. But do note that this is very experimental as it modifies the compilation itself. For more robust usage, just use `@take!` manually.
+
+This also works with nested field access, just like in Rust:
 
 ```julia
-julia> @own :mut data = [1, 2, 3]
-OwnedMut{Vector{Int64}}([1, 2, 3])
+struct Container
+    x::Vector{Int}
+end
 
-julia> @lifetime a begin
-           @ref a ref = data
-           @clone :mut clone = ref
-           clone[2] = 4
-           @show clone ref
-       end;
-clone = OwnedMut{Vector{Int64}}([1, 4, 3])
-ref = Borrowed{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3])
+f!(x::Vector{Int}) = push!(x, 3)
+
+@own a = Container([2])
+@managed begin
+    f!(a.x)  # Container ownership handled automatically
+end
+
+@take!(a)  # ERROR: Cannot use a: value has been moved
 ```
 
-### Loops
+### Mutating Owned Values
 
-Finally, we can use ownership semantics in for loops. By default, loop variables are immutable:
+For mutating an owned value directly, you should use the `@set` macro,
+which prevents the creation of a new owned value.
 
 ```julia
-julia> @own :mut accumulator = 0
-OwnedMut{Int64}(0)
+@own :mut local_counter = 0
+for _ in 1:10
+    @set local_counter = local_counter + 1
+end
+@take! local_counter
+```
 
-julia> @own :mut for x in 1:3
-           @set x = x + 1  # Can modify x since it's mutable
-           @set accumulator = accumulator + x
-       end
+But note that if you have a mutable struct, you can just use `setproperty!` as normal:
 
-julia> @take! accumulator
-6
+```julia
+mutable struct A
+    x::Int
+end
+
+@own :mut a = A(0)
+for _ in 1:10
+    a.x += 1
+end
+# Move it to an immutable:
+@own a_imm = a
+```
+
+And, as expected:
+
+```julia
+julia> a_imm.x += 1
+ERROR: Cannot write to immutable
+
+julia> a.x += 1
+ERROR: Cannot use a: value has been moved
 ```
