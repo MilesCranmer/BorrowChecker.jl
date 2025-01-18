@@ -60,31 +60,31 @@ jobs:
         with:
           parallel-finished: true
 
-  # docs:
-  #   name: Documentation
-  #   runs-on: ubuntu-latest
-  #   needs: test
-  #   permissions:
-  #     contents: write
-  #     statuses: write
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: julia-actions/setup-julia@v2
-  #       with:
-  #         version: '1'
-  #     - name: Configure doc environment
-  #       run: |
-  #         julia --project=docs/ -e '
-  #           using Pkg
-  #           Pkg.develop(PackageSpec(path=pwd()))
-  #           Pkg.instantiate()'
-  #     - uses: julia-actions/julia-buildpkg@v1
-  #     - uses: julia-actions/julia-docdeploy@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #     - run: |
-  #         julia --project=docs -e '
-  #           using Documenter: DocMeta, doctest
-  #           using BorrowChecker
-  #           DocMeta.setdocmeta!(BorrowChecker, :DocTestSetup, :(using BorrowChecker); recursive=true)
-  #           doctest(BorrowChecker)'
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - name: Configure doc environment
+        run: |
+          julia --project=docs/ -e '
+            using Pkg
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.instantiate()'
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-docdeploy@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          julia --project=docs -e '
+            using Documenter: DocMeta, doctest
+            using BorrowChecker
+            DocMeta.setdocmeta!(BorrowChecker, :DocTestSetup, :(using BorrowChecker); recursive=true)
+            doctest(BorrowChecker)'
