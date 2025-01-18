@@ -211,6 +211,7 @@ end
 
 """
     @ref ~lifetime [:mut] var = value
+    @ref ~lifetime [:mut] (var1, var2, ...) = (value1, value2, ...)
     @ref ~lifetime [:mut] for var in iter
         # body
     end
@@ -235,7 +236,23 @@ macro ref(lifetime_expr::Expr, expr::Expr)
         # Handle immutable case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
+        if Meta.isexpr(dest, :tuple) && Meta.isexpr(src, :tuple)
+            # Handle tuple unpacking
+            if length(dest.args) != length(src.args)
+                error("Number of variables must match number of values in tuple unpacking")
+            end
+            refs = []
+            for (d, s) in zip(dest.args, src.args)
+                push!(refs, :($d = $(ref)($lifetime, $s, $(QuoteNode(d)), Val(false))))
+            end
+            return esc(
+                quote
+                    $(refs...)
+                end,
+            )
+        else
+            return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
+        end
     elseif Meta.isexpr(expr, :for)
         # Handle for loop case
         loop_var = expr.args[1].args[1]
@@ -269,7 +286,23 @@ macro ref(lifetime_expr::Expr, mut_flag::QuoteNode, expr::Expr)
         # Handle assignment case
         dest = expr.args[1]
         src = expr.args[2]
-        return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
+        if Meta.isexpr(dest, :tuple) && Meta.isexpr(src, :tuple)
+            # Handle tuple unpacking
+            if length(dest.args) != length(src.args)
+                error("Number of variables must match number of values in tuple unpacking")
+            end
+            refs = []
+            for (d, s) in zip(dest.args, src.args)
+                push!(refs, :($d = $(ref)($lifetime, $s, $(QuoteNode(d)), Val(true))))
+            end
+            return esc(
+                quote
+                    $(refs...)
+                end,
+            )
+        else
+            return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
+        end
     elseif Meta.isexpr(expr, :for)
         # Handle for loop case
         loop_var = expr.args[1].args[1]

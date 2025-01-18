@@ -191,3 +191,41 @@ end
     @test f(@take! c.x) == 9
     @test is_moved(c)
 end
+
+@testitem "Tuple unpacking with references" begin
+    # Test basic immutable references
+    @own x = [1]
+    @own y = [2]
+    @own z = [3]
+    @lifetime lt begin
+        @ref ~lt (rx, ry, rz) = (x, y, z)
+        @test rx == [1]
+        @test ry == [2]
+        @test rz == [3]
+
+        # Can create multiple immutable references
+        @ref ~lt (rx2, ry2, rz2) = (x, y, z)
+        @test rx2 == [1]
+    end
+
+    # Test mutable references
+    @own :mut mx = [1]
+    @own :mut my = [2]
+    @own :mut mz = [3]
+    @lifetime lt begin
+        @ref ~lt :mut (rmx, rmy, rmz) = (mx, my, mz)
+        push!(rmx, 4)
+        push!(rmy, 5)
+        push!(rmz, 6)
+
+        # Can't create second mutable reference while first exists
+        @test_throws BorrowRuleError @ref ~lt :mut (rx2, ry2, rz2) = (mx, my, mz)
+
+        # Can't create immutable reference while mutable exists
+        @test_throws BorrowRuleError @ref ~lt (rx2, ry2, rz2) = (mx, my, mz)
+    end
+
+    @test mx == [1, 4]
+    @test my == [2, 5]
+    @test mz == [3, 6]
+end
