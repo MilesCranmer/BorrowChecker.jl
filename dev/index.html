@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · BorrowChecker.jl</title><meta name="title" content="Home · BorrowChecker.jl"/><meta property="og:title" content="Home · BorrowChecker.jl"/><meta property="twitter:title" content="Home · BorrowChecker.jl"/><meta name="description" content="Documentation for BorrowChecker.jl."/><meta property="og:description" content="Documentation for BorrowChecker.jl."/><meta property="twitter:description" content="Documentation for BorrowChecker.jl."/><meta property="og:url" content="https://astroautomata.com/BorrowChecker.jl/"/><meta property="twitter:url" content="https://astroautomata.com/BorrowChecker.jl/"/><link rel="canonical" href="https://astroautomata.com/BorrowChecker.jl/"/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href>BorrowChecker.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href>Home</a><ul class="internal"><li><a class="tocitem" href="#Usage"><span>Usage</span></a></li><li><a class="tocitem" href="#API"><span>API</span></a></li><li><a class="tocitem" href="#Further-Examples"><span>Further Examples</span></a></li></ul></li><li><a class="tocitem" href="api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/mcranmer/BorrowChecker.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/MilesCranmer/BorrowChecker.jl/blob/main/docs/src/index.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="BorrowChecker.jl"><a class="docs-heading-anchor" href="#BorrowChecker.jl">BorrowChecker.jl</a><a id="BorrowChecker.jl-1"></a><a class="docs-heading-anchor-permalink" href="#BorrowChecker.jl" title="Permalink"></a></h1><p><a href="https://github.com/MilesCranmer/BorrowChecker.jl/actions/workflows/CI.yml?query=branch%3Amain"><img src="https://github.com/MilesCranmer/BorrowChecker.jl/actions/workflows/CI.yml/badge.svg?branch=main" alt="Build Status"/></a> <a href="https://coveralls.io/github/MilesCranmer/BorrowChecker.jl?branch=main"><img src="https://coveralls.io/repos/github/MilesCranmer/BorrowChecker.jl/badge.svg?branch=main" alt="Coverage"/></a></p><blockquote><p>[!WARNING] NOTE: This package is under active development and the syntax has not stabilized. Expect it to change significantly between versions.</p></blockquote><p>This package demonstrates Rust-like ownership and borrowing semantics in Julia through a macro-based system that performs runtime checks.</p><h2 id="Usage"><a class="docs-heading-anchor" href="#Usage">Usage</a><a id="Usage-1"></a><a class="docs-heading-anchor-permalink" href="#Usage" title="Permalink"></a></h2><p>In Julia, objects exist independently of the variables that refer to them. When you write <code>x = [1, 2, 3]</code> in Julia, the actual <em>object</em> lives in memory completely independently of the symbol, and you can refer to it from as many variables as you want without issue. This does not create a new object, nor does it prevent <code>x</code> from being used alongside <code>y</code>:</p><pre><code class="language-julia hljs">x = [1, 2, 3]
+y = x
+println(length(x))
+# 3</code></pre><p>Once there are no more references to the object, the &quot;garbage collector&quot; will work to free the memory.</p><p>Rust is much different. For example, the equivalent code is <strong>invalid</strong> in Rust</p><pre><code class="language-rust hljs">let x = vec![1, 2, 3];
+let y = x;
+println!(&quot;{}&quot;, x.len());
+// error[E0382]: borrow of moved value: `x`</code></pre><p>Rust refuses to compile this code. Why? Because in Rust, objects (<code>vec![1, 2, 3]</code>) are <em>owned</em> by variables. When you write <code>let y = x</code>, the ownership of <code>vec![1, 2, 3]</code> is <em>moved</em> to <code>y</code>. Now <code>x</code> is no longer allowed to access it.</p><p>To fix this, we would either write</p><pre><code class="language-rust hljs">let y = x.clone();
+// OR
+let y = &amp;x;</code></pre><p>to either create a copy of the vector, or <em>borrow</em> <code>x</code> using the <code>&amp;</code> operator to create a reference. You can create as many references as you want, but there can only be one original object.</p><p>The purpose of this &quot;ownership&quot; paradigm is to improve safety of code. Especially in complex, multithreaded codebases, it is really easy to shoot yourself in the foot and modify objects which are &quot;owned&quot; (editable) by something else. Rust&#39;s ownership and lifetime model makes it so that you can <em>prove</em> memory safety of code! Standard thread races are literally impossible. (Assuming you are not using <code>unsafe { ... }</code> to disable safety features, or rust itself has a bug, or a cosmic ray hits your PC!)</p><p>In BorrowChecker.jl, we demonstrate a very simple implementation of some of these core ideas. The aim is to build a development layer that, eventually, can help prevent a few classes of memory safety issues, without affecting runtime behavior of code. The above example, with BorrowChecker.jl, would look like this:</p><pre><code class="language-julia hljs">using BorrowChecker
+
+@own x = [1, 2, 3]
+@own y = x
+println(length(x))
+# ERROR: Cannot use x: value has been moved</code></pre><p>You see, the <code>@own</code> operation has <em>bound</em> the variable <code>x</code> with the object <code>[1, 2, 3]</code>. The second operation then moves the object to <code>y</code>, and flips the <code>.moved</code> flag on <code>x</code> so it can no longer be used by regular operations.</p><p>However, this does not prevent you from cheating the system and using <code>y = x</code><sup class="footnote-reference"><a id="citeref-1" href="#footnote-1">[1]</a></sup>. To use this library, you will need to <em>buy in</em> to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add <code>@own</code>, <code>@move</code>, etc., inside a single function, and call <code>@take!</code> when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.</p><p>First, some important disclaimers:</p><blockquote><p>[!WARNING] BorrowChecker.jl does NOT promise safety in any way. This library implements an <em>extremely</em> simplistic and hacky take on a part of Rust&#39;s ownership model. It will not prevent you from misusing it, or using regular Julia features, or doing all sorts of incorrect things. This tool should only be used in development and testing, but should not be relied on in production code to do correct things.</p></blockquote><p>Now, with that out of the way, let&#39;s see the reference and then some more detailed examples!</p><h2 id="API"><a class="docs-heading-anchor" href="#API">API</a><a id="API-1"></a><a class="docs-heading-anchor-permalink" href="#API" title="Permalink"></a></h2><h3 id="Basics"><a class="docs-heading-anchor" href="#Basics">Basics</a><a id="Basics-1"></a><a class="docs-heading-anchor-permalink" href="#Basics" title="Permalink"></a></h3><ul><li><code>@own [:mut] x = value</code>: Create a new owned value (mutable if <code>:mut</code> is specified)<ul><li>These are <code>Owned{T}</code> and <code>OwnedMut{T}</code> objects, respectively.</li></ul></li><li><code>@move [:mut] new = old</code>: Transfer ownership from one variable to another (mutable destination if <code>:mut</code> is specified). <em>Note that this is simply a more explicit version of <code>@own</code> for moving values.</em></li><li><code>@clone [:mut] new = old</code>: Create a deep copy of a value without moving the source (mutable destination if <code>:mut</code> is specified).</li><li><code>@take[!] var</code>: Unwrap an owned value. Using <code>@take!</code> will mark the original as moved, while <code>@take</code>will perform a copy.</li></ul><h3 id="References-and-Lifetimes"><a class="docs-heading-anchor" href="#References-and-Lifetimes">References and Lifetimes</a><a id="References-and-Lifetimes-1"></a><a class="docs-heading-anchor-permalink" href="#References-and-Lifetimes" title="Permalink"></a></h3><ul><li><code>@lifetime lt begin ... end</code>: Create a scope for references whose lifetimes <code>lt</code> are the duration of the block</li><li><code>@ref lt [:mut] var = value</code>: Create a reference, for the duration of <code>lt</code>, to owned value <code>value</code> and assign it to <code>var</code> (mutable if <code>:mut</code> is specified)<ul><li>These are <code>Borrowed{T}</code> and <code>BorrowedMut{T}</code> objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use <code>OrBorrowed{T}</code> and <code>OrBorrowedMut{T}</code> to also allow regular <code>T</code>.</li></ul></li></ul><h3 id="Automatic-Ownership-Transfer"><a class="docs-heading-anchor" href="#Automatic-Ownership-Transfer">Automatic Ownership Transfer</a><a id="Automatic-Ownership-Transfer-1"></a><a class="docs-heading-anchor-permalink" href="#Automatic-Ownership-Transfer" title="Permalink"></a></h3><ul><li><code>BorrowChecker.Experimental.@managed begin ... end</code>: create a scope where contextual dispatch is performed using <a href="https://github.com/JuliaLabs/Cassette.jl">Cassette.jl</a>: recursively, all functions (<em><strong>in all dependencies</strong></em>) are automatically modified to apply <code>@take!</code> to any <code>Owned{T}</code> or <code>OwnedMut{T}</code> input arguments.<ul><li>Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).</li></ul></li></ul><h3 id="Assignment"><a class="docs-heading-anchor" href="#Assignment">Assignment</a><a id="Assignment-1"></a><a class="docs-heading-anchor-permalink" href="#Assignment" title="Permalink"></a></h3><ul><li><code>@set x = value</code>: Assign a new value to an existing owned mutable variable</li></ul><h3 id="Loops"><a class="docs-heading-anchor" href="#Loops">Loops</a><a id="Loops-1"></a><a class="docs-heading-anchor-permalink" href="#Loops" title="Permalink"></a></h3><ul><li><code>@own [:mut] for var in iter</code>: Create a loop over an iterable, assigning ownership of each element to <code>var</code>. The original <code>iter</code> is marked as moved.</li><li><code>@ref lt [:mut] for var in iter</code>: Create a loop over an owned iterable, generating references to each element, for the duration of <code>lt</code>.</li></ul><h3 id="Disabling-BorrowChecker"><a class="docs-heading-anchor" href="#Disabling-BorrowChecker">Disabling BorrowChecker</a><a id="Disabling-BorrowChecker-1"></a><a class="docs-heading-anchor-permalink" href="#Disabling-BorrowChecker" title="Permalink"></a></h3><p>You can disable BorrowChecker.jl&#39;s functionality by setting <code>borrow_checker = false</code> in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like <code>@own</code>, <code>@move</code>, etc., will simply pass through their arguments without any ownership or borrowing checks.</p><p>You can also set the <em>default</em> behavior from within a module:</p><pre><code class="language-julia hljs">module MyModule
+    using BorrowChecker: disable_borrow_checker!
+
+    disable_borrow_checker!(@__MODULE__)
+    #= Other code =#
+end</code></pre><p>This can then be overridden by the LocalPreferences.toml file.</p><h2 id="Further-Examples"><a class="docs-heading-anchor" href="#Further-Examples">Further Examples</a><a id="Further-Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Further-Examples" title="Permalink"></a></h2><h3 id="Basic-Ownership"><a class="docs-heading-anchor" href="#Basic-Ownership">Basic Ownership</a><a id="Basic-Ownership-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Ownership" title="Permalink"></a></h3><p>Let&#39;s look at the basic ownership system. When you create an owned value, it&#39;s immutable by default:</p><pre><code class="language-julia hljs">@own x = [1, 2, 3]
+push!(x, 4)  # ERROR: Cannot write to immutable</code></pre><p>For mutable values, use the <code>:mut</code> flag:</p><pre><code class="language-julia hljs">@own :mut data = [1, 2, 3]
+push!(data, 4)  # Works! data is mutable</code></pre><p>Note that various functions have been overloaded with the write access settings, such as <code>push!</code>, <code>getindex</code>, etc.</p><p>The <code>@own</code> macro creates an <code>Owned{T}</code> or <code>OwnedMut{T}</code> object. Most functions will not be written to accept these, so you can use <code>@take</code> (copying) or <code>@take!</code> (moving) to extract the owned value:</p><pre><code class="language-julia hljs"># Functions that expect regular Julia types:
+push_twice!(x::Vector{Int}) = (push!(x, 4); push!(x, 5); x)
+
+@own x = [1, 2, 3]
+@own y = push_twice!(@take!(x))  # Moves ownership of x
+
+push!(x, 4)  # ERROR: Cannot use x: value has been moved</code></pre><p>However, for recursively immutable types (like tuples of integers), <code>@take!</code> is smart enough to know that the original can&#39;t change, and thus it won&#39;t mark a moved:</p><pre><code class="language-julia hljs">@own point = (1, 2)
+sum1 = write_to_file(@take!(point))  # point is still usable
+sum2 = write_to_file(@take!(point))  # Works again!</code></pre><p>This is the same behavior as in Rust (c.f., the <code>Copy</code> trait).</p><p>There is also the <code>@take(...)</code> macro which never marks the original as moved, and performs a <code>deepcopy</code> when needed:</p><pre><code class="language-julia hljs">@own :mut data = [1, 2, 3]
+@own total = sum_vector(@take(data))  # Creates a copy
+push!(data, 4)  # Original still usable</code></pre><p>Note also that for improving safety when using BorrowChecker.jl, the macro will actually store the <em>symbol</em> used. This helps catch mistakes like:</p><pre><code class="language-julia hljs">julia&gt; @own x = [1, 2, 3];
+
+julia&gt; y = x;  # Unsafe! Should use @clone, @move, or @own
+
+julia&gt; @take(y)
+ERROR: Variable `y` holds an object that was reassigned from `x`.</code></pre><p>This won&#39;t catch all misuses but it can help prevent some.</p><h3 id="References-and-Lifetimes-2"><a class="docs-heading-anchor" href="#References-and-Lifetimes-2">References and Lifetimes</a><a class="docs-heading-anchor-permalink" href="#References-and-Lifetimes-2" title="Permalink"></a></h3><p>References let you temporarily <em>borrow</em> values. This is useful for passing values to functions without moving them. These are created within an explicit <code>@lifetime</code> block:</p><pre><code class="language-julia hljs">@own :mut data = [1, 2, 3]
+
+@lifetime lt begin
+    @ref lt r = data
+    @ref lt r2 = data  # Can create multiple _immutable_ references!
+    @test r == [1, 2, 3]
+
+    # While ref exists, data can&#39;t be modified:
+    data[1] = 4 # ERROR: Cannot write original while immutably borrowed
+end
+
+# After lifetime ends, we can modify again!
+data[1] = 4</code></pre><p>Just like in Rust, while you can create multiple <em>immutable</em> references, you can only have one <em>mutable</em> reference at a time:</p><pre><code class="language-julia hljs">@own :mut data = [1, 2, 3]
+
+@lifetime lt begin
+    @ref lt :mut r = data
+    @ref lt :mut r2 = data  # ERROR: Cannot create mutable reference: value is already mutably borrowed
+    @ref lt r2 = data  # ERROR: Cannot create immutable reference: value is mutably borrowed
+
+    # Can modify via mutable reference:
+    r[1] = 4
+end</code></pre><p>When you need to pass immutable references of a value to a function, you would modify the signature to accept a <code>Borrowed{T}</code> type. This is similar to the <code>&amp;T</code> syntax in Rust. And, similarly, <code>BorrowedMut{T}</code> is similar to <code>&amp;mut T</code>.</p><p>There are the <code>OrBorrowed{T}</code> (basically <code>==Union{T,Borrowed{&lt;:T}}</code>) and <code>OrBorrowedMut{T}</code> aliases for easily extending a signature. Let&#39;s say you have some function:</p><pre><code class="language-julia hljs">struct Bar{T}
+    x::Vector{T}
+end
+
+function foo(bar::Bar{T}) where {T}
+    sum(bar.x)
+end</code></pre><p>Now, you&#39;d like to modify this so that it can accept <em>references</em> to <code>Bar</code> objects from other functions. Since <code>foo</code> doesn&#39;t need to mutate <code>bar</code>, we can modify this as follows:</p><pre><code class="language-julia hljs">function foo(bar::OrBorrowed{Bar{T}}) where {T}
+    sum(bar.x)
+end</code></pre><p>Now, we can modify our calling code (which might be multithreaded) to be something like:</p><pre><code class="language-julia hljs">@own :mut bar = Bar([1, 2, 3])
+
+@lifetime lt begin
+    @ref lt r1 = bar
+    @ref lt r2 = bar
+    
+    @own tasks = [
+        Threads.@spawn(foo(r1))
+        Threads.@spawn(foo(r2))
+    ]
+    @show map(fetch, @take!(tasks))
+end
+
+# After lifetime ends, we can modify `bar` again</code></pre><p>Immutable references are safe to pass in a multi-threaded context, so this is a good way to prevent thread races. Using immutable references enforces that (a) the original object cannot be modified, and (b) there are no mutable references active.</p><p>Another trick: don&#39;t worry about references being used <em>after</em> the lifetime ends, because the <code>lt</code> variable will be expired!</p><pre><code class="language-julia hljs">julia&gt; @own x = 1
+       @own :mut cheating = []
+       @lifetime lt begin
+           @ref lt r = x
+           push!(cheating, r)
+       end
+       
+
+julia&gt; @show cheating[1]
+ERROR: Cannot use r: value&#39;s lifetime has expired</code></pre><p>This makes the use of references inside threads safe, because the threads <em>must</em> finish inside the scope of the lifetime.</p><p>Though we can&#39;t create multiple mutable references, you <em>are</em> allowed to create multiple mutable references to elements of a collection via the <code>@ref for</code> syntax:</p><pre><code class="language-julia hljs">@own :mut data = [[1], [2], [3]]
+
+@lifetime lt begin
+    @ref lt :mut for r in data
+        push!(r, 4)
+    end
+end
+
+@show data  # [[1, 4], [2, 4], [3, 4]]</code></pre><h3 id="Automatic-Ownership"><a class="docs-heading-anchor" href="#Automatic-Ownership">Automatic Ownership</a><a id="Automatic-Ownership-1"></a><a class="docs-heading-anchor-permalink" href="#Automatic-Ownership" title="Permalink"></a></h3><p>The (experimental) <code>@managed</code> block can be used to perform borrow checking automatically. It basically transforms all functions, everywhere, to perform <code>@take!</code> on function calls that take <code>Owned{T}</code> or <code>OwnedMut{T}</code> arguments:</p><pre><code class="language-julia hljs">struct Particle
+    position::Vector{Float64}
+    velocity::Vector{Float64}
+end
+
+function update!(p::Particle)
+    p.position .+= p.velocity
+    return p
+end</code></pre><p>With <code>@managed</code>, you don&#39;t need to manually move ownership:</p><pre><code class="language-julia hljs">julia&gt; using BorrowChecker.Experimental: @managed
+
+julia&gt; @own :mut p = Particle([0.0, 0.0], [1.0, 1.0])
+       @managed begin
+           update!(p)
+       end;
+
+julia&gt; p
+[moved]</code></pre><p>This works via <a href="https://github.com/JuliaLabs/Cassette.jl">Cassette.jl</a> overdubbing, which recursively modifies all function calls in the entire call stack - not just the top-level function, but also any functions it calls, and any functions those functions call, and so on. But do note that this is very experimental as it modifies the compilation itself. For more robust usage, just use <code>@take!</code> manually.</p><p>This also works with nested field access, just like in Rust:</p><pre><code class="language-julia hljs">struct Container
+    x::Vector{Int}
+end
+
+f!(x::Vector{Int}) = push!(x, 3)
+
+@own a = Container([2])
+@managed begin
+    f!(a.x)  # Container ownership handled automatically
+end
+
+@take!(a)  # ERROR: Cannot use a: value has been moved</code></pre><h3 id="Mutating-Owned-Values"><a class="docs-heading-anchor" href="#Mutating-Owned-Values">Mutating Owned Values</a><a id="Mutating-Owned-Values-1"></a><a class="docs-heading-anchor-permalink" href="#Mutating-Owned-Values" title="Permalink"></a></h3><p>For mutating an owned value directly, you should use the <code>@set</code> macro, which prevents the creation of a new owned value.</p><pre><code class="language-julia hljs">@own :mut local_counter = 0
+for _ in 1:10
+    @set local_counter = local_counter + 1
+end
+@take! local_counter</code></pre><p>But note that if you have a mutable struct, you can just use <code>setproperty!</code> as normal:</p><pre><code class="language-julia hljs">mutable struct A
+    x::Int
+end
+
+@own :mut a = A(0)
+for _ in 1:10
+    a.x += 1
+end
+# Move it to an immutable:
+@own a_imm = a</code></pre><p>And, as expected:</p><pre><code class="language-julia hljs">julia&gt; a_imm.x += 1
+ERROR: Cannot write to immutable
+
+julia&gt; a.x += 1
+ERROR: Cannot use a: value has been moved</code></pre><h3 id="Cloning-Values"><a class="docs-heading-anchor" href="#Cloning-Values">Cloning Values</a><a id="Cloning-Values-1"></a><a class="docs-heading-anchor-permalink" href="#Cloning-Values" title="Permalink"></a></h3><p>Sometimes you want to create a completely independent copy of a value. While you could use <code>@own new = @take(old)</code>, the <code>@clone</code> macro provides a clearer way to express this intent:</p><pre><code class="language-julia hljs">@own :mut original = [1, 2, 3]
+@clone copy = original  # Creates an immutable deep copy
+@clone :mut mut_copy = original  # Creates a mutable deep copy
+
+push!(mut_copy, 4)  # Can modify the mutable copy
+@test_throws BorrowRuleError push!(copy, 4)  # Can&#39;t modify the immutable copy
+push!(original, 5)  # Original still usable
+
+@test original == [1, 2, 3, 5]
+@test copy == [1, 2, 3]
+@test mut_copy == [1, 2, 3, 4]</code></pre><p>Another macro is <code>@move</code>, which is a more explicit version of <code>@own new = @take!(old)</code>:</p><pre><code class="language-julia hljs">@own :mut original = [1, 2, 3]
+@move new = original  # Creates an immutable deep copy
+
+@test_throws MovedError push!(original, 4)</code></pre><p>Note that <code>@own new = old</code> will also work as a convenience, but <code>@move</code> is more explicit and also asserts that the new value is owned.</p><section class="footnotes is-size-7"><ul><li class="footnote" id="footnote-1"><a class="tag is-link" href="#citeref-1">1</a>Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.</li></ul></section></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.8.0 on <span class="colophon-date" title="Saturday 18 January 2025 04:35">Saturday 18 January 2025</span>. Using Julia version 1.11.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
