@@ -7,7 +7,7 @@ using BorrowChecker
     # Create owned value
     @own x = 42
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test ref == 42
         @test !is_moved(x)
     end
@@ -15,7 +15,7 @@ using BorrowChecker
     # Create mutable owned value
     @own :mut y = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = y
+        @ref ~lt ref = y
         @test ref == [1, 2, 3]
         @test !is_moved(y)
     end
@@ -28,11 +28,11 @@ end
     @own x = [1, 2, 3]
     @move y = x  # Move to immutable
     @lifetime lt begin
-        @ref lt ref = y
+        @ref ~lt ref = y
         @test ref == [1, 2, 3]
         @test is_moved(x)
         @test !is_moved(y)
-        @test_throws MovedError @ref lt d = x
+        @test_throws MovedError @ref ~lt d = x
     end
 
     # Cannot move twice
@@ -43,11 +43,11 @@ end
     @move :mut y = a  # Move to mutable
     @move z = y  # Move to immutable
     @lifetime lt begin
-        @ref lt ref = z
+        @ref ~lt ref = z
         @test ref == [1, 2, 3]
         @test is_moved(a) && is_moved(y) && !is_moved(z)
-        @test_throws MovedError @ref lt d = a
-        @test_throws MovedError @ref lt d = y
+        @test_throws MovedError @ref ~lt d = a
+        @test_throws MovedError @ref ~lt d = y
     end
 end
 
@@ -67,10 +67,10 @@ end
     @own x = 42
     @move y = x
     @lifetime lt begin
-        @ref lt ref = y
+        @ref ~lt ref = y
         @test ref == 42
         # x is still valid since it was cloned:
-        @ref lt ref2 = x
+        @ref ~lt ref2 = x
         @test ref2 == 42
     end
 
@@ -79,7 +79,7 @@ end
     @test (@take! z) == 42
     @lifetime lt begin
         # z is still valid since it was cloned:
-        @ref lt ref = z
+        @ref ~lt ref = z
         @test ref == 42
     end
 end
@@ -211,13 +211,13 @@ end
     @clone :mut q = p
     @lifetime lt begin
         # Get references to all fields we'll need
-        @ref lt :mut p_x = p.x
-        @ref lt :mut q_x = q.x
+        @ref ~lt :mut p_x = p.x
+        @ref ~lt :mut q_x = q.x
 
         # We can't yet get mutable references
         # to the fields simultaneously:
-        @test_throws BorrowRuleError @ref lt :mut p_y = p.y
-        @test_throws BorrowRuleError @ref lt :mut q_y = q.y
+        @test_throws BorrowRuleError @ref ~lt :mut p_y = p.y
+        @test_throws BorrowRuleError @ref ~lt :mut q_y = q.y
         # TODO: ^Fix this
 
         # Test modifying original's x
@@ -241,7 +241,7 @@ end
 
     @own :mut v = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = v
+        @ref ~lt ref = v
         @clone w = ref  # Clone from reference
         @test w isa Owned{Vector{Int}}
         @test w == [1, 2, 3]
@@ -275,8 +275,8 @@ end
     # Actually, this cloned!
     @test !is_moved(p)
     @lifetime lt begin
-        @ref lt ref_p = p
-        @ref lt ref_q = q
+        @ref ~lt ref_p = p
+        @ref ~lt ref_q = q
         @test ref_p.x == 1.0
         @test ref_p.y == 2.0
         @test ref_q.x == 1.0
@@ -288,7 +288,7 @@ end
     @own r = Point2D(3.0, 4.0)
     @test (@take! r).x == 3.0
     @lifetime lt begin
-        @ref lt ref = r
+        @ref ~lt ref = r
         @test ref.x == 3.0  # r is still valid since Point2D is isbits
     end
 end
@@ -307,7 +307,7 @@ end
 @testitem "Borrowed objects cannot be owned" begin
     @own x = Ref(42)
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test_throws BorrowRuleError @own y = ref
     end
 end

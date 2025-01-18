@@ -16,7 +16,7 @@ using BorrowChecker
     @test result == [1, 2, 3, 4]
     @test is_moved(x)
     @lifetime lt begin
-        @test_throws MovedError @ref lt d = x
+        @test_throws MovedError @ref ~lt d = x
     end
 
     # Can't take ownership twice
@@ -29,9 +29,9 @@ using BorrowChecker
 
     @own y = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = y  # Immutable borrow
+        @ref ~lt ref = y  # Immutable borrow
         @test !is_moved(y)  # y is still valid
-        @ref lt ref2 = y
+        @ref ~lt ref2 = y
         @test ref2 == [1, 2, 3]
     end
 
@@ -42,12 +42,12 @@ using BorrowChecker
 
     @own :mut z = [1, 2, 3]
     @lifetime lt begin
-        @ref lt :mut ref = z  # Mutable borrow
+        @ref ~lt :mut ref = z  # Mutable borrow
         push!(ref, 4)
         @test !is_moved(z)  # z is still valid
     end
     @lifetime lt begin
-        @ref lt ref = z
+        @ref ~lt ref = z
         @test ref == [1, 2, 3, 4]
     end
 end
@@ -57,7 +57,7 @@ end
     @own :mut x = [1, 2, 3]
     @set x = [4, 5, 6]
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test ref == [4, 5, 6]
     end
 
@@ -73,13 +73,13 @@ end
     # Test assignment with references
     @own :mut v = [1, 2, 3]
     @lifetime lt begin
-        @ref lt :mut ref = v
+        @ref ~lt :mut ref = v
         push!(ref, 4)
         @test_throws("Cannot assign to value while borrowed", @set v = [5, 6, 7])
     end
     @set v = [5, 6, 7]
     @lifetime lt begin
-        @ref lt ref = v
+        @ref ~lt ref = v
         @test ref == [5, 6, 7]
         @test_throws "Cannot write to immutable reference" ref[1] = [8]
     end
@@ -104,7 +104,7 @@ end
     # 4) Wrong order for @ref => also macro expansion => plain ErrorException
     expr_ref = quote
         @lifetime some_lt begin
-            @ref :mut some_lt x = 123
+            @ref :mut ~some_lt x = 123
         end
     end
     @test_throws LoadError eval(expr_ref)
@@ -114,15 +114,29 @@ end
         @clone (x + y)
     end
     @test_throws LoadError eval(expr_clone)
+
+    # 6) @ref without tilde
+    expr_ref_no_tilde = quote
+        @lifetime lt begin
+            @ref lt x = 123
+        end
+    end
+    @test_throws LoadError eval(expr_ref_no_tilde)
+
+    # 7) @ref with malformed tilde expression
+    expr_ref_bad_tilde = quote
+        @ref :(~lt) x = 123
+    end
+    @test_throws "First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`" @eval @macroexpand $expr_ref_bad_tilde
 end
 
 @testitem "Borrowed Arrays" begin
     @own x = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test ref == [1, 2, 3]
         # We can borrow the borrow since it is immutable
-        @ref lt ref2 = ref
+        @ref ~lt ref2 = ref
         @test ref2 == [1, 2, 3]
         @test ref2 isa Borrowed{Vector{Int}}
         @test ref2[2] == 2
@@ -141,7 +155,7 @@ end
     end
     @own x = [A(1.0), A(2.0), A(3.0)]
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test ref[1].a == 1.0
         @test ref[1] isa LazyAccessor{A,<:Any,<:Any,<:Borrowed{<:Vector{A}}}
     end
@@ -185,7 +199,7 @@ end
 
     # Test symbol tracking in references
     @lifetime lt begin
-        @ref lt ref = y
+        @ref ~lt ref = y
         @test get_symbol(y) == :y  # Original symbol preserved
         @test get_symbol(get_owner(ref)) == :y
     end
@@ -220,8 +234,8 @@ end
 
     # Test operations through references
     @lifetime lt begin
-        @ref lt rx = x
-        @ref lt rz = y
+        @ref ~lt rx = x
+        @ref ~lt rz = y
 
         # Test all combinations with references
         @test rx + 1 == 3  # ref op number
@@ -257,7 +271,7 @@ end
 @testitem "Iteration" begin
     @own :mut x = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         for (i, xi) in enumerate(ref)
             @test xi isa Borrowed{Int}
             @test xi == x[i]
@@ -423,7 +437,7 @@ end
 
     # Test symbol validation for references
     @lifetime lt begin
-        @ref lt :mut rx = x
+        @ref ~lt :mut rx = x
         @test get_symbol(rx) == :rx
         ry = rx
         # Symbol validation does NOT trigger
@@ -650,7 +664,7 @@ end
     @lifetime lt begin
         # Test immutable reference loop
         @own :mut count = 0
-        @ref lt for xi in x
+        @ref ~lt for xi in x
             @test xi isa Borrowed{Int}
             @test get_symbol(xi) == :xi
             @set count = count + xi
@@ -662,7 +676,7 @@ end
     # Test reference loop with non-isbits types
     @own :mut vec_array = [[1], [2], [3]]
     @lifetime lt begin
-        @ref lt for v in vec_array
+        @ref ~lt for v in vec_array
             @test v isa Borrowed{Vector{Int}}
             @test get_symbol(v) == :v
             @test_throws BorrowRuleError push!(v, 4)  # Can't modify through immutable ref
@@ -674,9 +688,9 @@ end
     @own :mut matrix = [[1, 2], [3, 4]]
     @own :mut flat = Int[]
     @lifetime lt begin
-        @ref lt for row in matrix
+        @ref ~lt for row in matrix
             @test row isa Borrowed{Vector{Int}}
-            @ref lt for x in row
+            @ref ~lt for x in row
                 @test x isa Borrowed{Int}
                 @test get_symbol(x) == :x
                 @clone inner = x
@@ -694,7 +708,7 @@ end
 
     # Test that views work on borrowed arrays
     @lifetime lt begin
-        @ref lt ref = x
+        @ref ~lt ref = x
         @test view(ref, 1:2) isa Borrowed{<:AbstractVector{Int}}
         @test_throws BorrowRuleError @own bound_view = view(ref, 1:2)
     end
@@ -704,8 +718,8 @@ end
     @own x = 5
     @own y = 10
     @lifetime a begin
-        @ref a rx = x
-        @ref a ry = y
+        @ref ~a rx = x
+        @ref ~a ry = y
         @test clamp(rx, ry, 20) == clamp(5, 10, 20)
         @test fma(rx, ry, 2) == 5 * 10 + 2
         @test isapprox(log(rx, ry), log(5, 10))
@@ -732,7 +746,7 @@ end
     # LazyAccessor setindex! coverage
     @own :mut arr2d = [[10, 20], [30, 40]]
     @lifetime lt begin
-        @ref lt :mut ref_arr2d = arr2d
+        @ref ~lt :mut ref_arr2d = arr2d
         subacc = ref_arr2d[1]  # LazyAccessor
         subacc[2] = 99
         @test ref_arr2d[1] == [10, 99]
@@ -742,7 +756,7 @@ end
 @testitem "Dictionary Operations" begin
     @own :mut dict = Dict(:a => 1)
     @lifetime lt begin
-        @ref lt :mut ref = dict
+        @ref ~lt :mut ref = dict
         ref[:b] = 2
         delete!(ref, :a)
         @test length(ref) == 1
@@ -774,7 +788,7 @@ end
     end
     @own :mut p = Point(1, 2)
     @lifetime lt begin
-        @ref lt :mut r = p
+        @ref ~lt :mut r = p
         @test r.x isa LazyAccessor
         r.x = 3
     end
@@ -790,7 +804,7 @@ end
     # Test error on type conversion
     @own :mut d2 = Dict(1 => 2)
     @lifetime lt begin
-        @ref lt :mut ref = d2
+        @ref ~lt :mut ref = d2
         @test_throws MethodError ref[1] = "string"  # Can't convert String to Int
     end
 end
@@ -800,8 +814,8 @@ end
     @own s = "hello"
     @own :mut num = 42
     @lifetime lt begin
-        @ref lt ref_s = s
-        @ref lt ref_n = num
+        @ref ~lt ref_s = s
+        @ref ~lt ref_n = num
         @test_throws MethodError startswith(ref_n, "4")  # Number doesn't support startswith
         @test_throws MethodError endswith(ref_s, ref_n)  # Can't endswith with a number
     end
@@ -816,15 +830,15 @@ end
     # Test property access errors
     @own :mut obj = TestStruct(1, [1, 2, 3])
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         # Test accessing non-existent property
         @test_throws ErrorException ref.z
     end
 
     # Test multiple borrows in a new lifetime
     @lifetime lt2 begin
-        @ref lt2 :mut ref2 = obj
-        @test_throws "Cannot create mutable reference" @ref lt2 :mut ref3 = obj
+        @ref ~lt2 :mut ref2 = obj
+        @test_throws "Cannot create mutable reference" @ref ~lt2 :mut ref3 = obj
     end
 end
 
@@ -837,7 +851,7 @@ end
     # Test error on invalid property access through LazyAccessor
     @own :mut obj = TestStruct(1)
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         lazy = ref.x  # Get LazyAccessor
         @test_throws ErrorException getproperty(lazy, :nonexistent)
         @test_throws ErrorException setproperty!(lazy, :nonexistent, 42)
@@ -854,8 +868,13 @@ end
     @test_throws LoadError @eval @clone :invalid x = 42
 
     # Test error on invalid argument order in @ref
-    @test_throws "You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`" begin
-        @eval @ref :mut lt x = 42
+    @test_throws "You should write `@ref ~lifetime :mut expr` instead of `@ref :mut ~lifetime expr`" begin
+        @eval @ref :mut ~lt x = 42
+    end
+
+    # Test error on missing tilde
+    @test_throws "First argument to @ref must be a lifetime prefixed with ~" begin
+        @eval @ref lt x = 42
     end
 
     @test_throws LoadError @eval @set x + y
@@ -866,23 +885,23 @@ end
     @test_throws LoadError @eval @set x  # Not an assignment
 
     @test_throws LoadError @eval @ref x  # Not an assignment or for loop
-    @test_throws LoadError @eval @ref lt :invalid x = 42  # Invalid mut flag
-    @test_throws "You should write `@ref lifetime :mut expr`" @eval @ref :mut lt x = 42  # Wrong order
-    @test_throws "requires an assignment expression or for loop" @eval @ref lt :mut (x + y)  # Not an assignment or for loop
+    @test_throws LoadError @eval @ref ~lt :invalid x = 42  # Invalid mut flag
+    @test_throws "You should write `@ref ~lifetime :mut expr`" @eval @ref :mut ~lt x = 42  # Wrong order
+    @test_throws "requires an assignment expression or for loop" @eval @ref ~lt :mut (x + y)  # Not an assignment or for loop
 
     mutable struct NonIsBits
         x::Vector{Int}
     end
     @own :mut arr = [NonIsBits([1])]
     @lifetime lt begin
-        @ref lt :mut ref = arr
+        @ref ~lt :mut ref = arr
         @test_throws ErrorException collect(ref)  # Non-isbits collection
         @test_throws ErrorException first(ref)    # Non-isbits element
     end
 
     @own num = 42
     @lifetime lt begin
-        @ref lt ref = num
+        @ref ~lt ref = num
         @test_throws MethodError startswith(ref, "4")  # Invalid type for startswith
         @test_throws MethodError endswith(ref, "2")    # Invalid type for endswith
     end
@@ -892,7 +911,7 @@ end
     end
     @own :mut obj = TestStruct(1)
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         lazy = ref.x
         @test_throws ErrorException getproperty(lazy, :nonexistent)
         @test_throws ErrorException setproperty!(lazy, :nonexistent, 42)
@@ -904,12 +923,12 @@ end
 
     @own :mut obj = CustomType(1)
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         @test_throws ErrorException ref.nonexistent  # Invalid property access
         @test_throws ErrorException ref.nonexistent = 42  # Invalid property assignment
 
         # Test multiple borrows error
-        @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
+        @test_throws "Cannot create mutable reference" @ref ~lt :mut ref2 = obj
     end
 
     @own x = 1
@@ -917,8 +936,8 @@ end
     lt = BorrowChecker.Lifetime()
 
     # Test @ref error paths
-    @test_throws LoadError @eval @ref :invalid lt x = 42
-    @test_throws LoadError @eval @ref lt x + y
+    @test_throws LoadError @eval @ref :invalid ~lt x = 42
+    @test_throws LoadError @eval @ref ~lt x + y
 
     # Test @clone error paths
     @test_throws LoadError @eval @clone x + y
@@ -952,7 +971,7 @@ end
     function run_test()
         x = 42
         @lifetime lt begin
-            @ref lt ref = x
+            @ref ~lt ref = x
             @test ref == 42
         end
     end
@@ -981,17 +1000,17 @@ end
     @own :mut dict = Dict(NonIsBits(1) => 10)
     @own :mut dictref = Ref(Dict(NonIsBits(1) => 10))
     @lifetime lt begin
-        @ref lt :mut ref = dict
+        @ref ~lt :mut ref = dict
         @test_throws "Refusing to return non-isbits keys" keys(ref)  # Non-isbits values through reference
 
-        @ref lt :mut ref2 = dictref
+        @ref ~lt :mut ref2 = dictref
         @test_throws "Refusing to return non-isbits keys" keys(ref2[])  # Non-isbits values through reference
     end
 
     # Test dictionary operation errors
     @own :mut d = Dict{Int,Int}()
     @lifetime lt begin
-        @ref lt :mut ref = d
+        @ref ~lt :mut ref = d
         @test_throws KeyError ref[1]  # Key not found
     end
 end
@@ -1003,14 +1022,14 @@ end
     end
     @own :mut obj = TestStruct(1)
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         @test_throws ErrorException ref.nonexistent  # Invalid property access
         @test_throws ErrorException ref.nonexistent = 42  # Invalid property assignment
         @test ref.x == 1
         @test sprint(show, ref.x) == "1"
 
         # Test multiple borrows error
-        @test_throws "Cannot create mutable reference" @ref lt :mut ref2 = obj
+        @test_throws "Cannot create mutable reference" @ref ~lt :mut ref2 = obj
     end
 end
 
@@ -1024,7 +1043,7 @@ end
     end
     @own :mut obj = TestStruct(1)
     @lifetime lt begin
-        @ref lt :mut ref = obj
+        @ref ~lt :mut ref = obj
         @test propertynames(ref) == (:x,)
     end
 
@@ -1047,7 +1066,7 @@ end
     storage = []
 
     @lifetime lt begin
-        @ref lt :mut ref = vec
+        @ref ~lt :mut ref = vec
         s = sprint(show, ref)
         @test occursin(
             r".*BorrowedMut\{Vector\{Int64\},.*OwnedMut\{Vector\{Int64\}\}\}\(\[1, 2, 3\], :ref\)",
@@ -1075,7 +1094,7 @@ end
 
     # Test tuple operations with references
     @lifetime lt begin
-        @ref lt ref = t
+        @ref ~lt ref = t
         @test ref[1] == 1
         @test ref[2] == [2]
         @test ref[2] isa LazyAccessor
@@ -1084,7 +1103,7 @@ end
     # Test tuple operations with owned values
     @own :mut mt = ([1], [2], [3])
     @lifetime lt begin
-        @ref lt :mut ref = mt
+        @ref ~lt :mut ref = mt
         @test ref[1] == [1]
         @test ref[1] isa LazyAccessor
     end
@@ -1104,8 +1123,8 @@ end
 
     # Test comparison operators with references
     @lifetime lt begin
-        @ref lt rx = x
-        @ref lt ry = y
+        @ref ~lt rx = x
+        @ref ~lt ry = y
 
         @test rx == ry
         @test rx == 42
@@ -1131,8 +1150,8 @@ end
 
     # Test with references
     @lifetime lt begin
-        @ref lt ra = a
-        @ref lt rb = b
+        @ref ~lt ra = a
+        @ref ~lt rb = b
         @test ra < rb
         @test ra <= rb
         @test rb > ra
@@ -1143,7 +1162,7 @@ end
     @own n = nothing
     @test isnothing(n)
     @lifetime lt begin
-        @ref lt rn = n
+        @ref ~lt rn = n
         @test isnothing(rn)
     end
 end
@@ -1159,8 +1178,8 @@ end
     @own :mut dest2 = Dict()
     @own src2 = Dict(:a => 1, :b => 2)
     @lifetime lt begin
-        @ref lt :mut rdest = dest2
-        @ref lt rsrc = src2
+        @ref ~lt :mut rdest = dest2
+        @ref ~lt rsrc = src2
         copy!(rdest, rsrc)
         @test rdest == Dict(:a => 1, :b => 2)
     end
@@ -1174,8 +1193,8 @@ end
 
     # Test with references
     @lifetime lt begin
-        @ref lt :mut rarr = arr
-        @ref lt ridx = idx
+        @ref ~lt :mut rarr = arr
+        @ref ~lt ridx = idx
         @test rarr[ridx] == [2]  # Uses _maybe_read on both array and index
     end
 
@@ -1185,8 +1204,8 @@ end
     @test dict[key] == 1  # Uses _maybe_read on the key
 
     @lifetime lt begin
-        @ref lt :mut rdict = dict
-        @ref lt rkey = key
+        @ref ~lt :mut rdict = dict
+        @ref ~lt rkey = key
         @test rdict[rkey] == 1  # Uses _maybe_read on both dict and key
     end
 end
@@ -1209,14 +1228,14 @@ end
     # Test with borrowed value
     @own vec = [1, 2, 3]
     @lifetime lt begin
-        @ref lt ref = vec
+        @ref ~lt ref = vec
         @test accepts_borrowed(ref) == 3
     end
 
     # Test with mutable borrowed value
     @own :mut mvec = [1, 2, 3]
     @lifetime lt begin
-        @ref lt :mut mref = mvec
+        @ref ~lt :mut mref = mvec
         accepts_borrowed_mut(mref)
         @test mref == [1, 2, 3, 4]
     end
@@ -1224,7 +1243,7 @@ end
     # Test with LazyAccessor
     @own :mut container = [[1, 2, 3]]
     @lifetime lt begin
-        @ref lt ref = container
+        @ref ~lt ref = container
         # First test immutable access
         @test accepts_borrowed(ref[1]) == 3
     end
@@ -1243,7 +1262,7 @@ end
 
     # Test with references
     @lifetime lt begin
-        @ref lt ref = t
+        @ref ~lt ref = t
         @test ref[2][2] == [3]
         @test ref[2][2] isa LazyAccessor
     end
@@ -1251,7 +1270,7 @@ end
     # Test tuple unpacking with references
     @own :mut tup = ([1], [2], [3])
     @lifetime lt begin
-        @ref lt :mut ref = tup
+        @ref ~lt :mut ref = tup
         @test ref[1] == [1]
         @test ref[2] == [2]
         @test ref[3] == [3]
@@ -1268,7 +1287,7 @@ end
     @own t = (1, 2, 3)
     @test_throws BoundsError t[4]
     @lifetime lt begin
-        @ref lt ref = t
+        @ref ~lt ref = t
         @test_throws BoundsError ref[4]
     end
 
@@ -1287,8 +1306,8 @@ end
     @own s = "hello"
     @test_throws MethodError x < s
     @lifetime lt begin
-        @ref lt rx = x
-        @ref lt rs = s
+        @ref ~lt rx = x
+        @ref ~lt rs = s
         @test_throws MethodError rx < rs
     end
 
@@ -1318,7 +1337,7 @@ end
 
     # Test with references
     @lifetime lt begin
-        @ref lt ref = full
+        @ref ~lt ref = full
         @test startswith(ref, prefix)
         @test endswith(ref, suffix)
     end
@@ -1334,7 +1353,7 @@ end
 
     # Test with references
     @lifetime lt begin
-        @ref lt rx = x
+        @ref ~lt rx = x
         @test string(rx) == string([1, 2, 3])
         @test hash(rx) == hash([1, 2, 3])
     end
@@ -1346,7 +1365,7 @@ end
     @test size(arr, 2) == 3
 
     @lifetime lt begin
-        @ref lt r = arr
+        @ref ~lt r = arr
         @test size(r, 1) == 2
         @test size(r, 2) == 3
     end
@@ -1357,7 +1376,7 @@ end
     @test Set(keys(dict)) == Set([1, 2])
 
     @lifetime lt begin
-        @ref lt r = dict
+        @ref ~lt r = dict
         @test Set(keys(r)) == Set([1, 2])
     end
 end

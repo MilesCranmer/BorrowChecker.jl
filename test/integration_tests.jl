@@ -101,13 +101,13 @@ end
     @own dt = 0.1
     @own for step in 1:nsteps
         @lifetime a let
-            @ref a :mut for p in particles
+            @ref ~a :mut for p in particles
                 update_velocity!(p, @take(dt))
             end
 
             # Not allowed:
             if step == 0
-                @test_throws "Cannot access original" @ref a :mut particles2 = particles
+                @test_throws "Cannot access original" @ref ~a :mut particles2 = particles
             end
         end
     end
@@ -119,7 +119,7 @@ end
     @test_throws "Cannot access original while mutably borrowed" begin
         @lifetime a let
             for _ in 1:nsteps
-                @ref a :mut for p in particles
+                @ref ~a :mut for p in particles
                     update_velocity!(p, @take(dt))
                 end
             end
@@ -139,7 +139,7 @@ end
     @clone points_clone = points
     @own perturbation = Point(rand(2)...)
     @lifetime a begin
-        @ref a :mut for p in points
+        @ref ~a :mut for p in points
             p[] = Point(p[].x + perturbation.x, p[].y + perturbation.y)
         end
     end

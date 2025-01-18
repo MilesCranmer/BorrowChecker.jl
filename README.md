@@ -200,8 +200,8 @@ References let you temporarily _borrow_ values. This is useful for passing value
 @own :mut data = [1, 2, 3]
 
 @lifetime lt begin
-    @ref lt r = data
-    @ref lt r2 = data  # Can create multiple _immutable_ references!
+    @ref ~lt r = data
+    @ref ~lt r2 = data  # Can create multiple _immutable_ references!
     @test r == [1, 2, 3]
 
     # While ref exists, data can't be modified:
@@ -218,9 +218,9 @@ Just like in Rust, while you can create multiple _immutable_ references, you can
 @own :mut data = [1, 2, 3]
 
 @lifetime lt begin
-    @ref lt :mut r = data
-    @ref lt :mut r2 = data  # ERROR: Cannot create mutable reference: value is already mutably borrowed
-    @ref lt r2 = data  # ERROR: Cannot create immutable reference: value is mutably borrowed
+    @ref ~lt :mut r = data
+    @ref ~lt :mut r2 = data  # ERROR: Cannot create mutable reference: value is already mutably borrowed
+    @ref ~lt r2 = data  # ERROR: Cannot create immutable reference: value is mutably borrowed
 
     # Can modify via mutable reference:
     r[1] = 4
@@ -255,8 +255,8 @@ Now, we can modify our calling code (which might be multithreaded) to be somethi
 @own :mut bar = Bar([1, 2, 3])
 
 @lifetime lt begin
-    @ref lt r1 = bar
-    @ref lt r2 = bar
+    @ref ~lt r1 = bar
+    @ref ~lt r2 = bar
     
     @own tasks = [
         Threads.@spawn(foo(r1))
@@ -276,7 +276,7 @@ Another trick: don't worry about references being used _after_ the lifetime ends
 julia> @own x = 1
        @own :mut cheating = []
        @lifetime lt begin
-           @ref lt r = x
+           @ref ~lt r = x
            push!(cheating, r)
        end
        
@@ -293,7 +293,7 @@ Though we can't create multiple mutable references, you _are_ allowed to create 
 @own :mut data = [[1], [2], [3]]
 
 @lifetime lt begin
-    @ref lt :mut for r in data
+    @ref ~lt :mut for r in data
         push!(r, 4)
     end
 end

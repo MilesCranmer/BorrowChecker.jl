@@ -210,12 +210,12 @@ macro lifetime(name::Symbol, expr::Expr)
 end
 
 """
-    @ref lifetime [:mut] var = value
-    @ref lifetime [:mut] for var in iter
+    @ref ~lifetime [:mut] var = value
+    @ref ~lifetime [:mut] for var in iter
         # body
     end
 
-Create a reference to an owned value within the given lifetime scope.
+Creates a reference to an owned value within a lifetime scope.
 If `:mut` is specified, creates a mutable reference.
 Otherwise, creates an immutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
@@ -223,8 +223,14 @@ Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying v
 !!! warning
     This will not detect aliasing in the iterator.
 """
-macro ref(lifetime::Symbol, expr::Expr)
+macro ref(lifetime_expr::Expr, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
+    if !Meta.isexpr(lifetime_expr, :call) ||
+        length(lifetime_expr.args) != 2 ||
+        lifetime_expr.args[1] != :~
+        error("First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`")
+    end
+    lifetime = lifetime_expr.args[2]
     if Meta.isexpr(expr, :(=))
         # Handle immutable case
         dest = expr.args[1]
@@ -248,10 +254,16 @@ macro ref(lifetime::Symbol, expr::Expr)
     end
 end
 
-macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
+macro ref(lifetime_expr::Expr, mut_flag::QuoteNode, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
-    if mut_flag != QuoteNode(:mut)
-        error("Second argument to @ref must be :mut if three arguments are provided")
+    if !Meta.isexpr(lifetime_expr, :call) ||
+        length(lifetime_expr.args) != 2 ||
+        lifetime_expr.args[1] != :~
+        error("First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`")
+    end
+    lifetime = lifetime_expr.args[2]
+    if mut_flag.value != :mut
+        error("Second argument to @ref must be :mut")
     end
     if Meta.isexpr(expr, :(=))
         # Handle assignment case
@@ -272,13 +284,20 @@ macro ref(lifetime::Symbol, mut_flag::QuoteNode, expr::Expr)
             end,
         )
     else
-        error("@ref lifetime :mut requires an assignment expression or for loop")
+        error("@ref requires an assignment expression or for loop")
     end
 end
 
-macro ref(mut_flag::QuoteNode, lifetime::Symbol, expr::Expr)
+# Handle other argument types with appropriate error messages
+macro ref(lifetime_expr::Symbol, expr::Expr)
     return error(
-        "You should write `@ref lifetime :mut expr` instead of `@ref :mut lifetime expr`"
+        "First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`"
+    )
+end
+
+macro ref(mut_flag::QuoteNode, lifetime_expr::Any, expr::Expr)
+    return error(
+        "You should write `@ref ~lifetime :mut expr` instead of `@ref :mut ~lifetime expr`"
     )
 end
 
