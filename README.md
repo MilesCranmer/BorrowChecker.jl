@@ -62,11 +62,25 @@ println(length(x))
 
 You see, the `@own` operation has _bound_ the variable `x` with the object `[1, 2, 3]`. The second operation then moves the object to `y`, and flips the `.moved` flag on `x` so it can no longer be used by regular operations.
 
-However, this does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
+The equivalent fixes would respectively be:
+
+```julia
+@clone y = x
+# OR
+@lifetime a begin
+    @ref a y = x
+    #= operations on reference =#
+end
+```
+
+Note that BorrowChecker.jl does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
 [^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
 
 ## API
+
+> [!CAUTION]
+> The API is under active development and may change in future versions.
 
 ### Basics
 
