@@ -33,14 +33,16 @@ makedocs(;
     sitename="BorrowChecker.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://MilesCranmer.github.io/BorrowChecker.jl",
+        canonical="https://astroautomata.com/BorrowChecker.jl",
         edit_link="main",
         assets=String[],
+        repolink = "https://github.com/mcranmer/BorrowChecker.jl"
     ),
     pages=[
         "Home" => "index.md",
         "API Reference" => "api.md",
-    ]
+    ],
+    warnonly=[:missing_docs],  # Allow missing docstrings
 )
 
 deploydocs(;

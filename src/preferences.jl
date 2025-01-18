@@ -1,4 +1,8 @@
-"""This module interfaces with Preferences.jl"""
+"""
+    BorrowChecker.PreferencesModule
+
+Module for managing BorrowChecker preferences, including enabling/disabling borrow checking per module.
+"""
 module PreferencesModule  # Largely borrowed from DispatchDoctor.jl
 
 using Preferences: load_preference, has_preference, get_uuid

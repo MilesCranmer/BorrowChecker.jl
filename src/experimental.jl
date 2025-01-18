@@ -1,6 +1,8 @@
 """
-This module provides experimental features that are not yet stable enough
-for the main API.
+    BorrowChecker.Experimental
+
+Module containing experimental features that may change or be removed in future versions.
+Currently provides the `@managed` macro for automatic ownership transfer.
 """
 module Experimental
 

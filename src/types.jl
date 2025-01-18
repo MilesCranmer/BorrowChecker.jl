@@ -18,16 +18,16 @@ function increment_immutable_borrows! end
 function decrement_immutable_borrows! end
 
 """
-    abstract type AbstractOwned{T} end
+    AbstractOwned{T}
 
-Abstract supertype for all owned value types in the BorrowChecker system.
+Base type for all owned value types in the BorrowChecker system.
 """
 abstract type AbstractOwned{T} end
 
 """
-    abstract type AbstractBorrowed{T} end
+    AbstractBorrowed{T}
 
-Abstract supertype for all borrowed reference types in the BorrowChecker system.
+Base type for all borrowed reference types in the BorrowChecker system.
 """
 abstract type AbstractBorrowed{T} end
 
@@ -307,7 +307,19 @@ const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllOwned{T}}
 const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
 const LazyAccessorOf{O} = LazyAccessor{T,P,S,<:O} where {T,P,S}
+
+"""
+    OrBorrowed{T}
+
+Type alias for accepting either a value of type `T` or a borrowed reference to it.
+"""
 const OrBorrowed{T} = Union{T,Borrowed{<:T},LazyAccessor{<:T,P,S,<:Borrowed} where {P,S}}
+
+"""
+    OrBorrowedMut{T}
+
+Type alias for accepting either a value of type `T` or a mutable borrowed reference to it.
+"""
 const OrBorrowedMut{T} = Union{
     T,BorrowedMut{<:T},LazyAccessor{<:T,P,S,<:BorrowedMut} where {P,S}
 }

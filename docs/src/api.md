@@ -25,6 +25,8 @@ CurrentModule = BorrowChecker
 ## Types
 
 ```@docs
+BorrowChecker.TypesModule.AbstractOwned
+BorrowChecker.TypesModule.AbstractBorrowed
 Owned
 OwnedMut
 Borrowed
@@ -32,6 +34,12 @@ BorrowedMut
 LazyAccessor
 OrBorrowed
 OrBorrowedMut
+```
+
+## Traits
+
+```@docs
+is_static
 ```
 
 ## Errors
