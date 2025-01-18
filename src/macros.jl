@@ -226,99 +226,15 @@ Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying v
 """
 macro ref(lifetime_expr::Expr, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
-    if !Meta.isexpr(lifetime_expr, :call) ||
-        length(lifetime_expr.args) != 2 ||
-        lifetime_expr.args[1] != :~
-        error("First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`")
-    end
-    lifetime = lifetime_expr.args[2]
-    if Meta.isexpr(expr, :(=))
-        # Handle immutable case
-        dest = expr.args[1]
-        src = expr.args[2]
-        if Meta.isexpr(dest, :tuple) && Meta.isexpr(src, :tuple)
-            # Handle tuple unpacking
-            if length(dest.args) != length(src.args)
-                error("Number of variables must match number of values in tuple unpacking")
-            end
-            refs = []
-            for (d, s) in zip(dest.args, src.args)
-                push!(refs, :($d = $(ref)($lifetime, $s, $(QuoteNode(d)), Val(false))))
-            end
-            return esc(
-                quote
-                    $(refs...)
-                end,
-            )
-        else
-            return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(false))))
-        end
-    elseif Meta.isexpr(expr, :for)
-        # Handle for loop case
-        loop_var = expr.args[1].args[1]
-        iter = expr.args[1].args[2]
-        body = expr.args[2]
-        return esc(
-            quote
-                for $loop_var in
-                    $(ref_for)($lifetime, $iter, $(QuoteNode(loop_var)), Val(false))
-                    $body
-                end
-            end,
-        )
-    else
-        error("@ref requires an assignment expression or for loop")
-    end
+    return _ref(lifetime_expr, expr, false)
 end
 
 macro ref(lifetime_expr::Expr, mut_flag::QuoteNode, expr::Expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
-    if !Meta.isexpr(lifetime_expr, :call) ||
-        length(lifetime_expr.args) != 2 ||
-        lifetime_expr.args[1] != :~
-        error("First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`")
-    end
-    lifetime = lifetime_expr.args[2]
     if mut_flag.value != :mut
         error("Second argument to @ref must be :mut")
     end
-    if Meta.isexpr(expr, :(=))
-        # Handle assignment case
-        dest = expr.args[1]
-        src = expr.args[2]
-        if Meta.isexpr(dest, :tuple) && Meta.isexpr(src, :tuple)
-            # Handle tuple unpacking
-            if length(dest.args) != length(src.args)
-                error("Number of variables must match number of values in tuple unpacking")
-            end
-            refs = []
-            for (d, s) in zip(dest.args, src.args)
-                push!(refs, :($d = $(ref)($lifetime, $s, $(QuoteNode(d)), Val(true))))
-            end
-            return esc(
-                quote
-                    $(refs...)
-                end,
-            )
-        else
-            return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val(true))))
-        end
-    elseif Meta.isexpr(expr, :for)
-        # Handle for loop case
-        loop_var = expr.args[1].args[1]
-        iter = expr.args[1].args[2]
-        body = expr.args[2]
-        return esc(
-            quote
-                for $loop_var in
-                    $(ref_for)($lifetime, $iter, $(QuoteNode(loop_var)), Val(true))
-                    $body
-                end
-            end,
-        )
-    else
-        error("@ref requires an assignment expression or for loop")
-    end
+    return _ref(lifetime_expr, expr, true)
 end
 
 # Handle other argument types with appropriate error messages
@@ -332,6 +248,52 @@ macro ref(mut_flag::QuoteNode, lifetime_expr::Any, expr::Expr)
     return error(
         "You should write `@ref ~lifetime :mut expr` instead of `@ref :mut ~lifetime expr`"
     )
+end
+
+function _ref(lifetime_expr::Expr, expr::Expr, mut::Bool)
+    if !Meta.isexpr(lifetime_expr, :call) ||
+        length(lifetime_expr.args) != 2 ||
+        lifetime_expr.args[1] != :~
+        error("First argument to @ref must be a lifetime prefixed with ~, e.g. `@ref ~lt`")
+    end
+    lifetime = lifetime_expr.args[2]
+    if Meta.isexpr(expr, :(=))
+        # Handle assignment case
+        dest = expr.args[1]
+        src = expr.args[2]
+        if Meta.isexpr(dest, :tuple) && Meta.isexpr(src, :tuple)
+            # Handle tuple unpacking
+            if length(dest.args) != length(src.args)
+                error("Number of variables must match number of values in tuple unpacking")
+            end
+            refs = []
+            for (d, s) in zip(dest.args, src.args)
+                push!(refs, :($d = $(ref)($lifetime, $s, $(QuoteNode(d)), Val($mut))))
+            end
+            return esc(
+                quote
+                    $(refs...)
+                end,
+            )
+        else
+            return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val($mut))))
+        end
+    elseif Meta.isexpr(expr, :for)
+        # Handle for loop case
+        loop_var = expr.args[1].args[1]
+        iter = expr.args[1].args[2]
+        body = expr.args[2]
+        return esc(
+            quote
+                for $loop_var in
+                    $(ref_for)($lifetime, $iter, $(QuoteNode(loop_var)), Val($mut))
+                    $body
+                end
+            end,
+        )
+    else
+        error("@ref requires an assignment expression or for loop")
+    end
 end
 
 """
