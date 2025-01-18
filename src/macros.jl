@@ -23,14 +23,9 @@ using ..SemanticsModule:
 using ..PreferencesModule: is_borrow_checker_enabled
 
 """
-    @own x = value
-    @own :mut x = value
-    @own x, y, z = (value1, value2, value3)
-    @own :mut x, y = (value1, value2)
-    @own for var in iter
-        # body
-    end
-    @own :mut for var in iter
+    @own [:mut] x = value
+    @own [:mut] x, y, z = (value1, value2, value3)
+    @own [:mut] for var in iter
         # body
     end
 
@@ -96,12 +91,11 @@ function _own(expr::Expr, mut::Bool)
 end
 
 """
-    @move new = old
-    @move :mut new = old
+    @move [:mut] new = old
 
 Transfer ownership from one variable to another, invalidating the old variable.
-If `:mut` is not specified, the destination will be immutable.
-Otherwise, the destination will be mutable.
+If `:mut` is specified, the destination will be mutable.
+Otherwise, the destination will be immutable.
 For `isbits` types, this will automatically use `@clone` instead.
 """
 macro move(expr::Expr)
@@ -184,7 +178,6 @@ end
 """
     @lifetime a begin
         @ref a rx = x
-        @ref a :mut ry = y
         # use refs here
     end
 
@@ -217,15 +210,14 @@ macro lifetime(name::Symbol, expr::Expr)
 end
 
 """
-    @ref lifetime var = value
-    @ref lifetime :mut var = value
-    @ref lifetime for var in iter
+    @ref lifetime [:mut] var = value
+    @ref lifetime [:mut] for var in iter
         # body
     end
 
 Create a reference to an owned value within the given lifetime scope.
-If `:mut` is not specified, creates an immutable reference.
-Otherwise, creates a mutable reference.
+If `:mut` is specified, creates a mutable reference.
+Otherwise, creates an immutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.
 
 !!! warning
@@ -291,12 +283,11 @@ macro ref(mut_flag::QuoteNode, lifetime::Symbol, expr::Expr)
 end
 
 """
-    @clone new = old
-    @clone :mut new = old
+    @clone [:mut] new = old
 
 Create a deep copy of a value, without moving the source.
-If `:mut` is not specified, the destination will be immutable.
-Otherwise, the destination will be mutable.
+If `:mut` is specified, the destination will be mutable.
+Otherwise, the destination will be immutable.
 """
 macro clone(expr::Expr)
     if Meta.isexpr(expr, :(=))
