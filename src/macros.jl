@@ -177,7 +177,7 @@ end
 
 """
     @lifetime a begin
-        @ref a rx = x
+        @ref ~a rx = x
         # use refs here
     end
 
@@ -215,7 +215,7 @@ end
         # body
     end
 
-Creates a reference to an owned value within a lifetime scope.
+Create a reference to an owned value within a lifetime scope.
 If `:mut` is specified, creates a mutable reference.
 Otherwise, creates an immutable reference.
 Returns a Borrowed{T} or BorrowedMut{T} that forwards access to the underlying value.

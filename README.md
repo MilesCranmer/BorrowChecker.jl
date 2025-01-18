@@ -68,7 +68,7 @@ The equivalent fixes would respectively be:
 @clone y = x
 # OR
 @lifetime a begin
-    @ref a y = x
+    @ref ~a y = x
     #= operations on reference =#
 end
 ```
@@ -93,7 +93,7 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
-- `@ref lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
+- `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
     - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
 
 ### Automatic Ownership Transfer
@@ -108,7 +108,7 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 ### Loops
 
 - `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
-- `@ref lt [:mut] for var in iter`: Create a loop over an owned iterable, generating references to each element, for the duration of `lt`.
+- `@ref ~lt [:mut] for var in iter`: Create a loop over an owned iterable, generating references to each element, for the duration of `lt`.
 
 ### Disabling BorrowChecker
 
@@ -287,7 +287,7 @@ ERROR: Cannot use r: value's lifetime has expired
 
 This makes the use of references inside threads safe, because the threads _must_ finish inside the scope of the lifetime.
 
-Though we can't create multiple mutable references, you _are_ allowed to create multiple mutable references to elements of a collection via the `@ref for` syntax:
+Though we can't create multiple mutable references, you _are_ allowed to create multiple mutable references to elements of a collection via the `@ref ~lt for` syntax:
 
 ```julia
 @own :mut data = [[1], [2], [3]]
