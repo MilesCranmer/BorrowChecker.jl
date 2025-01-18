@@ -64,7 +64,7 @@ function is_borrow_checker_enabled(calling_module)
     end
 end
 
-function disable_borrow_checker!(m::Module)
+function disable_by_default!(m::Module)
     Base.@lock MODULE_CACHE.lock begin
         if haskey(MODULE_CACHE.cache, m) && MODULE_CACHE.cache[m]
             error(

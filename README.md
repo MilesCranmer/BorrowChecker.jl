@@ -118,9 +118,9 @@ You can also set the _default_ behavior from within a module:
 
 ```julia
 module MyModule
-    using BorrowChecker: disable_borrow_checker!
+    using BorrowChecker: disable_by_default!
 
-    disable_borrow_checker!(@__MODULE__)
+    disable_by_default!(@__MODULE__)
     #= Other code =#
 end
 ```

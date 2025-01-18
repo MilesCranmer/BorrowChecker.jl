@@ -556,11 +556,11 @@ end
 # Additional disable_borrow_checker tests
 @testitem "disable_borrow_checker coverage" begin
     module MyTestDisable
-    using BorrowChecker: disable_borrow_checker!, @own
+    using BorrowChecker: disable_by_default!, @own
     @own x = [1, 2, 3]
 
     function try_disable()
-        return disable_borrow_checker!(@__MODULE__)
+        return disable_by_default!(@__MODULE__)
     end
     end
 
@@ -578,22 +578,22 @@ end
 
     # Another module that disables first
     module MyTestDisable2
-    using BorrowChecker: disable_borrow_checker!, @own
-    disable_borrow_checker!(@__MODULE__)
+    using BorrowChecker: disable_by_default!, @own
+    disable_by_default!(@__MODULE__)
     @own x = [1, 2, 3]  # pass-through
     end
     @test true
 end
 
-@testitem "Multiple disable_borrow_checker! calls" begin
+@testitem "Multiple disable_by_default! calls" begin
     module ExtraDisableTest
-    using BorrowChecker: disable_borrow_checker!, @own
-    disable_borrow_checker!(@__MODULE__)  # We do it immediately => pass-through
+    using BorrowChecker: disable_by_default!, @own
+    disable_by_default!(@__MODULE__)  # We do it immediately => pass-through
 
     @own attempt = [999]  # Should be pass-through now
 
     function double_disable()
-        return disable_borrow_checker!(@__MODULE__)  # might trigger "already cached"
+        return disable_by_default!(@__MODULE__)  # might trigger "already cached"
     end
     end
 
@@ -947,9 +947,9 @@ end
 @testitem "Disabled Borrow Checker" begin
     # Test @take with disabled borrow checker
     module TakeTest
-    using BorrowChecker: disable_borrow_checker!, @take, @own, @clone
+    using BorrowChecker: disable_by_default!, @take, @own, @clone
     using Test
-    disable_borrow_checker!(@__MODULE__)
+    disable_by_default!(@__MODULE__)
     function run_test()
         @own x = [1, 2, 3]
         # `@take` should still do a deepcopy
@@ -965,9 +965,9 @@ end
 
     # Test @lifetime with disabled borrow checker
     module LifetimeTest
-    using BorrowChecker: disable_borrow_checker!, @lifetime, @ref
+    using BorrowChecker: disable_by_default!, @lifetime, @ref
     using Test
-    disable_borrow_checker!(@__MODULE__)
+    disable_by_default!(@__MODULE__)
     function run_test()
         x = 42
         @lifetime lt begin

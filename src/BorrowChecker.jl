@@ -17,13 +17,13 @@ include("experimental.jl")
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
 using .MacrosModule: @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
-using .PreferencesModule: disable_borrow_checker!
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
 export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
 export @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
 
 # Not exported but still available
+using .PreferencesModule: disable_by_default!
 using .StaticTraitModule: is_static
 using .TypesModule: Lifetime, LazyAccessorOf, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows
 #! format: on
