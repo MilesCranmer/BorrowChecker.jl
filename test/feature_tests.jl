@@ -1417,6 +1417,18 @@ end
     @test extrema(nums) == (1.5, 3.5)
     @test !is_moved(nums)
 
+    # resize! and sizehint!
+    @own :mut arr = [1, 2, 3]
+    @test resize!(arr, 4) === nothing
+    @test length(arr) == 4
+    @own arr2 = arr
+    @test_throws BorrowRuleError resize!(arr2, 5)
+
+    @own arr3 = []
+    # This isn't a mutation; it's just a hint
+    @test sizehint!(arr3, 5) === nothing
+    @test length(arr3) == 0
+
     # Test operations that should error on non-isbits return
     @own :mut strings = ["b", "c", "a"]
     @test_throws "Refusing to return result of unique with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `unique(@take!(d))` instead." unique(
