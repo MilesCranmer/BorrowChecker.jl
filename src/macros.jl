@@ -4,7 +4,16 @@ using MacroTools
 using MacroTools: rmlines
 
 using ..TypesModule:
-    Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllOwned
+    Owned,
+    OwnedMut,
+    AllBorrowed,
+    Borrowed,
+    BorrowedMut,
+    Lifetime,
+    NoLifetime,
+    AllWrappers,
+    AllOwned,
+    LazyAccessorOf
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -327,6 +336,65 @@ function _clone(expr::Expr, mut::Bool)
     return esc(
         :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val($mut)))
     )
+end
+
+# Helper function for ownership transfer in @own_args
+maybe_own_arg(var::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, _) = var
+maybe_own_arg(var, var_name) = own(var, :anonymous, var_name, Val(false))
+
+function extract_arg_name(ex::Symbol)
+    return ex
+end
+function extract_arg_name(ex::Expr)
+    if ex.head == :(::) && length(ex.args) > 0
+        return extract_arg_name(ex.args[1])
+    elseif ex.head == :kw && length(ex.args) > 0
+        return extract_arg_name(ex.args[1])
+    elseif ex.head == :(...)
+        return extract_arg_name(ex.args[1])
+    else
+        error("Unsupported argument form: $ex")
+    end
+end
+
+"""
+    @own_args function foo(x, y)
+        # body
+    end
+
+Automatically take ownership of function arguments that are not already borrowed.
+For each argument that is not of type `AllBorrowed`, it will be wrapped in
+an ownership transfer, equivalent to `@own arg = arg`.
+
+This is useful for functions that need to take ownership of their arguments
+without explicitly using `@take!` on each one.
+"""
+macro own_args(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+
+    # Split the function definition into its parts
+    def = MacroTools.splitdef(expr)
+
+    # Get the original args and kwargs
+    args = get(def, :args, [])
+    kwargs = get(def, :kwargs, [])
+
+    # Create let-bindings for ownership
+    bindings_block = Expr(:block)
+    for arg in Iterators.flatten((args, kwargs))
+        var = extract_arg_name(arg)
+        assignment = Expr(:(=), var, :($(maybe_own_arg)($var, $(QuoteNode(var)))))
+        push!(bindings_block.args, assignment)
+    end
+
+    # Create a new block for the body
+    body_block = Expr(:block, def[:body])
+
+    # Wrap the original body in a let block with our bindings
+    def[:body] = Expr(:let, bindings_block, body_block)
+
+    # Recombine the function definition
+    return esc(MacroTools.combinedef(def))
 end
 
 end

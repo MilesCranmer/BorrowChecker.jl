@@ -1449,3 +1449,71 @@ end
     @test push!(nums, 4) === nothing
     @test @take!(nums) == [1, 2, 4]
 end
+
+@testitem "@own_args Basic Functionality" begin
+    # Test basic ownership transfer
+    @own_args function sum_vectors(x, y)
+        @test x isa Owned
+        @test y isa Owned
+        return vcat(@take!(x), @take!(y))
+    end
+
+    # Test with regular values
+    @own a = [1, 2]
+    @own b = [3, 4]
+    @own c = sum_vectors(a, b)
+
+    @test_throws MovedError @take!(a)
+    @test_throws MovedError @take!(b)
+    @test c isa Owned
+    @test @take!(c) == [1, 2, 3, 4]
+end
+
+@testitem "@own_args with Default Values" begin
+    # Test with default values
+    @own_args function foo(x=5)
+        @test x isa Owned
+        return x
+    end
+
+    @test foo() == 5
+
+    # Test with provided value
+    @own a = Ref(10)
+    @test foo(a)[] == 10
+    @test_throws MovedError @take!(a)
+end
+
+@testitem "@own_args with Keyword Arguments" begin
+    # Test keyword arguments
+    @own_args function with_kwargs(x; y=[5, 6])
+        @test x isa Owned
+        @test y isa Owned
+        return vcat(@take!(x), @take!(y))
+    end
+
+    @own a = [1, 2]
+    @own b = [3, 4]
+    @own c = with_kwargs(a; y=b)
+    @test_throws MovedError @take!(a)
+    @test_throws MovedError @take!(b)
+    @test @take!(c) == [1, 2, 3, 4]
+end
+
+@testitem "@own_args with Borrowed Values" begin
+    using BorrowChecker: is_moved
+
+    @own_args function with_borrowed(x, y)
+        @test x isa Borrowed  # Should stay borrowed
+        @test y isa Owned
+        return sum(x) + y
+    end
+
+    # Test with borrowed values
+    @own original = [1, 2, 3]
+    @lifetime lt begin
+        @ref ~lt borrowed = original
+        @test with_borrowed(borrowed, 3) == 9
+    end
+    @test !is_moved(original)  # Original should not be moved since we used a borrow
+end

@@ -7,12 +7,14 @@ Currently provides the `@managed` macro for automatic ownership transfer.
 module Experimental
 
 using Cassette: Cassette
-using ..TypesModule: AllOwned, Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessorOf
+using ..TypesModule:
+    AllOwned, AllBorrowed, Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessorOf
 using ..TypesModule: is_moved, get_symbol, get_owner, unsafe_access
 using ..StaticTraitModule: is_static
-using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value
+using ..SemanticsModule: request_value, mark_moved!, unsafe_get_value, own
 using ..MacrosModule: @take!
 using ..PreferencesModule: is_borrow_checker_enabled
+using MacroTools
 
 # Create the Cassette context for ownership transfer
 Cassette.@context ManagedCtx
@@ -83,6 +85,8 @@ function Cassette.overdub(ctx::ManagedCtx, f, args...)
         return Cassette.recurse(ctx, f, mapped_args...)
     end
 end
+
+# TODO: Need to handle: tuple unpacking; mutable variables
 
 const CleanManagedCtx = Cassette.disablehooks(ManagedCtx())
 
