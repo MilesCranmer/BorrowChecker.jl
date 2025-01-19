@@ -117,6 +117,10 @@ end
     @test !isbits("hello")
     @test is_static("hello")
 
+    # Some surprising cases which are REAL
+    @test !is_static(BigInt)
+    @test !is_static(BigFloat)
+
     struct Container1
         x::Any
     end
