@@ -28,18 +28,20 @@ using ..PreferencesModule: is_borrow_checker_enabled
     @own [:mut] for var in iter
         # body
     end
+    @own [:mut] x  # equivalent to @own [:mut] x = x
+    @own [:mut] (x, y)  # equivalent to @own [:mut] (x, y) = (x, y)
 
 Create a new owned variable. If `:mut` is specified, the value will be mutable.
 Otherwise, the value will be immutable.
 
 You may also use `@own` in a `for` loop to create an owned value for each iteration.
 """
-macro own(expr::Expr)
+macro own(expr::Union{Expr,Symbol})
     is_borrow_checker_enabled(__module__) || return esc(expr)
     return _own(expr, false)
 end
 
-macro own(mut_flag::QuoteNode, expr::Expr)
+macro own(mut_flag::QuoteNode, expr::Union{Expr,Symbol})
     is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag != QuoteNode(:mut)
         error("First argument to @own must be :mut if two arguments are provided")
@@ -47,9 +49,24 @@ macro own(mut_flag::QuoteNode, expr::Expr)
     return _own(expr, true)
 end
 
+function _own(expr::Symbol, mut::Bool)
+    return esc(:($(expr) = $(own)($(expr), :anonymous, $(QuoteNode(expr)), Val($mut))))
+end
+
 function _own(expr::Expr, mut::Bool)
-    if Meta.isexpr(expr, :(=))
-        # Handle immutable case
+    if Meta.isexpr(expr, :tuple)
+        # Handle bare tuple case - convert to assignment
+        names = expr.args
+        return esc(
+            quote
+                ($(names...),) = $(own_for)(
+                    ($(names...),), ($(map(QuoteNode, names)...),), Val($mut)
+                )
+                ($(names...),)
+            end,
+        )
+    elseif Meta.isexpr(expr, :(=))
+        # Handle assignment case
         lhs = expr.args[1]
         rhs = expr.args[2]
         if Meta.isexpr(lhs, :tuple) || Meta.isexpr(lhs, :parameters)
@@ -86,7 +103,7 @@ function _own(expr::Expr, mut::Bool)
             end,
         )
     else
-        error("@own requires an assignment expression or for loop")
+        error("@own requires an assignment expression, tuple, symbol, or for loop")
     end
 end
 

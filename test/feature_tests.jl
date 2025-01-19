@@ -1449,3 +1449,49 @@ end
     @test push!(nums, 4) === nothing
     @test @take!(nums) == [1, 2, 4]
 end
+
+@testitem "Single argument @own syntax" begin
+    using BorrowChecker: is_moved
+
+    # We can use `@own` with a single argument
+    # to easily generate owned variables inside functions
+    function foo(x)
+        @own x
+    end
+    @own y = Ref(1)
+    @test foo(y)[] == 1
+    @test is_moved(y)
+
+    # Test :mut single argument syntax
+    function foo_mut(x)
+        @own :mut x
+        push!(x, 2)
+        return x
+    end
+    @own :mut z = [1]
+    @test foo_mut(z) == [1, 2]
+    @test is_moved(z)
+
+    # Test tuple syntax
+    function foo_tuple(x, y)
+        @own (x, y)
+    end
+    @own a = Ref(1)
+    @own b = Ref(2)
+    x, y = foo_tuple(a, b)
+    @test x[] == 1 && y[] == 2
+    @test is_moved(a) && is_moved(b)
+
+    # Test :mut tuple syntax
+    function foo_mut_tuple(x, y)
+        @own :mut (x, y)
+        push!(x, 2)
+        push!(y, 3)
+        return (x, y)
+    end
+    @own :mut c = [1]
+    @own :mut d = [2]
+    x, y = foo_mut_tuple(c, d)
+    @test x == [1, 2] && y == [2, 3]
+    @test is_moved(c) && is_moved(d)
+end
