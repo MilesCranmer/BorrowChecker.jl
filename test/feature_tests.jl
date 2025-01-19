@@ -1430,18 +1430,18 @@ end
     @test length(arr3) == 0
 
     # Test operations that should error on non-isbits return
-    @own :mut strings = ["b", "c", "a"]
-    @test_throws "Refusing to return result of unique with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `unique(@take!(d))` instead." unique(
-        strings
+    @own :mut strings = [["b"], ["c"], ["a"]]
+    @test_throws(
+        "Refusing to return result of unique with a non-isbits element type",
+        unique(strings)
     )
-    @test_throws "Refusing to return result of sort with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `sort(@take!(d))` instead." sort(
-        strings
+    @test_throws(
+        "because this can result in unintended aliasing with the original array. Use `sort(@take!(d))` instead.",
+        sort(strings)
     )
-    @test_throws "Refusing to return result of reverse with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `reverse(@take!(d))` instead." reverse(
-        strings
-    )
+    @test_throws "Use `reverse(@take!(d))` instead." reverse(strings)
     @test sort!(strings) === nothing
-    @test strings == ["a", "b", "c"]
+    @test strings == [["a"], ["b"], ["c"]]
 
     # Test mutating operations
     @own :mut nums = [1, 2, 3]

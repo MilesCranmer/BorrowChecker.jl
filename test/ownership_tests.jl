@@ -113,6 +113,10 @@ end
     @test !isbits(Int64)
     @test is_static(Type{Int})
 
+    # String is not isbits but is is_static:
+    @test !isbits("hello")
+    @test is_static("hello")
+
     struct Container1
         x::Any
     end
