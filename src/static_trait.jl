@@ -35,6 +35,7 @@ end
 is_static(::Type{<:Type}) = true
 is_static(::Type{Symbol}) = true
 is_static(::Type{String}) = true
+is_static(::Type{Module}) = true
 is_static(::T) where {T} = is_static(T)
 
 end
