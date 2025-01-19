@@ -86,6 +86,7 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 
 - `@own [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
     - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
+    - You can use `@own [:mut] x` as a shorthand for `@own [:mut] x = x` to create owned values at the start of a function.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
 - `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
@@ -229,48 +230,7 @@ end
 
 When you need to pass immutable references of a value to a function, you would modify the signature to accept a `Borrowed{T}` type. This is similar to the `&T` syntax in Rust. And, similarly, `BorrowedMut{T}` is similar to `&mut T`.
 
-There are the `OrBorrowed{T}` (basically `==Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for easily extending a signature. Let's say you have some function:
-
-```julia
-struct Bar{T}
-    x::Vector{T}
-end
-
-function foo(bar::Bar{T}) where {T}
-    sum(bar.x)
-end
-```
-
-Now, you'd like to modify this so that it can accept _references_ to `Bar` objects from other functions. Since `foo` doesn't need to mutate `bar`, we can modify this as follows:
-
-```julia
-function foo(bar::OrBorrowed{Bar{T}}) where {T}
-    sum(bar.x)
-end
-```
-
-Now, we can modify our calling code (which might be multithreaded) to be something like:
-
-```julia
-@own :mut bar = Bar([1, 2, 3])
-
-@lifetime lt begin
-    @ref ~lt r1 = bar
-    @ref ~lt r2 = bar
-    
-    @own tasks = [
-        Threads.@spawn(foo(r1))
-        Threads.@spawn(foo(r2))
-    ]
-    @show map(fetch, @take!(tasks))
-end
-
-# After lifetime ends, we can modify `bar` again
-```
-Immutable references are safe to pass in a multi-threaded context, so this is a good way to prevent thread races.
-Using immutable references enforces that (a) the original object cannot be modified, and (b) there are no mutable references active.
-
-Another trick: don't worry about references being used _after_ the lifetime ends, because the `lt` variable will be expired!
+Don't worry about references being used _after_ the lifetime ends, because the `lt` variable will be expired!
 
 ```julia
 julia> @own x = 1
@@ -417,3 +377,62 @@ Another macro is `@move`, which is a more explicit version of `@own new = @take!
 ```
 
 Note that `@own new = old` will also work as a convenience, but `@move` is more explicit and also asserts that the new value is owned.
+
+### Introducing BorrowChecker.jl to Your Codebase
+
+When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function. The single-arg version of `@own` is particularly useful in this case:
+
+```julia
+function process_data(x, y, z)
+    @own x, y
+    @own :mut z
+
+    #= body =#
+end
+```
+
+This pattern is useful for generic functions because if you pass an owned variable as either `x`, `y`, or `z`, the original function will get marked as moved.
+
+The next pattern that is useful is to use `OrBorrowed{T}` (basically `==Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures. Let's say you have some function:
+
+```julia
+struct Bar{T}
+    x::Vector{T}
+end
+
+function foo(bar::Bar{T}) where {T}
+    sum(bar.x)
+end
+```
+
+Now, you'd like to modify this so that it can accept _references_ to `Bar` objects from other functions. Since `foo` doesn't need to mutate `bar`, we can modify this as follows:
+
+```julia
+function foo(bar::OrBorrowed{Bar{T}}) where {T}
+    sum(bar.x)
+end
+```
+
+Thus, the full `process_data` function might be something like:
+
+```julia
+function process_data(x, y, z)
+    @own x, y
+    @own :mut z
+
+    @own total = @lifetime lt begin
+        @ref ~lt r1 = z
+        @ref ~lt r2 = z
+
+        @own tasks = [
+            Threads.@spawn(foo(r1))
+            Threads.@spawn(foo(r2))
+        ]
+        sum(map(fetch, @take!(tasks)))
+    end
+end
+```
+
+Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context!
+
+Immutable references are safe to pass in a multi-threaded context, so doubles as a good way to prevent unintended thread races.
