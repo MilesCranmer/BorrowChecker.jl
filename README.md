@@ -85,8 +85,8 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 ### Basics
 
 - `@own [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
-    - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
-    - You can use `@own [:mut] x` as a shorthand for `@own [:mut] x = x` to create owned values at the start of a function.
+  - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
+  - You can use `@own [:mut] x` as a shorthand for `@own [:mut] x = x` to create owned values at the start of a function.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
 - `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
@@ -96,12 +96,12 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
-    - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
+  - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
 
 ### Automatic Ownership Transfer
 
 - `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Owned{T}` or `OwnedMut{T}` input arguments.
-    - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
+  - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
 
 ### Assignment
 
@@ -194,7 +194,7 @@ ERROR: Variable `y` holds an object that was reassigned from `x`.
 
 This won't catch all misuses but it can help prevent some.
 
-### References and Lifetimes
+### Lifetimes
 
 References let you temporarily _borrow_ values. This is useful for passing values to functions without moving them. These are created within an explicit `@lifetime` block:
 
