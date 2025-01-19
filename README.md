@@ -8,7 +8,7 @@
 
 </div>
 
-This package implements a runtime borrow checker in Julia using a macro layer over standard Julia code. This is built to emulate Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
+This package implements a borrow checker in Julia using a macro layer over standard Julia code. This is built to emulate Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 > [!WARNING]
 > BorrowChecker.jl does not promise memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
@@ -90,6 +90,7 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
 - `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
+- `getproperty` and `getindex` access (e.g., `x.field` or `x[i]`) on owned or borrowed values will return a `LazyAccessor` that propagates ownership and lifetime information until the raw value needs to be used.
 
 ### References and Lifetimes
 
