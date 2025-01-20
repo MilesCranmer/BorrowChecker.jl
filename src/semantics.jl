@@ -21,7 +21,6 @@ using ..TypesModule:
     is_moved,
     is_expired,
     unsafe_get_value,
-    unsafe_set_value!,
     unsafe_access,
     has_lifetime,
     get_lifetime,
@@ -90,17 +89,6 @@ function request_value(r::LazyAccessor, ::Val{mode}) where {mode}
     target = getfield(r, :target)
     validate_mode(target, Val(mode))
     return unsafe_access(r)
-end
-
-function set_value!(r::AllOwned, value)
-    if !is_mutable(r)
-        throw(BorrowRuleError("Cannot assign to immutable"))
-    elseif is_moved(r)
-        throw(MovedError(get_symbol(r)))
-    elseif get_mutable_borrows(r) > 0 || get_immutable_borrows(r) > 0
-        throw(BorrowRuleError("Cannot assign to value while borrowed"))
-    end
-    return unsafe_set_value!(r, value)
 end
 
 @inline function Base.getproperty(o::AllOwned, name::Symbol)

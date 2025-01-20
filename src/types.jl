@@ -86,7 +86,7 @@ Once moved, the value cannot be accessed again.
 - `symbol::Symbol`: Variable name for error reporting
 """
 mutable struct OwnedMut{T} <: AbstractOwned{T}
-    @atomic value::T
+    const value::T
     @atomic moved::Bool
     @atomic immutable_borrows::Int
     @atomic mutable_borrows::Int
@@ -331,12 +331,9 @@ is_mutable(r::AllImmutable) = false
 # COV_EXCL_STOP
 
 # Internal getters and setters
-unsafe_get_value(r::OwnedMut) = getfield(r, :value, :sequentially_consistent)
+unsafe_get_value(r::OwnedMut) = getfield(r, :value)
 unsafe_get_value(r::Owned) = getfield(r, :value)
 unsafe_get_value(r::AllBorrowed) = getfield(r, :value)
-function unsafe_set_value!(r::OwnedMut, value)
-    return setfield!(r, :value, value, :sequentially_consistent)
-end
 
 @inline function unsafe_access(x::LazyAccessor{T,<:Any,Val{property}}) where {T,property}
     parent = getfield(x, :parent)

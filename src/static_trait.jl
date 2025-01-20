@@ -32,10 +32,14 @@ function is_static(::Type{T}) where {T}
         return all(is_static, fieldtypes(T))
     end
 end
+
+# COV_EXCL_START
 is_static(::Type{<:Type}) = true
 is_static(::Type{Symbol}) = true
 is_static(::Type{String}) = true
 is_static(::Type{Module}) = true
+# COV_EXCL_STOP
+
 is_static(::T) where {T} = is_static(T)
 
 end
