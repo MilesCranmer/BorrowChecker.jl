@@ -1495,3 +1495,35 @@ end
     @test x == [1, 2] && y == [2, 3]
     @test is_moved(c) && is_moved(d)
 end
+
+@testitem "Nested for loops" begin
+    # Basic nested for loop
+    @own :mut matrix = Tuple{Int,Int}[]
+    @own for j in 1:2, i in 1:3
+        push!(matrix, (@take!(j), @take!(i)))
+    end
+    @test matrix == [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (2, 3)]
+
+    # Triple nested for loop
+    @own :mut cube = Tuple{Int,Int,Int}[]
+    @own for k in 1:2, j in 1:2, i in 1:2
+        push!(cube, (@take!(k), @take!(j), @take!(i)))
+    end
+    @test cube == [
+        (1, 1, 1),
+        (1, 1, 2),
+        (1, 2, 1),
+        (1, 2, 2),
+        (2, 1, 1),
+        (2, 1, 2),
+        (2, 2, 1),
+        (2, 2, 2),
+    ]
+
+    # With mutability
+    @own :mut for i in 1:3, j in 1:3, k in 1:3
+        @test i isa OwnedMut{Int}
+        @test j isa OwnedMut{Int}
+        @test k isa OwnedMut{Int}
+    end
+end

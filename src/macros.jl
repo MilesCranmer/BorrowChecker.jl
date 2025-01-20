@@ -92,16 +92,35 @@ function _own(expr::Expr, mut::Bool)
         end
     elseif Meta.isexpr(expr, :for)
         # Handle for loop case
-        loop_var = expr.args[1].args[1]
-        iter = expr.args[1].args[2]
+        loop_vars = expr.args[1]
         body = expr.args[2]
-        return esc(
-            quote
-                for $loop_var in $(own_for)($(iter), $(QuoteNode(loop_var)), Val($mut))
-                    $body
-                end
-            end,
-        )
+
+        # Get loop assignments - either from block or single assignment
+        loop_assignments = if Meta.isexpr(loop_vars, :block)
+            filter(x -> Meta.isexpr(x, :(=)), loop_vars.args)
+        else
+            # Single for loop case - treat as one assignment
+            [loop_vars]
+        end
+
+        # Build nested for loops from inside out
+        result = body
+        for assignment in reverse(loop_assignments)
+            loop_var = assignment.args[1]
+            iter = assignment.args[2]
+
+            result = Expr(
+                :for,
+                Expr(
+                    :(=),
+                    loop_var,
+                    :($(own_for)($(iter), $(QuoteNode(loop_var)), Val($mut))),
+                ),
+                Expr(:block, result),
+            )
+        end
+
+        return esc(result)
     else
         error("@own requires an assignment expression, tuple, symbol, or for loop")
     end
