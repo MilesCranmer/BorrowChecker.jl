@@ -116,8 +116,6 @@ end
 # When borrow checker is disabled, in(x, ::NoLifetime) just returns x
 struct NoLifetime end
 
-Base.in(x, ::NoLifetime) = x
-
 """
     Borrowed{T,O<:AbstractOwned}
 
