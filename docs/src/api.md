@@ -12,7 +12,6 @@ CurrentModule = BorrowChecker
 @clone
 @take
 @take!
-@set
 ```
 
 ## References and Lifetimes

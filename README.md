@@ -103,10 +103,6 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 - `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Owned{T}` or `OwnedMut{T}` input arguments.
   - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
 
-### Assignment
-
-- `@set x = value`: Assign a new value to an existing owned mutable variable
-
 ### Loops
 
 - `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
@@ -313,18 +309,8 @@ end
 
 ### Mutating Owned Values
 
-For mutating an owned value directly, you should use the `@set` macro,
-which prevents the creation of a new owned value.
-
-```julia
-@own :mut local_counter = 0
-for _ in 1:10
-    @set local_counter = local_counter + 1
-end
-@take! local_counter
-```
-
-But note that if you have a mutable struct, you can just use `setproperty!` as normal:
+Note that if you have a mutable owned value,
+you can use `setproperty!` and `setindex!` as normal:
 
 ```julia
 mutable struct A
@@ -347,6 +333,16 @@ ERROR: Cannot write to immutable
 
 julia> a.x += 1
 ERROR: Cannot use a: value has been moved
+```
+
+**You should never mutate via variable reassignment.**
+If needed, you can repeatedly `@own` new objects:
+
+```julia
+@own x = 1
+for _ in 1:10
+    @own x = x + 1
+end
 ```
 
 ### Cloning Values

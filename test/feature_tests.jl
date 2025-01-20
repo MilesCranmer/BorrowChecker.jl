@@ -52,39 +52,6 @@ using BorrowChecker
     end
 end
 
-@testitem "Assignment Syntax" begin
-    # Test normal assignment with @set on mutable
-    @own :mut x = [1, 2, 3]
-    @set x = [4, 5, 6]
-    @lifetime lt begin
-        @ref ~lt ref = x
-        @test ref == [4, 5, 6]
-    end
-
-    # Test assignment to immutable fails
-    @own y = [1, 2, 3]
-    @test_throws BorrowRuleError @set y = [4, 5, 6]
-
-    # Test assignment after move
-    @own :mut z = [1, 2, 3]
-    @move w = z
-    @test_throws MovedError @set z = [4, 5, 6]
-
-    # Test assignment with references
-    @own :mut v = [1, 2, 3]
-    @lifetime lt begin
-        @ref ~lt :mut ref = v
-        push!(ref, 4)
-        @test_throws("Cannot assign to value while borrowed", @set v = [5, 6, 7])
-    end
-    @set v = [5, 6, 7]
-    @lifetime lt begin
-        @ref ~lt ref = v
-        @test ref == [5, 6, 7]
-        @test_throws "Cannot write to immutable reference" ref[1] = [8]
-    end
-end
-
 @testitem "Macros error branches coverage" begin
     # 1) Two-arg @own with first arg != :mut => macro expansion error => LoadError
     @test_throws LoadError @eval @own :xxx x = 42
@@ -244,7 +211,7 @@ end
         @test -rx == -2    # unary op ref
 
         # Test we can't modify through immutable ref
-        @test_throws BorrowRuleError @set rx = rx + 1
+        @test_throws BorrowRuleError rx[1] = 10
     end
 end
 
@@ -255,7 +222,7 @@ end
     @own :mut x = 42
     y = x  # This is illegal - should use @move
     @test_throws(
-        "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
+        "Variable `y` holds an object that was reassigned from `x`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
         @take! y
     )
 
@@ -263,7 +230,7 @@ end
     @own :mut a = [1, 2, 3]
     b = a  # This is illegal - should use @move
     @test_throws(
-        "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
+        "Variable `b` holds an object that was reassigned from `a`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
         @move c = b
     )
 end
@@ -419,7 +386,7 @@ end
     @test_throws(
         "Variable `y` holds an object that was reassigned from `x`.\n" *
             "Regular variable reassignment is not allowed with BorrowChecker. " *
-            "Use `@move` to transfer ownership or `@set` to modify values.",
+            "Use `@move` to transfer ownership.",
         @clone z = y
     )
 
@@ -464,11 +431,11 @@ end
     using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test basic for loop binding
-    @own :mut accumulator = 0
+    @own accumulator = 0
     @own for x in 1:3
         @test x isa Owned{Int}
         @test get_symbol(x) == :x
-        @set accumulator = accumulator + x
+        global accumulator = accumulator + x
         y = x
         @test_throws SymbolMismatchError @take!(y)
     end
@@ -479,12 +446,12 @@ end
     using BorrowChecker: is_moved, SymbolMismatchError, get_symbol
 
     # Test mutable for loop binding
-    @own :mut accumulator = 0
-    @own :mut for x in 1:3
-        @test x isa OwnedMut{Int}
+    @own accumulator = 0
+    @own :mut for x in map(Ref, 1:3)
+        @test x isa OwnedMut{Base.RefValue{Int}}
         @test get_symbol(x) == :x
-        @set x = x + 1  # Test mutability
-        @set accumulator = accumulator + x
+        x[] = x[] + 1  # Test mutability
+        global @own accumulator = accumulator + x[]
     end
     @test (@take! accumulator) == 9
 end
@@ -527,7 +494,7 @@ end
         @own :mut row = []
         @own :mut for j in [Ref(1), Ref(2)]
             @clone i_copy = i
-            @set j = Ref(15)
+            j[] = 15
             push!(row, (@take!(i_copy).x, @take!(j).x))
         end
         push!(matrix, @take!(row))
@@ -637,13 +604,12 @@ end
 
 # Additional tuple unpacking tests
 @testitem "BorrowRuleError on tuple expression" begin
-    @own imm = (1, 2, 3)
-    @test_throws BorrowRuleError @set imm = (4, 5, 6)
+    @own imm = map(Ref, (1, 2, 3))
     @own im1, im2, im3 = imm
-    @test_throws BorrowRuleError @set im1 = 99
+    @test_throws BorrowRuleError im1[] = 99
     @own :mut im1, im2, im3 = imm
-    @set im1 = 99
-    @test im1 == 99
+    im1[] = 99
+    @test im1[] == 99
 end
 
 @testitem "Tuple unpacking in macro expansion" begin
@@ -663,11 +629,11 @@ end
     @own :mut x = [1, 2, 3]
     @lifetime lt begin
         # Test immutable reference loop
-        @own :mut count = 0
+        @own count = 0
         @ref ~lt for xi in x
             @test xi isa Borrowed{Int}
             @test get_symbol(xi) == :xi
-            @set count = count + xi
+            @own count = count + xi
         end
         @test count == 6
         @test !is_moved(x)
@@ -880,12 +846,8 @@ end
         @eval @ref lt x = 42
     end
 
-    @test_throws LoadError @eval @set x + y
-
     @test_throws LoadError @eval @move x + y  # Not an assignment
     @test_throws LoadError @eval @move :invalid x = y  # Invalid first argument
-
-    @test_throws LoadError @eval @set x  # Not an assignment
 
     @test_throws LoadError @eval @ref x  # Not an assignment or for loop
     @test_throws LoadError @eval @ref ~lt :invalid x = 42  # Invalid mut flag

@@ -226,19 +226,6 @@ function own(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
     throw(BorrowRuleError("Cannot own a borrowed object."))
 end
 
-function set(dest::AllOwned, dest_symbol, value)
-    dest_symbol isa Symbol && validate_symbol(dest, dest_symbol)
-    return set_value!(dest, value)
-end
-
-function set(dest::AllBorrowed, dest_symbol::Symbol, value)
-    validate_symbol(dest, dest_symbol)
-    if !is_mutable(dest)
-        throw(BorrowRuleError("Cannot write to immutable reference"))
-    end
-    return set_value!(get_owner(dest), value)
-end
-
 function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) where {mut}
     src_symbol isa Symbol && validate_symbol(src, src_symbol)
     # Get the value from either a borrowed or owned value:

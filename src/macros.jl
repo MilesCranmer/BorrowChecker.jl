@@ -15,7 +15,6 @@ using ..SemanticsModule:
     move,
     own,
     own_for,
-    set,
     clone,
     ref,
     ref_for,
@@ -189,27 +188,6 @@ macro take(var)
         return esc(:($(maybe_deepcopy)($(var))))
     end
 end
-
-"""
-    @set x = value
-
-Assign a value to the value of a mutable owned variable itself.
-"""
-macro set(expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
-    if !Meta.isexpr(expr, :(=))
-        error("@set requires an assignment expression")
-    end
-
-    dest = expr.args[1]
-    value = expr.args[2]
-
-    return esc(:($(set)($(dest), $(QuoteNode(dest)), $(value))))
-end
-# TODO: Doesn't this mess up closures? Like if I bind a variable to a closure,
-#       then using `x = {value}` will actually be different than `x[] = {value}`.
-#       But at the same time, binding variables to a closure is a bad idea. If there
-#       was a way we could prevent that entirely, that would be nice.
 
 """
     @lifetime a begin

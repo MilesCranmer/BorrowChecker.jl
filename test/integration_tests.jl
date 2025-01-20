@@ -18,11 +18,11 @@ using BorrowChecker
 
     # This is the correct design, and thus won't throw
     function counter(thread_count::Integer)
-        @own :mut local_counter = 0
+        @own :mut local_counter = Ref(0)
         for _ in 1:thread_count
-            @set local_counter = local_counter + 1
+            local_counter[] += 1
         end
-        @take! local_counter
+        @take! local_counter[]
     end
     function bc_correct_counter()
         @own num_threads = 4

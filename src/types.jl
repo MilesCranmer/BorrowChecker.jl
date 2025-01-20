@@ -71,7 +71,7 @@ end
 A mutable owned value. Common operations:
 - Create using `@own :mut x = value`
 - Access value using `@take!` (moves) or `@take` (copies)
-- Modify using `@set`
+- Modify by setproperty! or setindex!: `x.field = value` or `x[indices...] = value`
 - Borrow using `@ref` or `@ref :mut`
 - Access fields/indices via `.field` or `[indices...]` (returns LazyAccessor)
 

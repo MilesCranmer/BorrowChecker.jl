@@ -56,7 +56,7 @@ end
 function Base.showerror(io::IO, e::SymbolMismatchError)
     return print(
         io,
-        "Variable `$(e.current)` holds an object that was reassigned from `$(e.expected)`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership or `@set` to modify values.",
+        "Variable `$(e.current)` holds an object that was reassigned from `$(e.expected)`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
     )
 end
 

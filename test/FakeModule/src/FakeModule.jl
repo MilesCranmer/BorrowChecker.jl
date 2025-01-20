@@ -18,23 +18,22 @@ function test()
     # This error now goes undetected:
     @test x[] == 1
 
-    # Test @set
-    @own :mut z = 1
-    @set z = 2
-    @test z == 2
-    @test z isa Int
-    @test !(z isa OwnedMut{Int})
+    @own :mut z = Ref(1)
+    z[] = 2
+    @test z[] == 2
+    @test z isa Base.RefValue{Int}
+    @test !(z isa OwnedMut{Base.RefValue{Int}})
 
     # Test @lifetime and @ref
     @lifetime l begin
         @ref ~l r = z
-        @test r == 2
-        @test r isa Int
-        @test !(r isa Borrowed{Int})
+        @test r[] == 2
+        @test r isa Base.RefValue{Int}
+        @test !(r isa Borrowed{Base.RefValue{Int}})
         # Should be able to modify z since borrow checker is disabled
-        @set z = 3
-        @test z == 3
-        @test r == 2  # r should just be a copy
+        z[] = 3
+        @test z[] == 3
+        @test r[] == 3
     end
 
     # Test managed() - it should just run functions as-is when disabled

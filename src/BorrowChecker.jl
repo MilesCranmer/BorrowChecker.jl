@@ -16,11 +16,11 @@ include("experimental.jl")
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
 using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-using .MacrosModule: @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
+using .MacrosModule: @own, @move, @ref, @take, @take!, @lifetime, @clone
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
 export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-export @own, @move, @ref, @take, @take!, @set, @lifetime, @clone
+export @own, @move, @ref, @take, @take!, @lifetime, @clone
 
 # Not exported but still available
 using .PreferencesModule: disable_by_default!
