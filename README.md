@@ -15,7 +15,7 @@ This package implements a borrow checker in Julia using a macro layer over stand
 
 ## Usage
 
-In Julia, objects exist independently of the variables that refer to them. When you write `x = [1, 2, 3]` in Julia, the actual _object_ lives in memory completely independently of the symbol, and you can refer to it from as many variables as you want without issue:
+In Julia, when you write `x = [1, 2, 3]` in Julia, the actual _object_ exists completely independently of the variable, and you can refer to it from as many variables as you want without issue:
 
 ```julia
 x = [1, 2, 3]
