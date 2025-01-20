@@ -289,6 +289,8 @@ function _ref(lifetime_expr::Expr, expr::Expr, mut::Bool)
                     $(refs...)
                 end,
             )
+        elseif Meta.isexpr(dest, :tuple) ⊻ Meta.isexpr(src, :tuple)
+            error("Cannot mix tuple and non-tuple arguments in @ref")
         else
             return esc(:($dest = $(ref)($lifetime, $src, $(QuoteNode(dest)), Val($mut))))
         end

@@ -208,6 +208,18 @@ end
         @test rx2 == [1]
     end
 
+    # Need to pass tuple on both sides
+    @test_throws(
+        "Cannot mix tuple and non-tuple arguments in @ref", @eval @ref ~lt (a, b, c) = d
+    )
+    @test_throws(
+        "Cannot mix tuple and non-tuple arguments in @ref", @eval @ref ~lt a = (b, c, d)
+    )
+    @test_throws(
+        "Number of variables must match number of values in tuple unpacking",
+        @eval @ref ~lt (a, b) = (c, d, e, f)
+    )
+
     # Test mutable references
     @own :mut mx = [1]
     @own :mut my = [2]
