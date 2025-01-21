@@ -78,13 +78,14 @@ end
 
 # --- BASIC OPERATIONS ---
 Base.isnothing(r::AllWrappers) = isnothing(request_value(r, Val(:read)))
-for op in (:(==), :haskey, :isequal)
+for op in (:(==), :isequal)
     @eval begin
         Base.$(op)(r::AllWrappers, other) = $(op)(request_value(r, Val(:read)), other)
         Base.$(op)(other, r::AllWrappers) = $(op)(other, request_value(r, Val(:read)))
         Base.$(op)(r::AllWrappers, other::AllWrappers) = $(op)(request_value(r, Val(:read)), request_value(other, Val(:read)))
     end
 end
+Base.haskey(r::AllWrappers, other) = haskey(request_value(r, Val(:read)), _maybe_read(other))
 Base.string(r::AllWrappers) = string(request_value(r, Val(:read)))
 Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
 # --- END BASIC OPERATIONS ---

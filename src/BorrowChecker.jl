@@ -11,6 +11,7 @@ include("preferences.jl")
 include("semantics.jl")
 include("macros.jl")
 include("overloads.jl")
+include("disambiguations.jl")
 include("experimental.jl")
 
 #! format: off
