@@ -15,7 +15,7 @@ using ..TypesModule:
     unsafe_access,
     get_owner,
     get_lifetime
-using ..StaticTraitModule: is_static, maybe_deepcopy
+using ..StaticTraitModule: is_static
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused, isunused
@@ -193,7 +193,7 @@ for op in (
     :nextfloat, :prevfloat, :transpose, :significand,
     :modf, :rem, :floor, :ceil, :round, :trunc,
     :inv, :sqrt, :cbrt, :abs2, :angle, :factorial,
-    :(!), :-, :+, :sign, :identity,
+    :(!), :-, :+, :sign, :identity, :iszero, :isone,
 )
     @eval function Base.$(op)(r::AllWrappers{<:Number})
         return Base.$(op)(request_value(r, Val(:read)))
@@ -205,6 +205,7 @@ for op in (
     :atan, :atand, :copysign, :flipsign,
     :&, :|, :⊻, ://, :\, :(:), :rem, :cmp,
     :isapprox, :(<), :(<=), :(>), :(>=),
+    :(<<), :(>>), :(>>>),
 )
     # TODO: Forward kwargs
     @eval begin
