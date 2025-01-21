@@ -15,7 +15,7 @@ using ..TypesModule:
     unsafe_access,
     get_owner,
     get_lifetime
-using ..StaticTraitModule: is_static
+using ..StaticTraitModule: is_static, maybe_deepcopy
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError
 using ..UtilsModule: Unused, isunused
@@ -154,8 +154,10 @@ end
 function Base.iterate(::Union{BorrowedMut{<:AbstractArray{T}},LazyAccessorOf{<:BorrowedMut{<:AbstractArray{T}}}}, state=Unused()) where {T}
     error("Cannot yet iterate over mutable borrowed arrays. Iterate over a `@ref` instead.")
 end
+# TODO: Double check semantics of this
 function Base.copy!(r::AllWrappers, src::AllWrappers)
-    copy!(request_value(r, Val(:write)), request_value(src, Val(:read)))
+    src_value = request_value(src, Val(:read))
+    copy!(request_value(r, Val(:write)), is_static(eltype(src_value)) ? src_value : deepcopy(src_value))
     return nothing
 end
 # --- END COLLECTION OPERATIONS ---
