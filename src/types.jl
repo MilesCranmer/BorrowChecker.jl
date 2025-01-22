@@ -110,10 +110,7 @@ mutable struct Lifetime
 
     Lifetime() = new([], Threads.SpinLock(), [], Threads.SpinLock(), false)
 end
-# TODO: Need a way to trip the lifetime, so that refs
-#       can't be used outside!
 
-# When borrow checker is disabled, in(x, ::NoLifetime) just returns x
 struct NoLifetime end
 
 """
