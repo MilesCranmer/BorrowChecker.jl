@@ -104,7 +104,8 @@ Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i)
 # ---- Non-mutating; possibly unsafe to return ----
 for op in (
     :keys, :values, :unique, :sort, :reverse,
-    :sum, :prod, :maximum, :minimum, :extrema
+    :sum, :prod, :maximum, :minimum, :extrema,
+    :copy
 )
     @eval function Base.$(op)(r::AllWrappers; kws...)
         k = $(op)(request_value(r, Val(:read)); kws...)
