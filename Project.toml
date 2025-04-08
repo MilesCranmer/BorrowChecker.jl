@@ -1,7 +1,7 @@
 name = "BorrowChecker"
 uuid = "7bdcaa52-c310-4bb0-bf54-d941056ed284"
 authors = ["MilesCranmer <miles.cranmer@gmail.com>"]
-version = "0.0.11"
+version = "0.0.12"
 
 [deps]
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
