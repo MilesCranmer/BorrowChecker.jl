@@ -84,7 +84,7 @@ end
 
         @test_throws BorrowRuleError @ref ~lt d = y
         @test_throws(
-            "Cannot create immutable reference: value is mutably borrowed", @ref ~lt d = y
+            "Cannot create immutable reference: `y` is mutably borrowed", @ref ~lt d = y
         )
     end
 end
@@ -143,7 +143,7 @@ end
         @ref ~lt imm_ref = b
         push!(mut_ref, 4)
         @test imm_ref == [4, 5, 6]
-        @test_throws "Cannot write to immutable reference" push!(imm_ref, 7)
+        @test_throws "Cannot write to immutable reference `imm_ref`" push!(imm_ref, 7)
     end
     @test a == [1, 2, 3, 4]
     @test b == [4, 5, 6]

@@ -14,7 +14,7 @@ using BorrowChecker
             increment_counter!(@take! shared_counter)
         end
     end
-    @test_throws "Cannot use shared_counter: value has been moved" bc_create_thread_race()
+    @test_throws "Cannot use `shared_counter`: value has been moved" bc_create_thread_race()
 
     # This is the correct design, and thus won't throw
     function counter(thread_count::Integer)
@@ -73,7 +73,9 @@ end
 
             # Not allowed:
             if step == 0
-                @test_throws "Cannot access original" @ref ~a :mut particles2 = particles
+                @test_throws "Cannot access `particles` while mutably borrowed" begin
+                    @ref ~a :mut particles2 = particles
+                end
             end
         end
     end
@@ -82,7 +84,7 @@ end
     @test particles[2].position.y ≈ (0.0 - 0.5 * nsteps * dt)
 
     # If we had repeated the references, this would have broken:
-    @test_throws "Cannot access original while mutably borrowed" begin
+    @test_throws "Cannot access `particles` while mutably borrowed" begin
         @lifetime a let
             for _ in 1:nsteps
                 @ref ~a :mut for p in particles

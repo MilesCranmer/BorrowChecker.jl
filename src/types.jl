@@ -143,9 +143,10 @@ struct Borrowed{T,O<:AbstractOwned} <: AbstractBorrowed{T}
         if is_moved(owner)
             throw(MovedError(get_symbol(owner)))
         elseif owner isa OwnedMut && get_mutable_borrows(owner) > 0
+            owner_str = get_symbol(owner) == :anonymous ? "value" : "`$(get_symbol(owner))`"
             throw(
                 BorrowRuleError(
-                    "Cannot create immutable reference: value is mutably borrowed"
+                    "Cannot create immutable reference: $(owner_str) is mutably borrowed"
                 ),
             )
         end
@@ -192,19 +193,26 @@ struct BorrowedMut{T,O<:OwnedMut} <: AbstractBorrowed{T}
         value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
     ) where {T,O<:AbstractOwned}
         if !is_mutable(owner)
-            throw(BorrowRuleError("Cannot create mutable reference of immutable"))
+            owner_str = if get_symbol(owner) == :anonymous
+                "immutable"
+            else
+                "immutable `$(get_symbol(owner))`"
+            end
+            throw(BorrowRuleError("Cannot create mutable reference of $(owner_str)"))
         elseif is_moved(owner)
             throw(MovedError(get_symbol(owner)))
         elseif get_immutable_borrows(owner) > 0
+            owner_str = get_symbol(owner) == :anonymous ? "value" : "`$(get_symbol(owner))`"
             throw(
                 BorrowRuleError(
-                    "Cannot create mutable reference: value is immutably borrowed"
+                    "Cannot create mutable reference: $(owner_str) is immutably borrowed"
                 ),
             )
         elseif get_mutable_borrows(owner) > 0
+            owner_str = get_symbol(owner) == :anonymous ? "value" : "`$(get_symbol(owner))`"
             throw(
                 BorrowRuleError(
-                    "Cannot create mutable reference: value is already mutably borrowed"
+                    "Cannot create mutable reference: $(owner_str) is already mutably borrowed",
                 ),
             )
         end

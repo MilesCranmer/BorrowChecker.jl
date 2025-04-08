@@ -45,18 +45,27 @@ struct SymbolMismatchError <: BorrowError
 end
 
 function Base.showerror(io::IO, e::MovedError)
-    return print(io, "Cannot use $(e.var): value has been moved")
+    var_str = e.var == :anonymous ? "value" : "`$(e.var)`"
+    return print(io, "Cannot use $(var_str): value has been moved")
 end
+
 function Base.showerror(io::IO, e::ExpiredError)
-    return print(io, "Cannot use $(e.var): value's lifetime has expired")
+    var_str = e.var == :anonymous ? "value" : "`$(e.var)`"
+    return print(io, "Cannot use $(var_str): value's lifetime has expired")
 end
+
 function Base.showerror(io::IO, e::BorrowRuleError)
     return print(io, e.msg)
 end
+
 function Base.showerror(io::IO, e::SymbolMismatchError)
+    current_str = e.current == :anonymous ? "Variable" : "Variable `$(e.current)`"
+    expected_str = e.expected == :anonymous ? "another variable" : "`$(e.expected)`"
+
     return print(
         io,
-        "Variable `$(e.current)` holds an object that was reassigned from `$(e.expected)`.\nRegular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
+        "$(current_str) holds an object that was reassigned from $(expected_str).\n" *
+        "Regular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
     )
 end
 

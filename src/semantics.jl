@@ -57,11 +57,14 @@ function validate_mode(r::AllOwned, ::Val{mode}) where {mode}
     if is_moved(r)
         throw(MovedError(get_symbol(r)))
     elseif is_mutable(r) && get_mutable_borrows(r) > 0
-        throw(BorrowRuleError("Cannot access original while mutably borrowed"))
+        var_str = get_symbol(r) == :anonymous ? "original" : "`$(get_symbol(r))`"
+        throw(BorrowRuleError("Cannot access $(var_str) while mutably borrowed"))
     elseif !is_mutable(r) && mode == :write
-        throw(BorrowRuleError("Cannot write to immutable"))
+        var_str = get_symbol(r) == :anonymous ? "immutable" : "immutable `$(get_symbol(r))`"
+        throw(BorrowRuleError("Cannot write to $(var_str)"))
     elseif mode in (:write, :move) && get_immutable_borrows(r) > 0
-        throw(BorrowRuleError("Cannot $mode original while immutably borrowed"))
+        var_str = get_symbol(r) == :anonymous ? "original" : "`$(get_symbol(r))`"
+        throw(BorrowRuleError("Cannot $(mode) $(var_str) while immutably borrowed"))
     end
     return nothing
 end
@@ -73,7 +76,12 @@ function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     elseif is_expired(r)
         throw(ExpiredError(get_symbol(r)))
     elseif mode == :write && !is_mutable(r)
-        throw(BorrowRuleError("Cannot write to immutable reference"))
+        var_str = if get_symbol(r) == :anonymous
+            "immutable reference"
+        else
+            "immutable reference `$(get_symbol(r))`"
+        end
+        throw(BorrowRuleError("Cannot write to $(var_str)"))
     end
     return nothing
 end
@@ -210,8 +218,11 @@ function own(src::AllOwned, src_expr, dest_symbol::Symbol, ::Val{mut}) where {mu
     src_symbol = src_expr isa Symbol ? src_expr : :anonymous
     return move(src, src_symbol, dest_symbol, Val(mut))
 end
-function own(::AllBorrowed, _, ::Symbol, ::Val{mut}) where {mut}
-    throw(BorrowRuleError("Cannot own a borrowed object."))
+function own(src::AllBorrowed, src_expr, dest_symbol::Symbol, ::Val{mut}) where {mut}
+    src_symbol = src_expr isa Symbol ? src_expr : :anonymous
+    var_str =
+        src_symbol == :anonymous ? "a borrowed object" : "borrowed object `$(src_symbol)`"
+    throw(BorrowRuleError("Cannot own $(var_str)."))
 end
 
 function clone(src::AllWrappers, src_symbol, dest_symbol::Symbol, ::Val{mut}) where {mut}
