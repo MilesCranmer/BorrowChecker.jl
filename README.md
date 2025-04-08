@@ -98,11 +98,6 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
   - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
 
-### Automatic Ownership Transfer
-
-- `BorrowChecker.Experimental.@managed begin ... end`: create a scope where contextual dispatch is performed using [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl): recursively, all functions (_**in all dependencies**_) are automatically modified to apply `@take!` to any `Owned{T}` or `OwnedMut{T}` input arguments.
-  - Note: this is an experimental feature that may change or be removed in future versions. It relies on compiler internals and seems to break on certain functions (like SIMD operations).
-
 ### Loops
 
 - `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
@@ -256,55 +251,6 @@ Though we can't create multiple mutable references, you _are_ allowed to create 
 end
 
 @show data  # [[1, 4], [2, 4], [3, 4]]
-```
-
-### Automatic Ownership
-
-The (experimental) `@managed` block can be used to perform borrow checking automatically. It basically transforms all functions, everywhere, to perform `@take!` on function calls that take `Owned{T}` or `OwnedMut{T}` arguments:
-
-```julia
-struct Particle
-    position::Vector{Float64}
-    velocity::Vector{Float64}
-end
-
-function update!(p::Particle)
-    p.position .+= p.velocity
-    return p
-end
-```
-
-With `@managed`, you don't need to manually move ownership:
-
-```julia
-julia> using BorrowChecker.Experimental: @managed
-
-julia> @own :mut p = Particle([0.0, 0.0], [1.0, 1.0])
-       @managed begin
-           update!(p)
-       end;
-
-julia> p
-[moved]
-```
-
-This works via [Cassette.jl](https://github.com/JuliaLabs/Cassette.jl) overdubbing, which recursively modifies all function calls in the entire call stack - not just the top-level function, but also any functions it calls, and any functions those functions call, and so on. But do note that this is very experimental as it modifies the compilation itself. For more robust usage, just use `@take!` manually.
-
-This also works with nested field access, just like in Rust:
-
-```julia
-struct Container
-    x::Vector{Int}
-end
-
-f!(x::Vector{Int}) = push!(x, 3)
-
-@own a = Container([2])
-@managed begin
-    f!(a.x)  # Container ownership handled automatically
-end
-
-@take!(a)  # ERROR: Cannot use a: value has been moved
 ```
 
 ### Mutating Owned Values

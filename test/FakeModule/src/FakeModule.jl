@@ -1,7 +1,6 @@
 module FakeModule
 
 using BorrowChecker
-using BorrowChecker.Experimental: @managed
 using Test
 
 function test()
@@ -35,18 +34,6 @@ function test()
         @test z[] == 3
         @test r[] == 3
     end
-
-    # Test managed() - it should just run functions as-is when disabled
-    function expects_raw_int(x::Int)
-        return x + 1
-    end
-
-    @own w = 42
-    # When enabled, managed() would automatically convert w to raw Int,
-    # but when disabled it should fail since w is passed as-is
-    @own result = @managed expects_raw_int(w)
-    @test result == 43  # Function runs normally since w is just a raw Int
-    @test w == 42  # w is not moved since managed() is disabled
 end
 
 end

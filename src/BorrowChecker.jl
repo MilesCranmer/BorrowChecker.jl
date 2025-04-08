@@ -12,7 +12,6 @@ include("semantics.jl")
 include("macros.jl")
 include("overloads.jl")
 include("disambiguations.jl")
-include("experimental.jl")
 
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError

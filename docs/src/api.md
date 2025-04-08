@@ -51,12 +51,6 @@ SymbolMismatchError
 ExpiredError
 ```
 
-## Experimental Features
-
-```@docs
-BorrowChecker.Experimental.@managed
-```
-
 ## Internals
 
 Normally, you should rely on `OrBorrowed` and `OrBorrowedMut` to work with borrowed values, or use `@take` and `@take!` to unwrap owned values. However, for convenience, it might be useful to define functions on `Owned` and `OwnedMut` types, if you are confident that your operation will not "move" the input or return a view of it.
