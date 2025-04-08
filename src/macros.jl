@@ -400,24 +400,11 @@ function _process_value(lt_sym, value, sym_hint=nothing)
     end
 end
 
-# Process a splatted argument 
-function _process_splat(lt_sym, splat_expr)
-    splat_var = gensym("splat")
-    # Apply maybe_ref to borrow the value before splatting
-    ref_expr = :($splat_var = $(maybe_ref)($lt_sym, $splat_expr, $(QuoteNode(:anonymous))))
-    return splat_var, ref_expr
-end
-
 # Process a keyword argument
 function _process_keyword_arg(lt_sym, keyword, value)
     kw_var = gensym(string(keyword))
     ref_expr = :($kw_var = $(_process_value(lt_sym, value)))
     return (keyword, kw_var), ref_expr
-end
-
-# TODO: HACK - This is a bit of a hack...
-function _process_keyword_splat(lt_sym, keyword, splat_expr)
-    error("Keyword splatting is not implemented yet")
 end
 
 # Helper function for @bc implementation
@@ -438,7 +425,6 @@ function _bc(call_expr)
     pos_args = []  # Store positional arguments
 
     # Store keyword arguments
-    kw_splats = []  # Store keyword splats separately
     kw_args = []    # Store regular keywords
     has_kw_args = false
 
@@ -477,10 +463,7 @@ function _bc(call_expr)
         else
             # Process positional arguments
             if isexpr(arg, :...)
-                # Handle splat in positional argument
-                splat_var, ref_expr = _process_splat(lt_sym, arg.args[1])
-                push!(ref_exprs, ref_expr)
-                push!(pos_args, Expr(:..., splat_var))
+                error("Positional splatting is not implemented yet")
             else
                 pos_var = gensym("arg")
                 push!(ref_exprs, :($pos_var = $(_process_value(lt_sym, arg))))
@@ -490,7 +473,7 @@ function _bc(call_expr)
     end
 
     # Construct the function call
-    new_call = _construct_call(func, pos_args, kw_args, kw_splats, has_kw_args, ref_exprs)
+    new_call = _construct_call(func, pos_args, kw_args, has_kw_args, ref_exprs)
 
     # Create a let block with a lifetime, process references, call the function, and clean up
     let_expr = quote
@@ -508,24 +491,21 @@ function _bc(call_expr)
 end
 
 # Construct the function call expression
-function _construct_call(func, pos_args, kw_args, kw_splats, has_kw_args, ref_exprs)
+function _construct_call(func, pos_args, kw_args, has_kw_args, ref_exprs)
     if !has_kw_args
         # No keyword arguments at all
         return Expr(:call, func, pos_args...)
     end
 
     # Has keyword arguments
-    if isempty(kw_args) && isempty(kw_splats)
+    if isempty(kw_args)
         # No actual keyword args (just an empty parameters block)
         return Expr(:call, func, pos_args...)
     end
 
-    # Has actual keyword arguments
-    if isempty(kw_splats)
-        # No keyword splats, use regular keyword args
-        kw_pairs = [Expr(:kw, k, v) for (k, v) in kw_args]
-        return Expr(:call, func, Expr(:parameters, kw_pairs...), pos_args...)
-    end
+    # Use regular keyword args
+    kw_pairs = [Expr(:kw, k, v) for (k, v) in kw_args]
+    return Expr(:call, func, Expr(:parameters, kw_pairs...), pos_args...)
 end
 
 end
