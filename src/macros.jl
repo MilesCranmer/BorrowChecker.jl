@@ -1,10 +1,18 @@
 module MacrosModule
 
-using MacroTools
-using MacroTools: rmlines
+using MacroTools: @q, isexpr, splitarg, isdef
 
 using ..TypesModule:
-    Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllOwned
+    Owned,
+    OwnedMut,
+    Borrowed,
+    BorrowedMut,
+    Lifetime,
+    NoLifetime,
+    AllWrappers,
+    AllOwned,
+    AllBorrowed,
+    AsMutable
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -18,7 +26,8 @@ using ..SemanticsModule:
     clone,
     ref,
     ref_for,
-    cleanup!
+    cleanup!,
+    maybe_ref
 using ..PreferencesModule: is_borrow_checker_enabled
 
 """
@@ -343,6 +352,180 @@ function _clone(expr::Expr, mut::Bool)
     return esc(
         :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val($mut)))
     )
+end
+
+"""
+    @bc func(args...; kwargs...)
+
+Calls `func` with the given arguments and keyword arguments, automatically creating
+temporary borrows for arguments that appear to be owned variables.
+"""
+macro bc(call_expr)
+    if !is_borrow_checker_enabled(__module__)
+        return esc(call_expr)
+    end
+    return _bc(call_expr)
+end
+
+"""
+    @mut expr
+
+Marks a value to be borrowed mutably in a `@bc` macro call.
+"""
+macro mut(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(:($(AsMutable)($expr)))
+end
+
+
+# Process a value argument and generate the appropriate reference expression
+function _process_value(lt_sym, value, sym_hint=nothing)
+    if isexpr(value, :call) && value.args[1] == :mut
+        # Mutable borrow
+        arg = value.args[2]
+        sym = if arg isa Symbol
+            QuoteNode(arg)
+        else
+            (sym_hint !== nothing ? sym_hint : QuoteNode(:anonymous))
+        end
+        return :($(maybe_ref)($lt_sym, $(AsMutable)($arg), $sym))
+    else
+        # Regular immutable borrow
+        sym = if value isa Symbol
+            QuoteNode(value)
+        else
+            (sym_hint !== nothing ? sym_hint : QuoteNode(:anonymous))
+        end
+        return :($(maybe_ref)($lt_sym, $value, $sym))
+    end
+end
+
+# Process a splatted argument 
+function _process_splat(lt_sym, splat_expr)
+    splat_var = gensym("splat")
+    # Apply maybe_ref to borrow the value before splatting
+    ref_expr = :($splat_var = $(maybe_ref)($lt_sym, $splat_expr, $(QuoteNode(:anonymous))))
+    return splat_var, ref_expr
+end
+
+# Process a keyword argument
+function _process_keyword_arg(lt_sym, keyword, value)
+    kw_var = gensym(string(keyword))
+    ref_expr = :($kw_var = $(_process_value(lt_sym, value)))
+    return (keyword, kw_var), ref_expr
+end
+
+# TODO: HACK - This is a bit of a hack...
+function _process_keyword_splat(lt_sym, keyword, splat_expr)
+    error("Keyword splatting is not implemented yet")
+end
+
+# Helper function for @bc implementation
+function _bc(call_expr)
+    if !isexpr(call_expr, :call)
+        error("Expression is not a function call")
+    end
+
+    # Extract function name and arguments
+    func = call_expr.args[1]
+    args = call_expr.args[2:end]
+
+    # Generate a unique symbol for the lifetime variable
+    lt_sym = gensym("lt")
+
+    # Create expressions for borrowing arguments and constructing the function call
+    ref_exprs = []
+    pos_args = []  # Store positional arguments
+
+    # Store keyword arguments
+    kw_splats = []  # Store keyword splats separately
+    kw_args = []    # Store regular keywords
+    has_kw_args = false
+
+    # Process all arguments
+    for arg in args
+        if isexpr(arg, :parameters)
+            # Process parameters block
+            has_kw_args = true
+            for kwarg in arg.args
+                if isexpr(kwarg, :...) # Handle splatting in keyword parameters
+                    error("Keyword splatting is not implemented yet")
+                elseif isexpr(kwarg, :kw) && isexpr(kwarg.args[2], :...)
+                    error("Keyword splatting is not implemented yet")
+                else
+                    # Regular keyword argument
+                    keyword = kwarg.args[1]
+                    value = kwarg.args[2]
+                    kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
+                    push!(ref_exprs, ref_expr)
+                    push!(kw_args, kw_pair)
+                end
+            end
+        elseif isexpr(arg, :kw)
+            # Process individual keyword arguments
+            has_kw_args = true
+            keyword = arg.args[1]
+            value = arg.args[2]
+
+            if isexpr(value, :...)
+                error("Keyword splatting is not implemented yet")
+            else
+                kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
+                push!(ref_exprs, ref_expr)
+                push!(kw_args, kw_pair)
+            end
+        else
+            # Process positional arguments
+            if isexpr(arg, :...)
+                # Handle splat in positional argument
+                splat_var, ref_expr = _process_splat(lt_sym, arg.args[1])
+                push!(ref_exprs, ref_expr)
+                push!(pos_args, Expr(:..., splat_var))
+            else
+                pos_var = gensym("arg")
+                push!(ref_exprs, :($pos_var = $(_process_value(lt_sym, arg))))
+                push!(pos_args, pos_var)
+            end
+        end
+    end
+
+    # Construct the function call
+    new_call = _construct_call(func, pos_args, kw_args, kw_splats, has_kw_args, ref_exprs)
+
+    # Create a let block with a lifetime, process references, call the function, and clean up
+    let_expr = quote
+        let $lt_sym = $(Lifetime)()
+            try
+                $(ref_exprs...)
+                $new_call
+            finally
+                $(cleanup!)($lt_sym)
+            end
+        end
+    end
+
+    return esc(let_expr)
+end
+
+# Construct the function call expression
+function _construct_call(func, pos_args, kw_args, kw_splats, has_kw_args, ref_exprs)
+    if !has_kw_args
+        # No keyword arguments at all
+        return Expr(:call, func, pos_args...)
+    end
+
+    # Has keyword arguments
+    if isempty(kw_args) && isempty(kw_splats)
+        # No actual keyword args (just an empty parameters block)
+        return Expr(:call, func, pos_args...)
+    end
+
+    # Has actual keyword arguments
+    if isempty(kw_splats)
+        # No keyword splats, use regular keyword args
+        kw_pairs = [Expr(:kw, k, v) for (k, v) in kw_args]
+        return Expr(:call, func, Expr(:parameters, kw_pairs...), pos_args...)
+    end
 end
 
 end
