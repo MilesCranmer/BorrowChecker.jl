@@ -84,7 +84,7 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 
 ### Basics
 
-- `@own [:mut] x = value`: Create a new owned value (mutable if `:mut` is specified)
+- `@own [:mut] x [= value]`: Create a new owned value (mutable if `:mut` is specified)
   - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
   - You can use `@own [:mut] x` as a shorthand for `@own [:mut] x = x` to create owned values at the start of a function.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
