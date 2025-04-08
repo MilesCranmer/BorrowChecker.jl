@@ -144,10 +144,10 @@ end
 
 # ---- Other ----
 # TODO: Add `insert!` and `delete!`
-function Base.iterate(::Union{AllOwned,LazyAccessorOf{<:AllOwned}})
+function Base.iterate(::Union{AllOwned,LazyAccessorOf{AllOwned}})
     error("Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead.")
 end
-function Base.iterate(r::Union{Borrowed,LazyAccessorOf{<:Borrowed}}, state=Unused())
+function Base.iterate(r::Union{Borrowed,LazyAccessorOf{Borrowed}}, state=Unused())
     out = iterate(request_value(r, Val(:read)), (isunused(state) ? () : (state,))...)
     out === nothing && return nothing
     (iter, state) = out
@@ -206,7 +206,7 @@ for op in (
     :*, :/, :+, :-, :^, :÷, :mod, :log,
     :atan, :atand, :copysign, :flipsign,
     :&, :|, :⊻, ://, :\, :(:), :rem, :cmp,
-    :isapprox, :(<), :(<=), :(>), :(>=),
+    :isapprox, :(<), :(<=), :(>), :(>=), :isless,
     :(<<), :(>>), :(>>>),
 )
     # TODO: Forward kwargs
