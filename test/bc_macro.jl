@@ -300,3 +300,67 @@ end
     # Original data should still be usable
     @test @take(data) == [1, 2, 3, 4, 5]
 end
+
+@testitem "Borrowing with expression argument" begin
+    using BorrowChecker
+    using BorrowChecker: LazyAccessorOf, get_immutable_borrows, get_mutable_borrows
+
+    mutable struct A
+        a::Int
+        b::Int
+    end
+    mutable struct B
+        a::A
+        c::Int
+    end
+
+    @own data = B(A(1, 2), 8)
+
+    function f(x; check=true)
+        @test x isa Borrowed
+        check && @test get_immutable_borrows(data) == 1
+        return x.a + x.b
+    end
+
+    @test data.a isa LazyAccessorOf{Owned}
+
+    # We create refs _through_ the accessor
+    result = @bc f(data.a)
+    @test result == 3
+
+    function g(; x, check=true)
+        @test x isa Borrowed
+        check && @test get_immutable_borrows(data) == 1
+        return x.a + x.b
+    end
+
+    result = @bc g(; x=data.a)
+    @test result == 3
+
+    # This also works with mutable objects
+    @own :mut data_mut = data
+    @test data_mut.a isa LazyAccessorOf{OwnedMut}
+
+    function f_mut(x; check=true)
+        @test x isa BorrowedMut
+        check && @test get_mutable_borrows(data_mut) == 1
+        return x.a + x.b
+    end
+    function g_mut(; x)
+        @test x isa BorrowedMut
+        @test get_mutable_borrows(data_mut) == 1
+        return x.a + x.b
+    end
+
+    result = @bc f(data_mut.a; check=false)
+    @test result == 3
+
+    result = @bc f_mut(@mut(data_mut.a))
+    @test result == 3
+
+    result = @bc g(; x=data_mut.a, check=false)
+    @test result == 3
+
+    result = @bc g_mut(; x=@mut(data_mut.a))
+    @test result == 3
+end
