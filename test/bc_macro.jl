@@ -383,11 +383,16 @@ end
 @testitem "Reborrowing" begin
     using BorrowChecker
 
-    @own :mut data = [1, 2, 3]
+    @own :mut data = [[1], [2], [3]]
     @lifetime lt begin
         @ref ~lt :mut ref = data
+
+        f(x) = sum(x)
+
         # References are just passed through
-        @test (@bc sum(ref)) == 6
+        @test (@bc f(ref)) == [6]
+        @test (@bc f(ref[1:2])) == [3]
+        @test_throws "Nesting lifetimes is not allowed" (@bc f(@mut(ref)))
     end
 end
 
@@ -401,7 +406,7 @@ end
     function f(x)
         put!(channel_a, nothing)
         push!(x, 4)
-        take!(channel_b)
+        return take!(channel_b)
     end
 
     task = @async @bc f(@mut(data))
