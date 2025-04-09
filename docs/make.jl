@@ -48,6 +48,8 @@ makedocs(;
 deploydocs(; repo="github.com/MilesCranmer/BorrowChecker.jl", devbranch="main")
 
 # Mirror to DAMTP:
-ENV["DOCUMENTER_KEY"] = ENV["DOCUMENTER_KEY_CAM"]
-ENV["GITHUB_REPOSITORY"] = "ai-damtp-cam-ac-uk/borrowcheckerjl.git"
-deploydocs(; repo="github.com/ai-damtp-cam-ac-uk/borrowcheckerjl.git", devbranch="main")
+if haskey(ENV, "DOCUMENTER_KEY_CAM")
+    ENV["DOCUMENTER_KEY"] = ENV["DOCUMENTER_KEY_CAM"]
+    ENV["GITHUB_REPOSITORY"] = "ai-damtp-cam-ac-uk/borrowcheckerjl.git"
+    deploydocs(; repo="github.com/ai-damtp-cam-ac-uk/borrowcheckerjl.git", devbranch="main")
+end
