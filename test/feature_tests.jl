@@ -1223,6 +1223,7 @@ end
 
 @testitem "Collection operations" begin
     using BorrowChecker: is_moved
+    using Random: shuffle!
 
     # Test non-mutating operations that are safe to return
     @own arr = [1, 2, 3, 4]
@@ -1273,6 +1274,7 @@ end
     @test_throws "Use `reverse(@take!(d))` instead." reverse(strings)
     @test sort!(strings) === nothing
     @test strings == [["a"], ["b"], ["c"]]
+    @test shuffle!(strings) === nothing
 
     # Test mutating operations
     @own :mut nums = [1, 2, 3]

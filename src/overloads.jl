@@ -1,5 +1,6 @@
 module OverloadsModule
 
+using Random: Random
 using ..TypesModule:
     Owned,
     OwnedMut,
@@ -141,6 +142,7 @@ Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)
 for op in (:empty!, :sort!, :reverse!)
     @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
+Random.shuffle!(r::AllWrappers) = (Random.shuffle!(request_value(r, Val(:write))); nothing)
 
 # ---- Other ----
 # TODO: Add `insert!` and `delete!`
