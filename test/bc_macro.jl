@@ -450,3 +450,31 @@ end
     # Verify that any partial modifications made before the error are still present
     @test @take(my_vec) == [10, 20, 55]
 end
+
+@testitem "With shorthand keyword arguments" begin
+    using BorrowChecker
+    using BorrowChecker: get_immutable_borrows
+
+    # Define test function that uses shorthand keyword arguments
+    function with_shorthand_keywords(; x, y, z=1)
+        # Verify types of arguments
+        @test x isa Borrowed
+        @test y isa Borrowed
+        @test z == 1
+
+        return "Processed with shorthand keywords"
+    end
+
+    @own :mut x = [1, 2, 3]
+    @own y = [4, 5]
+
+    # Test with shorthand keyword arguments
+    result = @bc with_shorthand_keywords(; x, y)
+    @test result == "Processed with shorthand keywords"
+
+    f(; x) = sum(x)
+
+    @own x = [1, 2, 3]
+    @own result = @bc f(; x)
+    @test result == 6
+end

@@ -458,7 +458,12 @@ function _process_value(out_sym, lt_sym, value)
 end
 
 function _process_keyword_arg(lt_sym, kw_ex)
-    keyword, value = kw_ex.args
+    if kw_ex isa Symbol  # expressions like `f(; x)`
+        keyword = kw_ex
+        value = kw_ex
+    else
+        keyword, value = kw_ex.args
+    end
     kw_var = gensym(string(keyword))
     ref_expr = _process_value(kw_var, lt_sym, value)
     return (keyword, kw_var), ref_expr
