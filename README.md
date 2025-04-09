@@ -77,6 +77,44 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 
 [^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
 
+### Example: Preventing Thread Races
+
+BorrowChecker.jl helps prevent data races by enforcing borrowing rules.
+Let's mock up a simple scenario where two threads modify the same array concurrently:
+
+```julia
+data = [1, 2, 3]
+
+modify!(x, i) = (sleep(rand()+0.1); push!(x, i))
+
+t1 = Threads.@spawn modify!(data, 4)
+t2 = Threads.@spawn modify!(data, 5)
+
+fetch(t1); fetch(t2)
+```
+
+This has a silent race condition, and the result will be non-deterministic.
+
+Now, let's see what happens if we had used BorrowChecker.jl, using the `@own`, `@bc`, and `@mut` macros:
+
+```julia
+@own :mut data = [1, 2, 3]
+
+t1 = Threads.@spawn @bc modify!(@mut(data), 4)
+t2 = Threads.@spawn @bc modify!(@mut(data), 5)
+```
+
+Now, if you attempt to fetch both tasks, you will see this error:
+
+```text
+nested task error: Cannot create mutable reference: `data` is already mutably borrowed
+```
+
+This is because in BorrowChecker.jl's ownership model, **you can only have one mutable reference to a value at a time**!
+
+The rules are: while you can have multiple _immutable_ references (reading from multiple threads), you cannot have multiple _mutable_ references, and also not both mutable and immutable references.
+You also cannot access a reference after the lifetime has ended (which in this case, is the duration of the `@bc` macro).
+
 ## API
 
 > [!CAUTION]
@@ -89,11 +127,14 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
   - You can use `@own [:mut] x` as a shorthand for `@own [:mut] x = x` to create owned values at the start of a function.
 - `@move [:mut] new = old`: Transfer ownership from one variable to another (mutable destination if `:mut` is specified). _Note that this is simply a more explicit version of `@own` for moving values._
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
-- `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take`will perform a copy.
-- `getproperty` and `getindex` access (e.g., `x.field` or `x[i]`) on owned or borrowed values will return a `LazyAccessor` that propagates ownership and lifetime information until the raw value needs to be used.
+- `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take` will perform a copy.
+- `getproperty` and `getindex` on owned/borrowed values return a `LazyAccessor` that preserves ownership/lifetime until the raw value is used.
+
 
 ### References and Lifetimes
 
+- `@bc f(args...; kws...)`: This convenience macro automatically creates a lifetime scope for the duration of the function, and sets up borrowing for any owned input arguments.
+    - Use `@mut(arg)` to mark an input as mutable.
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
   - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
@@ -321,9 +362,38 @@ Another macro is `@move`, which is a more explicit version of `@own new = @take!
 
 Note that `@own new = old` will also work as a convenience, but `@move` is more explicit and also asserts that the new value is owned.
 
+### Automated Borrowing with `@bc`
+
+The `@bc` macro simplifies calls involving owned variables. Instead of manually creating `@lifetime` blocks and references, you just wrap the function call in `@bc`,
+which will create a lifetime scope for the duration of the function call,
+and generate references to owned input arguments.
+Declare which arguments should be mutable with `@mut(...)`.
+
+```julia
+@own config = Dict("enabled" => true)
+@own :mut data = [1, 2, 3]
+
+function process(cfg::OrBorrowed{Dict}, arr::OrBorrowedMut{Vector})
+    push!(arr, cfg["enabled"] ? 4 : -1)
+    return length(arr)
+end
+
+@bc process(config, @mut(data))  # => 4
+```
+
+Under the hood, `@bc` wraps the function call in a `@lifetime` block,
+so references end automatically when the call finishes
+(and thus lose access to the original object).
+
+This approach works with multiple positional and keyword arguments, and is a convenient
+way to handle the majority of borrowing patterns.
+You can freely mix owned, borrowed, and normal Julia values in the same call, and the macro will handle ephemeral references behind the scenes.
+For cases needing more control or longer lifetimes, manual `@lifetime` usage is a good option.
+
 ### Introducing BorrowChecker.jl to Your Codebase
 
-When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function. The single-arg version of `@own` is particularly useful in this case:
+When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function.
+The simplified version of `@own` is particularly useful in this case:
 
 ```julia
 function process_data(x, y, z)
@@ -336,7 +406,8 @@ end
 
 This pattern is useful for generic functions because if you pass an owned variable as either `x`, `y`, or `z`, the original function will get marked as moved.
 
-The next pattern that is useful is to use `OrBorrowed{T}` (basically `==Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures. Let's say you have some function:
+The next pattern that is useful is to use `OrBorrowed{T}` (basically equal to `Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures.
+Let's say you have some function:
 
 ```julia
 struct Bar{T}
@@ -363,19 +434,18 @@ function process_data(x, y, z)
     @own x, y
     @own :mut z
 
-    @own total = @lifetime lt begin
-        @ref ~lt r1 = z
-        @ref ~lt r2 = z
-
-        @own tasks = [
-            Threads.@spawn(foo(r1))
-            Threads.@spawn(foo(r2))
-        ]
-        sum(map(fetch, @take!(tasks)))
-    end
+    @own tasks = [
+        Threads.@spawn(@bc(foo(z))),
+        Threads.@spawn(@bc(foo(z)))
+    ]
+    sum(map(fetch, @take!(tasks)))
 end
 ```
 
 Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context!
+Immutable references are safe to pass in a multi-threaded context, so this
+doubles as a good way to prevent unintended thread races.
 
-Immutable references are safe to pass in a multi-threaded context, so doubles as a good way to prevent unintended thread races.
+Note that this will nicely handle the case of multiple mutable references—if we had
+written `@bc foo(@mut(z))` while the other thread was running, we
+would see a `BorrowRuleError` because `z` is already mutably borrowed!

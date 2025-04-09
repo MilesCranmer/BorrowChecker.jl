@@ -1,10 +1,18 @@
 module MacrosModule
 
-using MacroTools
-using MacroTools: rmlines
+using MacroTools: @q, isexpr, splitarg, isdef
 
 using ..TypesModule:
-    Owned, OwnedMut, Borrowed, BorrowedMut, Lifetime, NoLifetime, AllWrappers, AllOwned
+    Owned,
+    OwnedMut,
+    Borrowed,
+    BorrowedMut,
+    Lifetime,
+    NoLifetime,
+    AllWrappers,
+    AllOwned,
+    AllBorrowed,
+    AsMutable
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -18,7 +26,8 @@ using ..SemanticsModule:
     clone,
     ref,
     ref_for,
-    cleanup!
+    cleanup!,
+    maybe_ref
 using ..PreferencesModule: is_borrow_checker_enabled
 
 """
@@ -343,6 +352,137 @@ function _clone(expr::Expr, mut::Bool)
     return esc(
         :($(dest) = $(clone)($(src), $(QuoteNode(src)), $(QuoteNode(dest)), Val($mut)))
     )
+end
+
+"""
+    @bc func(args...; kwargs...)
+
+Calls `func` with the given arguments and keyword arguments, automatically creating
+temporary borrows for arguments that appear to be owned variables.
+
+# Examples
+
+Say that we wish to safely modify an array by reference.
+We have two owned variables, `ar1` and `ar2`,
+and we wish to add the first element of `ar2` to `ar1`.
+
+```
+@own :mut ar1 = [1, 2]
+@own ar2 = [3, 4]
+
+add_first!(x, y) = (x[1] += y[1]; nothing)
+```
+
+If we set up a lifetime scope manually, we might write:
+
+```julia
+@lifetime lt begin
+    @ref ~lt :mut ref1 = ar1
+    @ref ~lt ref2 = ar2
+    add_first!(ref1, ref2)
+end
+```
+
+However, most of the time you only need to create a lifetime scope for a single function call,
+so `@bc` lets us do this automatically:
+
+```julia
+@bc add_first!(@mut(ar1), ar2)
+```
+
+This will evaluate to something that is quite similar to the
+manual lifetime scope.
+
+`@bc` also supports non-owned variables, which will simply get passed through as-is.
+"""
+macro bc(call_expr)
+    is_borrow_checker_enabled(__module__) || return esc(call_expr)
+    return _bc(call_expr)
+end
+
+function _bc(call_expr)
+    if !isexpr(call_expr, :call)
+        error("Expression is not a function call")
+    end
+
+    # Extract function name and arguments
+    func = call_expr.args[1]
+    all_args = call_expr.args[2:end]
+
+    lifetime_symbol = gensym("lifetime")
+    ref_exprs = []
+    pos_args = []
+    kw_args = []
+
+    # First pass: Separate positional and keyword arguments
+    for arg in all_args
+        if isexpr(arg, :parameters) || isexpr(arg, :kw)
+            kw_exprs = isexpr(arg, :parameters) ? arg.args : [arg]
+            # ^Deals with `f(a=1, b=2)` vs `f(; a=1, b=2)`
+            for kw_ex in kw_exprs
+                isexpr(kw_ex, :...) &&
+                    error("Keyword splatting is not implemented yet in `@bc`")
+
+                kw_pair, ref_expr = _process_keyword_arg(lifetime_symbol, kw_ex)
+                push!(ref_exprs, ref_expr)
+                push!(kw_args, kw_pair)
+            end
+        elseif isexpr(arg, :...)
+            error("Positional splatting (`...`) is not implemented yet in `@bc`")
+        else  # regular positional args
+            pos_var = gensym("arg")
+            push!(ref_exprs, _process_value(pos_var, lifetime_symbol, arg))
+            push!(pos_args, pos_var)
+        end
+    end
+
+    new_call = _construct_call(func, pos_args, kw_args)
+
+    let_expr = quote
+        let $lifetime_symbol = $(Lifetime)()
+            try
+                $(ref_exprs...)
+                $new_call
+            finally
+                $(cleanup!)($lifetime_symbol)
+            end
+        end
+    end
+
+    return esc(let_expr)
+end
+
+function _process_value(out_sym, lt_sym, value)
+    sym = QuoteNode(value isa Symbol ? value : :anonymous)
+    return :($out_sym = $(maybe_ref)($lt_sym, $value, $sym))
+end
+
+function _process_keyword_arg(lt_sym, kw_ex)
+    if kw_ex isa Symbol  # expressions like `f(; x)`
+        keyword = kw_ex
+        value = kw_ex
+    else
+        keyword, value = kw_ex.args
+    end
+    kw_var = gensym(string(keyword))
+    ref_expr = _process_value(kw_var, lt_sym, value)
+    return (keyword, kw_var), ref_expr
+end
+
+function _construct_call(func, pos_args, kw_args)
+    isempty(kw_args) && return Expr(:call, func, pos_args...)
+    param_block = Expr(:parameters, [Expr(:kw, k, v) for (k, v) in kw_args]...)
+    return Expr(:call, func, param_block, pos_args...)
+end
+
+"""
+    @mut expr
+
+Marks a value to be borrowed mutably in a `@bc` macro call.
+"""
+macro mut(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(:($(AsMutable)($expr)))
 end
 
 end

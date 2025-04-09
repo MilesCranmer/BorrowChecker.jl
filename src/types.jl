@@ -417,4 +417,14 @@ end
 @inline increment_mutable_borrows!(r::OwnedMut) = _change_mutable_borrows!(r, 1)
 @inline decrement_mutable_borrows!(r::OwnedMut) = _change_mutable_borrows!(r, -1)
 
+"""
+    AsMutable{T}
+
+Wrapper type used to indicate that a value should be borrowed mutably.
+Used in conjunction with the `mut` function and the `@bc` macro.
+"""
+struct AsMutable{T}
+    value::T
+end
+
 end

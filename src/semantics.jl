@@ -14,6 +14,7 @@ using ..TypesModule:
     Lifetime,
     LazyAccessor,
     LazyAccessorOf,
+    AsMutable,
     constructorof,
     is_mutable,
     mark_moved!,
@@ -350,5 +351,29 @@ function pop_owner!(refs::Vector, owner::AllOwned, lock)
 end
 # TODO: Much simpler if we just don't add the owner in the first place.
 #       There should be a better overall design here.
+
+#! format: on
+function maybe_ref(
+    lt::Lifetime, wrapper::AsMutable, var_symbol::Symbol, ::Val{false}=Val(false)
+)
+    return maybe_ref(lt, wrapper.value, var_symbol, Val(true))
+end
+function maybe_ref(
+    lt::Lifetime, val::Union{O,LazyAccessorOf{O}}, var_symbol::Symbol, ::Val{mut}=Val(false)
+) where {T,O<:AllOwned{T},mut}
+    is_static(T) && return request_value(val, Val(:read))
+    return ref(lt, val, var_symbol, Val(mut))
+end
+function maybe_ref(
+    ::Lifetime, val::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, ::Symbol, ::Val{mut}=Val(false)
+) where {mut}
+    return val
+end
+function maybe_ref(
+    ::Lifetime, val, ::Symbol, ::Val{mut}=Val(false)
+) where {mut}
+    return val
+end
+#! format: off
 
 end
