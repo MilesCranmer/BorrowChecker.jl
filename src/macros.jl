@@ -376,25 +376,9 @@ macro mut(expr)
 end
 
 # Process a value argument and generate the appropriate reference expression
-function _process_value(lt_sym, value, sym_hint=nothing)
-    if isexpr(value, :call) && value.args[1] == :mut
-        # Mutable borrow
-        arg = value.args[2]
-        sym = if arg isa Symbol
-            QuoteNode(arg)
-        else
-            (sym_hint !== nothing ? sym_hint : QuoteNode(:anonymous))
-        end
-        return :($(maybe_ref)($lt_sym, $(AsMutable)($arg), $sym))
-    else
-        # Regular immutable borrow
-        sym = if value isa Symbol
-            QuoteNode(value)
-        else
-            (sym_hint !== nothing ? sym_hint : QuoteNode(:anonymous))
-        end
-        return :($(maybe_ref)($lt_sym, $value, $sym))
-    end
+function _process_value(lt_sym, value)
+    sym = QuoteNode(value isa Symbol ? value : :anonymous)
+    return :($(maybe_ref)($lt_sym, $value, $sym))
 end
 
 # Process a keyword argument
@@ -420,7 +404,6 @@ function _bc(call_expr)
     # Create expressions for borrowing arguments and constructing the function call
     ref_exprs = []
     pos_args = []  # Store positional arguments
-    kw_args = []  # Store keyword arguments (pairs of keyword symbol and generated var)
     kw_exprs_to_process = []  # Store :kw expressions found
 
     # First pass: Separate positional and keyword arguments
@@ -442,6 +425,7 @@ function _bc(call_expr)
         end
     end
 
+    kw_args = []  # Store keyword arguments (pairs of keyword symbol and generated var)
     # Second pass: Process collected keyword arguments
     for kwarg_expr in kw_exprs_to_process
         if isexpr(kwarg_expr, :...) # Handle splatting like f(; a...)
