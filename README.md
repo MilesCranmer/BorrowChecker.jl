@@ -77,6 +77,44 @@ Note that BorrowChecker.jl does not prevent you from cheating the system and usi
 
 [^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
 
+### Example: Preventing Thread Races
+
+BorrowChecker.jl helps prevent data races by enforcing borrowing rules.
+Let's mock up a simple scenario where two threads modify the same array concurrently:
+
+```julia
+data = [1, 2, 3]
+
+modify!(x, i) = (sleep(rand()+0.1); push!(x, i))
+
+t1 = Threads.@spawn modify!(data, 4)
+t2 = Threads.@spawn modify!(data, 5)
+
+fetch(t1); fetch(t2)
+```
+
+This has a silent race condition, and the result will be non-deterministic.
+
+Now, let's see what happens if we had used BorrowChecker.jl, using the `@own`, `@bc`, and `@mut` macros:
+
+```julia
+@own :mut data = [1, 2, 3]
+
+t1 = Threads.@spawn @bc modify!(@mut(data), 4)
+t2 = Threads.@spawn @bc modify!(@mut(data), 5)
+```
+
+Now, if you attempt to fetch both tasks, you will see this error:
+
+```text
+nested task error: Cannot create mutable reference: `data` is already mutably borrowed
+```
+
+This is because in BorrowChecker.jl's ownership model, **you can only have one mutable reference to a value at a time**!
+
+The rules are: while you can have multiple _immutable_ references (reading from multiple threads), you cannot have multiple _mutable_ references, and also not both mutable and immutable references.
+You also cannot access a reference after the lifetime has ended (which in this case, is the duration of the `@bc` macro).
+
 ## API
 
 > [!CAUTION]
