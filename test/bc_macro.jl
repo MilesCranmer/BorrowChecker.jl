@@ -422,3 +422,31 @@ end
 
     @test data == [1, 2, 3, 4]
 end
+
+@testitem "Error handling within called function" begin
+    using BorrowChecker
+    using BorrowChecker: get_mutable_borrows
+
+    @own :mut my_vec = [10, 20]
+
+    function throws_error_with_borrow!(vec)
+        @test vec isa BorrowedMut
+        @test get_mutable_borrows(my_vec) == 1
+        push!(vec, 55)
+        return error("Intentional error during execution")
+    end
+
+    @test get_mutable_borrows(my_vec) == 0
+
+    # Call the function with @bc and expect an error
+    # We use test_throws to ensure the correct error is propagated
+    @test_throws "Intentional error during execution" @bc throws_error_with_borrow!(
+        @mut(my_vec)
+    )
+
+    # IMPORTANT: Check that borrows are cleaned up even after the error
+    @test get_mutable_borrows(my_vec) == 0
+
+    # Verify that any partial modifications made before the error are still present
+    @test @take(my_vec) == [10, 20, 55]
+end
