@@ -412,14 +412,21 @@ function _bc(call_expr)
     lifetime_symbol = gensym("lifetime")
     ref_exprs = []
     pos_args = []
-    kw_exprs_to_process = []
+    kw_args = []
 
     # First pass: Separate positional and keyword arguments
     for arg in all_args
-        if isexpr(arg, :parameters)  # If it's written like `f(; a=1, b=2)`
-            append!(kw_exprs_to_process, arg.args)
-        elseif isexpr(arg, :kw)  # If it's written like `f(a=1, b=2)` directly
-            push!(kw_exprs_to_process, arg)
+        if isexpr(arg, :parameters) || isexpr(arg, :kw)
+            kw_exprs = isexpr(arg, :parameters) ? arg.args : [arg]
+            # ^Deals with `f(a=1, b=2)` vs `f(; a=1, b=2)`
+            for kw_ex in kw_exprs
+                isexpr(kw_ex, :...) &&
+                    error("Keyword splatting is not implemented yet in `@bc`")
+
+                kw_pair, ref_expr = _process_keyword_arg(lifetime_symbol, kw_ex)
+                push!(ref_exprs, ref_expr)
+                push!(kw_args, kw_pair)
+            end
         elseif isexpr(arg, :...)
             error("Positional splatting (`...`) is not implemented yet in `@bc`")
         else  # regular positional args
@@ -429,25 +436,8 @@ function _bc(call_expr)
         end
     end
 
-    kw_args = []
-    for kwarg_expr in kw_exprs_to_process
-        if isexpr(kwarg_expr, :...)
-            error("Keyword splatting is not implemented yet in `@bc`")
-        else
-            # Regular keyword argument
-            keyword = kwarg_expr.args[1]
-            value = kwarg_expr.args[2]
-
-            kw_pair, ref_expr = _process_keyword_arg(lifetime_symbol, keyword, value)
-            push!(ref_exprs, ref_expr)
-            push!(kw_args, kw_pair)
-        end
-    end
-
-    # Construct the function call
     new_call = _construct_call(func, pos_args, kw_args)
 
-    # Create a let block with a lifetime, process references, call the function, and clean up
     let_expr = quote
         let $lifetime_symbol = $(Lifetime)()
             try
@@ -462,20 +452,18 @@ function _bc(call_expr)
     return esc(let_expr)
 end
 
-# Process a value argument and generate the appropriate reference expression
 function _process_value(out_sym, lt_sym, value)
     sym = QuoteNode(value isa Symbol ? value : :anonymous)
     return :($out_sym = $(maybe_ref)($lt_sym, $value, $sym))
 end
 
-# Process a keyword argument
-function _process_keyword_arg(lt_sym, keyword, value)
+function _process_keyword_arg(lt_sym, kw_ex)
+    keyword, value = kw_ex.args
     kw_var = gensym(string(keyword))
     ref_expr = _process_value(kw_var, lt_sym, value)
     return (keyword, kw_var), ref_expr
 end
 
-# Construct the function call expression
 function _construct_call(func, pos_args, kw_args)
     isempty(kw_args) && return Expr(:call, func, pos_args...)
     param_block = Expr(:parameters, [Expr(:kw, k, v) for (k, v) in kw_args]...)
