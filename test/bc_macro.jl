@@ -118,6 +118,11 @@ end
     # Test with keyword arguments
     result = @bc with_keywords(my_vec; name="test", optional=other_vec)
     @test result == "Processed with keywords"
+
+    #! format: off
+    # Also works without semi-colon (different parsing required)
+    result = @bc with_keywords(my_vec, name="test", optional=other_vec)
+    #! format: on
 end
 
 @testitem "Using @take! to move ownership" begin

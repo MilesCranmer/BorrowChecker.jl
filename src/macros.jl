@@ -412,7 +412,7 @@ function _bc(call_expr)
 
     # Extract function name and arguments
     func = call_expr.args[1]
-    args = call_expr.args[2:end]
+    all_args = call_expr.args[2:end]
 
     # Generate a unique symbol for the lifetime variable
     lt_sym = gensym("lt")
@@ -420,57 +420,45 @@ function _bc(call_expr)
     # Create expressions for borrowing arguments and constructing the function call
     ref_exprs = []
     pos_args = []  # Store positional arguments
+    kw_args = []  # Store keyword arguments (pairs of keyword symbol and generated var)
+    kw_exprs_to_process = []  # Store :kw expressions found
 
-    # Store keyword arguments
-    kw_args = []    # Store regular keywords
-    has_kw_args = false
-
-    # Process all arguments
-    for arg in args
+    # First pass: Separate positional and keyword arguments
+    for arg in all_args
         if isexpr(arg, :parameters)
-            # Process parameters block
-            has_kw_args = true
-            for kwarg in arg.args
-                if isexpr(kwarg, :...) # Handle splatting in keyword parameters
-                    error("Keyword splatting is not implemented yet")
-                elseif isexpr(kwarg, :kw) && isexpr(kwarg.args[2], :...)
-                    error("Keyword splatting is not implemented yet")
-                else
-                    # Regular keyword argument
-                    keyword = kwarg.args[1]
-                    value = kwarg.args[2]
-                    kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
-                    push!(ref_exprs, ref_expr)
-                    push!(kw_args, kw_pair)
-                end
-            end
+            # Add all keyword expressions from the parameters block
+            append!(kw_exprs_to_process, arg.args)
         elseif isexpr(arg, :kw)
-            # Process individual keyword arguments
-            has_kw_args = true
-            keyword = arg.args[1]
-            value = arg.args[2]
-
-            if isexpr(value, :...)
-                error("Keyword splatting is not implemented yet")
-            else
-                kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
-                push!(ref_exprs, ref_expr)
-                push!(kw_args, kw_pair)
-            end
+            # Add the individual keyword expression
+            push!(kw_exprs_to_process, arg)
+        elseif isexpr(arg, :...)
+            # Handle positional splatting
+            error("Positional splatting (`...`) is not implemented yet in @bc")
         else
-            # Process positional arguments
-            if isexpr(arg, :...)
-                error("Positional splatting is not implemented yet")
-            else
-                pos_var = gensym("arg")
-                push!(ref_exprs, :($pos_var = $(_process_value(lt_sym, arg))))
-                push!(pos_args, pos_var)
-            end
+            # Process regular positional arguments
+            pos_var = gensym("arg")
+            push!(ref_exprs, :($pos_var = $(_process_value(lt_sym, arg))))
+            push!(pos_args, pos_var)
+        end
+    end
+
+    # Second pass: Process collected keyword arguments
+    for kwarg_expr in kw_exprs_to_process
+        if isexpr(kwarg_expr, :...) # Handle splatting like f(; a...)
+            error("Keyword splatting is not implemented yet")
+        else
+            # Regular keyword argument
+            keyword = kwarg_expr.args[1]
+            value = kwarg_expr.args[2]
+
+            kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
+            push!(ref_exprs, ref_expr)
+            push!(kw_args, kw_pair)
         end
     end
 
     # Construct the function call
-    new_call = _construct_call(func, pos_args, kw_args, has_kw_args, ref_exprs)
+    new_call = _construct_call(func, pos_args, kw_args)
 
     # Create a let block with a lifetime, process references, call the function, and clean up
     let_expr = quote
@@ -488,17 +476,8 @@ function _bc(call_expr)
 end
 
 # Construct the function call expression
-function _construct_call(func, pos_args, kw_args, has_kw_args, ref_exprs)
-    if !has_kw_args
-        # No keyword arguments at all
-        return Expr(:call, func, pos_args...)
-    end
-
-    # Has keyword arguments
-    if isempty(kw_args)
-        # No actual keyword args (just an empty parameters block)
-        return Expr(:call, func, pos_args...)
-    end
+function _construct_call(func, pos_args, kw_args)
+    isempty(kw_args) && return Expr(:call, func, pos_args...)
 
     # Use regular keyword args
     kw_pairs = [Expr(:kw, k, v) for (k, v) in kw_args]
