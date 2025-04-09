@@ -392,7 +392,7 @@ end
         # References are just passed through
         @test (@bc f(ref)) == [6]
         @test (@bc f(ref[1:2])) == [3]
-        @test_throws "Nesting lifetimes is not allowed" (@bc f(@mut(ref)))
+        @test (@bc f(@mut(ref))) == [6]
     end
 end
 
@@ -477,4 +477,14 @@ end
     @own x = [1, 2, 3]
     @own result = @bc f(; x)
     @test result == 6
+end
+
+@testitem "Static values are passed through" begin
+    using BorrowChecker
+    using BorrowChecker: is_static
+
+    f(x) = (@test x isa Int; x)
+
+    @own x = 1
+    @test @bc(f(x)) == 1
 end

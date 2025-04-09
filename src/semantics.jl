@@ -353,21 +353,25 @@ end
 #       There should be a better overall design here.
 
 #! format: on
-function maybe_ref(lt::Lifetime, wrapper::AsMutable, var_symbol::Symbol)
-    # TODO: Eventually we can probably skip this with an `is_static` check.
-    return ref(lt, wrapper.value, var_symbol, Val(true))
+function maybe_ref(
+    lt::Lifetime, wrapper::AsMutable, var_symbol::Symbol, ::Val{false}=Val(false)
+)
+    return maybe_ref(lt, wrapper.value, var_symbol, Val(true))
 end
 function maybe_ref(
-    lt::Lifetime, val::Union{AllOwned,LazyAccessorOf{AllOwned}}, var_symbol::Symbol
-)
-    return ref(lt, val, var_symbol, Val(false))
+    lt::Lifetime, val::Union{O,LazyAccessorOf{O}}, var_symbol::Symbol, ::Val{mut}=Val(false)
+) where {T,O<:AllOwned{T},mut}
+    is_static(T) && return request_value(val, Val(:read))
+    return ref(lt, val, var_symbol, Val(mut))
 end
 function maybe_ref(
-    ::Lifetime, val::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, ::Symbol
-)
+    ::Lifetime, val::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, ::Symbol, ::Val{mut}=Val(false)
+) where {mut}
     return val
 end
-function maybe_ref(::Lifetime, val, ::Symbol)
+function maybe_ref(
+    ::Lifetime, val, ::Symbol, ::Val{mut}=Val(false)
+) where {mut}
     return val
 end
 #! format: off
