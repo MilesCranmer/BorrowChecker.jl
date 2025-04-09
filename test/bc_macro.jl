@@ -407,8 +407,10 @@ end
     task = @async @bc f(@mut(data))
     take!(channel_a)
 
-    # Prevents us writing to it twice!
+    # This call is guaranteed to run while the data is also
+    # being accessed by the task, so it would normally cause a thread race!
     @test_throws BorrowRuleError @bc f(@mut(data))
+    # This prevents us writing to it twice!
 
     put!(channel_b, nothing)
     wait(task)
