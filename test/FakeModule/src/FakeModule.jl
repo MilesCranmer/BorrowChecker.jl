@@ -34,6 +34,14 @@ function test()
         @test z[] == 3
         @test r[] == 3
     end
+
+    let
+        @own z = [1, 2, 3]
+        @own :mut z_mut = [1, 2, 3]
+        f(y) = (@test y isa Vector{Int}; y)
+        @test @bc(f(z)) === f(z)
+        @test @bc(f(@mut(z_mut))) === f(z_mut)
+    end
 end
 
 end

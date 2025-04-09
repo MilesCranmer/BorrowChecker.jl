@@ -377,7 +377,6 @@ macro mut(expr)
     return esc(:($(AsMutable)($expr)))
 end
 
-
 # Process a value argument and generate the appropriate reference expression
 function _process_value(lt_sym, value, sym_hint=nothing)
     if isexpr(value, :call) && value.args[1] == :mut

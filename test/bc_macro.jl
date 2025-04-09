@@ -215,3 +215,83 @@ end
         @test_throws BorrowRuleError @bc takes_mutable(@mut(vec))
     end
 end
+
+@testitem "Keyword arguments in parameters block" begin
+    using BorrowChecker
+    using BorrowChecker: get_immutable_borrows, get_mutable_borrows
+
+    # Define test function with keyword arguments
+    function test_params_block(x; a, b, c)
+        @test x isa Borrowed
+        @test a isa Borrowed
+        @test @take(a) == [1, 2, 3]
+
+        @test b isa BorrowedMut
+        push!(b, 100)
+
+        @test c isa Int
+
+        return true
+    end
+
+    @own data = [10, 20, 30]
+    @own vec_a = [1, 2, 3]
+    @own :mut vec_b = [4, 5, 6]
+
+    # Test with parameters block syntax
+    result = @bc test_params_block(data; a=vec_a, b=@mut(vec_b), c=42)
+    @test result
+
+    # Should error if we try to pass a BorrowedMut:
+    @test_throws BorrowRuleError @bc test_params_block(
+        data; a=@mut(vec_a), b=@mut(vec_b), c=42
+    )
+
+    # Verify mutable reference worked
+    @test @take(vec_b) == [4, 5, 6, 100]
+end
+
+@testitem "Error cases - splatting" begin
+    using BorrowChecker
+    using TestItems
+
+    # Define test functions
+    splat_pos(args...; kws...) = length(args) + length(kws)
+
+    @own data = [1, 2, 3]
+
+    # Test positional splatting error - must use eval to properly catch the error
+    @test_throws LoadError @eval @bc splat_pos(data...)
+
+    # Test keyword splatting error (via parameters)
+    kw_splat = (a=1, b=2)
+    @test_throws LoadError @eval @bc splat_pos(data; kw_splat...)
+    @test_throws "Keyword splatting is not implemented yet" @eval @bc splat_pos(
+        data; kw_splat...
+    )
+end
+
+@testitem "Non-call expression error" begin
+    using BorrowChecker
+
+    # Test non-call expression
+    @test_throws LoadError @eval @bc @own x = [1, 2]
+    @test_throws "Expression is not a function call" @eval @bc begin end
+end
+
+@testitem "Using @bc with built-in function" begin
+    using BorrowChecker
+    using BorrowChecker: get_immutable_borrows
+
+    # Standard library function
+    @own data = [1, 2, 3, 4, 5]
+
+    # Test with a built-in function with borrowed support
+    @test @bc(sum(data)) == 15
+
+    # Verify references are cleaned up
+    @test get_immutable_borrows(data) == 0
+
+    # Original data should still be usable
+    @test @take(data) == [1, 2, 3, 4, 5]
+end
