@@ -1,6 +1,6 @@
 name = "BorrowChecker"
 uuid = "7bdcaa52-c310-4bb0-bf54-d941056ed284"
-version = "0.0.12"
+version = "0.0.13"
 authors = ["MilesCranmer <miles.cranmer@gmail.com>"]
 
 [deps]
