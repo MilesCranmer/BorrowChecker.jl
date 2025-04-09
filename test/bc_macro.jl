@@ -364,3 +364,54 @@ end
     result = @bc g_mut(; x=@mut(data_mut.a))
     @test result == 3
 end
+
+@testitem "Indexing" begin
+    using BorrowChecker
+
+    @own data = [[1], [2], [3]]
+    f(x::Borrowed{<:Vector}) = @take(x[end])
+    @test (@bc f(data[1:2])) == [2]
+end
+
+@testitem "Closures" begin
+    using BorrowChecker
+
+    @own data = [1, 2, 3]
+    @test (@bc (x -> (@test x isa Borrowed; sum(x)))(data)) == 6
+end
+
+@testitem "Reborrowing" begin
+    using BorrowChecker
+
+    @own :mut data = [1, 2, 3]
+    @lifetime lt begin
+        @ref ~lt :mut ref = data
+        # References are just passed through
+        @test (@bc sum(ref)) == 6
+    end
+end
+
+@testitem "Thread safety" begin
+    using BorrowChecker
+
+    @own :mut data = [1, 2, 3]
+
+    channel_a = Channel(1)
+    channel_b = Channel(1)
+    function f(x)
+        put!(channel_a, nothing)
+        push!(x, 4)
+        take!(channel_b)
+    end
+
+    task = @async @bc f(@mut(data))
+    take!(channel_a)
+
+    # Prevents us writing to it twice!
+    @test_throws BorrowRuleError @bc f(@mut(data))
+
+    put!(channel_b, nothing)
+    wait(task)
+
+    @test data == [1, 2, 3, 4]
+end
