@@ -400,30 +400,6 @@ macro bc(call_expr)
     return _bc(call_expr)
 end
 
-"""
-    @mut expr
-
-Marks a value to be borrowed mutably in a `@bc` macro call.
-"""
-macro mut(expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
-    return esc(:($(AsMutable)($expr)))
-end
-
-# Process a value argument and generate the appropriate reference expression
-function _process_value(lt_sym, value)
-    sym = QuoteNode(value isa Symbol ? value : :anonymous)
-    return :($(maybe_ref)($lt_sym, $value, $sym))
-end
-
-# Process a keyword argument
-function _process_keyword_arg(lt_sym, keyword, value)
-    kw_var = gensym(string(keyword))
-    ref_expr = :($kw_var = $(_process_value(lt_sym, value)))
-    return (keyword, kw_var), ref_expr
-end
-
-# Helper function for @bc implementation
 function _bc(call_expr)
     if !isexpr(call_expr, :call)
         error("Expression is not a function call")
@@ -433,44 +409,36 @@ function _bc(call_expr)
     func = call_expr.args[1]
     all_args = call_expr.args[2:end]
 
-    # Generate a unique symbol for the lifetime variable
-    lt_sym = gensym("lt")
-
-    # Create expressions for borrowing arguments and constructing the function call
+    lifetime_symbol = gensym("lifetime")
     ref_exprs = []
-    pos_args = []  # Store positional arguments
-    kw_exprs_to_process = []  # Store :kw expressions found
+    pos_args = []
+    kw_exprs_to_process = []
 
     # First pass: Separate positional and keyword arguments
     for arg in all_args
-        if isexpr(arg, :parameters)
-            # Add all keyword expressions from the parameters block
+        if isexpr(arg, :parameters)  # If it's written like `f(; a=1, b=2)`
             append!(kw_exprs_to_process, arg.args)
-        elseif isexpr(arg, :kw)
-            # Add the individual keyword expression
+        elseif isexpr(arg, :kw)  # If it's written like `f(a=1, b=2)` directly
             push!(kw_exprs_to_process, arg)
         elseif isexpr(arg, :...)
-            # Handle positional splatting
-            error("Positional splatting (`...`) is not implemented yet in @bc")
-        else
-            # Process regular positional arguments
+            error("Positional splatting (`...`) is not implemented yet in `@bc`")
+        else  # regular positional args
             pos_var = gensym("arg")
-            push!(ref_exprs, :($pos_var = $(_process_value(lt_sym, arg))))
+            push!(ref_exprs, _process_value(pos_var, lifetime_symbol, arg))
             push!(pos_args, pos_var)
         end
     end
 
-    kw_args = []  # Store keyword arguments (pairs of keyword symbol and generated var)
-    # Second pass: Process collected keyword arguments
+    kw_args = []
     for kwarg_expr in kw_exprs_to_process
-        if isexpr(kwarg_expr, :...) # Handle splatting like f(; a...)
-            error("Keyword splatting is not implemented yet")
+        if isexpr(kwarg_expr, :...)
+            error("Keyword splatting is not implemented yet in `@bc`")
         else
             # Regular keyword argument
             keyword = kwarg_expr.args[1]
             value = kwarg_expr.args[2]
 
-            kw_pair, ref_expr = _process_keyword_arg(lt_sym, keyword, value)
+            kw_pair, ref_expr = _process_keyword_arg(lifetime_symbol, keyword, value)
             push!(ref_exprs, ref_expr)
             push!(kw_args, kw_pair)
         end
@@ -481,12 +449,12 @@ function _bc(call_expr)
 
     # Create a let block with a lifetime, process references, call the function, and clean up
     let_expr = quote
-        let $lt_sym = $(Lifetime)()
+        let $lifetime_symbol = $(Lifetime)()
             try
                 $(ref_exprs...)
                 $new_call
             finally
-                $(cleanup!)($lt_sym)
+                $(cleanup!)($lifetime_symbol)
             end
         end
     end
@@ -494,13 +462,34 @@ function _bc(call_expr)
     return esc(let_expr)
 end
 
+# Process a value argument and generate the appropriate reference expression
+function _process_value(out_sym, lt_sym, value)
+    sym = QuoteNode(value isa Symbol ? value : :anonymous)
+    return :($out_sym = $(maybe_ref)($lt_sym, $value, $sym))
+end
+
+# Process a keyword argument
+function _process_keyword_arg(lt_sym, keyword, value)
+    kw_var = gensym(string(keyword))
+    ref_expr = _process_value(kw_var, lt_sym, value)
+    return (keyword, kw_var), ref_expr
+end
+
 # Construct the function call expression
 function _construct_call(func, pos_args, kw_args)
     isempty(kw_args) && return Expr(:call, func, pos_args...)
+    param_block = Expr(:parameters, [Expr(:kw, k, v) for (k, v) in kw_args]...)
+    return Expr(:call, func, param_block, pos_args...)
+end
 
-    # Use regular keyword args
-    kw_pairs = [Expr(:kw, k, v) for (k, v) in kw_args]
-    return Expr(:call, func, Expr(:parameters, kw_pairs...), pos_args...)
+"""
+    @mut expr
+
+Marks a value to be borrowed mutably in a `@bc` macro call.
+"""
+macro mut(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(:($(AsMutable)($expr)))
 end
 
 end
