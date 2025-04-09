@@ -361,9 +361,7 @@ Calls `func` with the given arguments and keyword arguments, automatically creat
 temporary borrows for arguments that appear to be owned variables.
 """
 macro bc(call_expr)
-    if !is_borrow_checker_enabled(__module__)
-        return esc(call_expr)
-    end
+    is_borrow_checker_enabled(__module__) || return esc(call_expr)
     return _bc(call_expr)
 end
 
