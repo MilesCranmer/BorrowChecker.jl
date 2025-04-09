@@ -8,7 +8,7 @@
 
 </div>
 
-This package implements a borrow checker in Julia using a macro layer over standard Julia code. This is built to emulate Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
+This package implements a runtime borrow checker in Julia using a macro layer over standard code. This is built to emulate Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 > [!WARNING]
 > BorrowChecker.jl does not promise memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
