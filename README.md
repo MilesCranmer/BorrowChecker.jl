@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="https://github.com/user-attachments/assets/b68b4d0e-7bec-4876-a39d-5edf3191a8d9" width="500">
+
 # BorrowChecker.jl
 
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://astroautomata.com/BorrowChecker.jl/dev)
