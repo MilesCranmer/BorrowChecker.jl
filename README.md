@@ -8,14 +8,14 @@
 
 </div>
 
-This package implements a runtime borrow checker in Julia using a macro layer over standard code. This is built to emulate Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
+This is an experimental package for emulating a runtime borrow checker in Julia, using a macro layer over regular code. This is built to mimic Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 > [!WARNING]
 > BorrowChecker.jl does not promise memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
 
 ## Usage
 
-In Julia, when you write `x = [1, 2, 3]` in Julia, the actual _object_ exists completely independently of the variable, and you can refer to it from as many variables as you want without issue:
+In Julia, when you write `x = [1, 2, 3]`, the actual _object_ exists completely independently of the variable, and you can refer to it from as many variables as you want without issue:
 
 ```julia
 x = [1, 2, 3]
@@ -47,9 +47,11 @@ let y = &x;
 
 to either create a copy of the vector, or _borrow_ `x` using the `&` operator to create a reference. You can create as many references as you want, but there can only be one original object.
 
-The purpose of this "ownership" paradigm is to improve safety of code. Especially in complex, multithreaded codebases, it is really easy to shoot yourself in the foot and modify objects which are "owned" (editable) by something else. Rust's ownership and lifetime model makes it so that you can _prove_ memory safety of code! Standard thread races are literally impossible. (Assuming you are not using `unsafe { ... }` to disable safety features, or rust itself has a bug, or a cosmic ray hits your PC!)
+This "ownership" paradigm can help improve safety of code. Especially in complex, multithreaded codebases, it is easy to shoot yourself in the foot and modify objects which are "owned" (editable) by something else. Rust's ownership and lifetime model makes it so that you can _prove_ memory safety of code! Standard thread races are literally impossible. (Assuming you are not using `unsafe { ... }` to disable safety features, or the borrow checker itself has a bug, etc.)
 
-In BorrowChecker.jl, we demonstrate a very simple implementation of some of these core ideas. The aim is to build a development layer that, eventually, can help prevent a few classes of memory safety issues, without affecting runtime behavior of code. The above example, with BorrowChecker.jl, would look like this:
+In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. The aim is to build a development layer that can help prevent a few classes of memory safety issues, without affecting runtime behavior of code.
+
+The above example, with BorrowChecker.jl, would look like this:
 
 ```julia
 using BorrowChecker
@@ -73,13 +75,12 @@ The equivalent fixes would respectively be:
 end
 ```
 
-Note that BorrowChecker.jl does not prevent you from cheating the system and using `y = x`[^1]. To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
-
-[^1]: Luckily, the library has a way to try flag such mistakes by recording symbols used in the macro.
+Note that BorrowChecker.jl does not prevent you from cheating the system and using `y = x` (_however, the library does try to flag such mistakes by recording symbols used in the macro_). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
 ### Example: Preventing Thread Races
 
 BorrowChecker.jl helps prevent data races by enforcing borrowing rules.
+
 Let's mock up a simple scenario where two threads modify the same array concurrently:
 
 ```julia
@@ -95,7 +96,7 @@ fetch(t1); fetch(t2)
 
 This has a silent race condition, and the result will be non-deterministic.
 
-Now, let's see what happens if we had used BorrowChecker.jl, using the `@own`, `@bc`, and `@mut` macros:
+Now, let's see what happens if we had used BorrowChecker:
 
 ```julia
 @own :mut data = [1, 2, 3]
@@ -104,7 +105,7 @@ t1 = Threads.@spawn @bc modify!(@mut(data), 4)
 t2 = Threads.@spawn @bc modify!(@mut(data), 5)
 ```
 
-Now, if you attempt to fetch both tasks, you will see this error:
+Now, when you attempt to fetch the tasks, you will get this error:
 
 ```text
 nested task error: Cannot create mutable reference: `data` is already mutably borrowed
@@ -112,8 +113,7 @@ nested task error: Cannot create mutable reference: `data` is already mutably bo
 
 This is because in BorrowChecker.jl's ownership model, **you can only have one mutable reference to a value at a time**!
 
-The rules are: while you can have multiple _immutable_ references (reading from multiple threads), you cannot have multiple _mutable_ references, and also not both mutable and immutable references.
-You also cannot access a reference after the lifetime has ended (which in this case, is the duration of the `@bc` macro).
+The rules are: while you can have multiple _immutable_ references (reading from multiple threads), you cannot have multiple _mutable_ references, and also not both mutable and immutable references. You also cannot access a reference after the lifetime has ended (which in this case, is the duration of the `@bc` macro). You also cannot move ownership while a reference is live.
 
 ## API
 
@@ -129,6 +129,7 @@ You also cannot access a reference after the lifetime has ended (which in this c
 - `@clone [:mut] new = old`: Create a deep copy of a value without moving the source (mutable destination if `:mut` is specified).
 - `@take[!] var`: Unwrap an owned value. Using `@take!` will mark the original as moved, while `@take` will perform a copy.
 - `getproperty` and `getindex` on owned/borrowed values return a `LazyAccessor` that preserves ownership/lifetime until the raw value is used.
+  - For example, for an object `x::Owned{T}`, the accessor `x.a` would return `LazyAccessor{typeof(x.a), T, Val{:a}, Owned{T}}` which has the same reading/writing constraints as the original.
 
 
 ### References and Lifetimes
@@ -148,7 +149,7 @@ You also cannot access a reference after the lifetime has ended (which in this c
 
 You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like `@own`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
 
-You can also set the _default_ behavior from within a module:
+You can also set the _default_ behavior from within a module (make sure to do this at the very top, before any BorrowChecker calls!)
 
 ```julia
 module MyModule
@@ -160,6 +161,8 @@ end
 ```
 
 This can then be overridden by the LocalPreferences.toml file.
+
+If you wanted to use BorrowChecker in a library, the idea is you could disable it by default with this command, but enable it during testing, to flag any problematic memory patterns.
 
 ## Further Examples
 
@@ -228,6 +231,8 @@ This won't catch all misuses but it can help prevent some.
 
 ### Lifetimes
 
+<details>
+
 References let you temporarily _borrow_ values. This is useful for passing values to functions without moving them. These are created within an explicit `@lifetime` block:
 
 ```julia
@@ -294,7 +299,11 @@ end
 @show data  # [[1, 4], [2, 4], [3, 4]]
 ```
 
+</details>
+
 ### Mutating Owned Values
+
+<details>
 
 Note that if you have a mutable owned value,
 you can use `setproperty!` and `setindex!` as normal:
@@ -332,7 +341,11 @@ for _ in 1:10
 end
 ```
 
+</details>
+
 ### Cloning Values
+
+<details>
 
 Sometimes you want to create a completely independent copy of a value.
 While you could use `@own new = @take(old)`, the `@clone` macro provides a clearer way to express this intent:
@@ -362,7 +375,11 @@ Another macro is `@move`, which is a more explicit version of `@own new = @take!
 
 Note that `@own new = old` will also work as a convenience, but `@move` is more explicit and also asserts that the new value is owned.
 
+</details>
+
 ### Automated Borrowing with `@bc`
+
+<details>
 
 The `@bc` macro simplifies calls involving owned variables. Instead of manually creating `@lifetime` blocks and references, you just wrap the function call in `@bc`,
 which will create a lifetime scope for the duration of the function call,
@@ -381,19 +398,16 @@ end
 @bc process(config, @mut(data))  # => 4
 ```
 
-Under the hood, `@bc` wraps the function call in a `@lifetime` block,
-so references end automatically when the call finishes
-(and thus lose access to the original object).
+Under the hood, `@bc` wraps the function call in a `@lifetime` block, so references end automatically when the call finishes (and thus lose access to the original object).
 
 This approach works with multiple positional and keyword arguments, and is a convenient
-way to handle the majority of borrowing patterns.
-You can freely mix owned, borrowed, and normal Julia values in the same call, and the macro will handle ephemeral references behind the scenes.
-For cases needing more control or longer lifetimes, manual `@lifetime` usage is a good option.
+way to handle the majority of borrowing patterns. You can freely mix owned, borrowed, and normal Julia values in the same call, and the macro will handle ephemeral references behind the scenes. For cases needing more control or longer lifetimes, manual `@lifetime` usage is a good option.
+
+</details>
 
 ### Introducing BorrowChecker.jl to Your Codebase
 
-When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function.
-The simplified version of `@own` is particularly useful in this case:
+When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function. The simplified version of `@own` is particularly useful in this case:
 
 ```julia
 function process_data(x, y, z)
@@ -406,8 +420,7 @@ end
 
 This pattern is useful for generic functions because if you pass an owned variable as either `x`, `y`, or `z`, the original function will get marked as moved.
 
-The next pattern that is useful is to use `OrBorrowed{T}` (basically equal to `Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures.
-Let's say you have some function:
+The next pattern that is useful is to use `OrBorrowed{T}` (basically equal to `Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures). Let's say you have some function:
 
 ```julia
 struct Bar{T}
@@ -442,10 +455,6 @@ function process_data(x, y, z)
 end
 ```
 
-Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context!
-Immutable references are safe to pass in a multi-threaded context, so this
-doubles as a good way to prevent unintended thread races.
+Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context! Immutable references are safe to pass in a multi-threaded context, so this doubles as a good way to prevent unintended thread races.
 
-Note that this will nicely handle the case of multiple mutable references—if we had
-written `@bc foo(@mut(z))` while the other thread was running, we
-would see a `BorrowRuleError` because `z` is already mutably borrowed!
+Note that this will nicely handle the case of multiple mutable references—if we had written `@bc foo(@mut(z))` while the other thread was running, we would see a `BorrowRuleError` because `z` is already mutably borrowed!
