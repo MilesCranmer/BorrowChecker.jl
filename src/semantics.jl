@@ -352,7 +352,7 @@ end
 # TODO: Much simpler if we just don't add the owner in the first place.
 #       There should be a better overall design here.
 
-#! format: on
+#! format: off
 function maybe_ref(
     lt::Lifetime, wrapper::AsMutable, var_symbol::Symbol, ::Val{false}=Val(false)
 )
@@ -374,6 +374,6 @@ function maybe_ref(
 ) where {mut}
     return val
 end
-#! format: off
+#! format: on
 
 end
