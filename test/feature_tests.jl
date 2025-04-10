@@ -597,6 +597,18 @@ end
         @test length(ref) == 1
         @test ref[:b] == 2
     end
+
+    # Test keytype and valtype with dictionaries
+    @own dict_typed = Dict{String,Int}("a" => 1, "b" => 2)
+    @test keytype(dict_typed) == String
+    @test valtype(dict_typed) == Int
+
+    # Test with references
+    @lifetime lt_type begin
+        @ref ~lt_type ref_dict = dict_typed
+        @test keytype(ref_dict) == String
+        @test valtype(ref_dict) == Int
+    end
 end
 
 @testitem "Three-argument Math Operations" begin
@@ -1286,6 +1298,70 @@ end
     @own rng_immut = MersenneTwister(0)
     @own :mut arr2 = [1, 2, 3, 4, 5]
     @test_throws BorrowRuleError shuffle!(rng_immut, arr2)
+
+    # Test collection query operations
+    @own sorted = [1, 2, 3, 4]
+    @test issorted(sorted)
+    @own unsorted = [3, 1, 4, 2]
+    @test !issorted(unsorted)
+
+    # Test membership (in)
+    @test 3 in arr
+    @test !(6 in arr)
+    @own item = 4
+    @test item in arr
+    @own not_there = 10
+    @test !(not_there in arr)
+
+    # Test count
+    @own nums_to_count = [1, 2, 2, 3, 2, 4, 5]
+    @test count(==(2), nums_to_count) == 3
+    @test count(>(3), nums_to_count) == 2
+
+    # Test unique!
+    @own :mut duplicates = [1, 2, 2, 3, 1, 4, 3, 5]
+    @test unique!(duplicates) === nothing
+    @test duplicates == [1, 2, 3, 4, 5]
+
+    # Test with references
+    @lifetime lt_unique begin
+        @ref ~lt_unique :mut ref_dups = duplicates
+        # Add duplicates back
+        push!(ref_dups, 1)
+        push!(ref_dups, 2)
+        @test unique!(ref_dups) === nothing
+        @test ref_dups == [1, 2, 3, 4, 5]
+    end
+
+    # Test with error case for unique! (immutable reference)
+    @own non_mut_dups = [1, 1, 2, 2, 3]
+    @lifetime lt_immut begin
+        @ref ~lt_immut ref_non_mut = non_mut_dups
+        @test_throws BorrowRuleError unique!(ref_non_mut)
+    end
+
+    # Test Random number generation
+    @own :mut rng_rand = MersenneTwister(0)
+
+    # Test rand with various combinations
+    nums = rand(rng_rand, 5)
+    @test length(nums) == 5
+
+    @own dim = 3
+    @test length(rand(rng_rand, dim)) == 3
+    @test eltype(rand(rng_rand, Int, 4)) == Int
+
+    # Test key case: wrapped dimensions with type parameter
+    @own dim_typed = 5
+    @test length(rand(rng_rand, Int, dim_typed)) == 5
+
+    # Test randn (similar API to rand)
+    @test length(randn(rng_rand, 6)) == 6
+    @test eltype(randn(rng_rand, Float32, 3)) == Float32
+
+    # Test with immutable RNG
+    @own rng_immut2 = MersenneTwister(0)
+    @test_throws BorrowRuleError rand(rng_immut2, 3)
 
     # Test mutating operations
     @own :mut nums = [1, 2, 3]

@@ -89,6 +89,25 @@ end
 Base.haskey(r::AllWrappers, other) = haskey(request_value(r, Val(:read)), _maybe_read(other))
 Base.string(r::AllWrappers) = string(request_value(r, Val(:read)))
 Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
+for op in (:rand, :randn)
+    @eval begin
+        # We don't define methods without `rng` since:
+        #   1. The ambiguities are a mess.
+        #   2. The user should be encouraged to `@own` the rng.
+        function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, d::Integer, dims::Integer...)
+            return rand(request_value(rng, Val(:write)), d, dims...)
+        end
+        function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, d::AllWrappers{<:Integer}, dims::Union{Integer,AllWrappers{<:Integer}}...)
+            return rand(request_value(rng, Val(:write)), map(_maybe_read, (d, dims...))...)
+        end
+        function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, ::Type{T}, d::Integer, dims::Integer...) where {T}
+            return rand(request_value(rng, Val(:write)), T, d, dims...)
+        end
+        function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, ::Type{T}, d::AllWrappers{<:Integer}, dims::Union{Integer,AllWrappers{<:Integer}}...) where {T}
+            return rand(request_value(rng, Val(:write)), T, map(_maybe_read, (d, dims...))...)
+        end
+    end
+end
 # --- END BASIC OPERATIONS ---
 
 # --- COLLECTION OPERATIONS ---
@@ -97,10 +116,14 @@ Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
 for op in (
     :length, :isempty, :size, :axes, :firstindex, :lastindex,
     :eachindex, :any, :all, :ndims, :eltype, :strides,
+    :issorted, :keytype, :valtype
 )
     @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i))
+Base.in(item, collection::AllWrappers) = in(item, request_value(collection, Val(:read)))
+Base.in(item::AllWrappers, collection::AllWrappers) = in(request_value(item, Val(:read)), request_value(collection, Val(:read)))
+Base.count(f, r::AllWrappers) = count(f, request_value(r, Val(:read)))
 
 # ---- Non-mutating; possibly unsafe to return ----
 for op in (
@@ -139,7 +162,7 @@ for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)), _maybe_read(n)); nothing)
-for op in (:empty!, :sort!, :reverse!)
+for op in (:empty!, :sort!, :reverse!, :unique!)
     @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
 Random.shuffle!(rng::AbstractRNG, r::AllWrappers) = (Random.shuffle!(rng, request_value(r, Val(:write))); nothing)
