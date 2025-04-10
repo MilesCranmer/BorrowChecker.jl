@@ -1223,7 +1223,7 @@ end
 
 @testitem "Collection operations" begin
     using BorrowChecker: is_moved
-    using Random: shuffle!
+    using Random: shuffle!, MersenneTwister
 
     # Test non-mutating operations that are safe to return
     @own arr = [1, 2, 3, 4]
@@ -1275,6 +1275,17 @@ end
     @test sort!(strings) === nothing
     @test strings == [["a"], ["b"], ["c"]]
     @test shuffle!(strings) === nothing
+
+    # Test shuffle! with wrapped RNG
+    @own :mut rng = MersenneTwister(0)
+    @own :mut arr = [1, 2, 3, 4, 5]
+    @test shuffle!(rng, arr) === nothing
+    @test arr != [1, 2, 3, 4, 5]  # Should be shuffled
+
+    # Test shuffle! with immutable RNG (should throw)
+    @own rng_immut = MersenneTwister(0)
+    @own :mut arr2 = [1, 2, 3, 4, 5]
+    @test_throws BorrowRuleError shuffle!(rng_immut, arr2)
 
     # Test mutating operations
     @own :mut nums = [1, 2, 3]
