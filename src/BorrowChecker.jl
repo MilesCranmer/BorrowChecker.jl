@@ -14,7 +14,7 @@ include("overloads.jl")
 include("disambiguations.jl")
 
 #! format: off
-using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError
+using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError, AliasedReturnError
 using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
 using .MacrosModule: @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut
 

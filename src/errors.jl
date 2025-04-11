@@ -44,6 +44,20 @@ struct SymbolMismatchError <: BorrowError
     current::Symbol
 end
 
+"""
+    AliasedReturnError <: BorrowError
+
+Error thrown when attempting to return a result with non-isbits element types,
+which could lead to unintended aliasing with the original array.
+"""
+struct AliasedReturnError <: BorrowError
+    operation::Function
+    type::Type
+    arg_count::Int
+end
+
+AliasedReturnError(operation::Function, type::Type) = AliasedReturnError(operation, type, 1)
+
 function Base.showerror(io::IO, e::MovedError)
     var_str = e.var == :anonymous ? "value" : "`$(e.var)`"
     return print(io, "Cannot use $(var_str): value has been moved")
@@ -66,6 +80,15 @@ function Base.showerror(io::IO, e::SymbolMismatchError)
         io,
         "$(current_str) holds an object that was reassigned from $(expected_str).\n" *
         "Regular variable reassignment is not allowed with BorrowChecker. Use `@move` to transfer ownership.",
+    )
+end
+
+function Base.showerror(io::IO, e::AliasedReturnError)
+    return print(
+        io,
+        "Refusing to return result of $(e.operation), as the output of type `$(e.type)` contains mutable elements. " *
+        "This can result in unintended aliasing with the original array, so " *
+        "you must first call `@take!(...)` on each input argument when calling this function.",
     )
 end
 

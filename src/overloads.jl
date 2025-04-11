@@ -16,9 +16,9 @@ using ..TypesModule:
     unsafe_access,
     get_owner,
     get_lifetime
-using ..StaticTraitModule: is_static
+using ..StaticTraitModule: is_static, is_static_elements
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
-using ..ErrorsModule: BorrowRuleError
+using ..ErrorsModule: BorrowRuleError, AliasedReturnError
 using ..UtilsModule: Unused, isunused
 
 _maybe_read(x) = x
@@ -126,23 +126,33 @@ Base.in(item::AllWrappers, collection::AllWrappers) = in(request_value(item, Val
 Base.count(f, r::AllWrappers) = count(f, request_value(r, Val(:read)))
 
 # ---- Non-mutating; possibly unsafe to return ----
+# 1 arg
 for op in (
-    :keys, :values, :unique, :sort, :reverse,
+    :keys, :values, :pairs, :unique, :sort, :reverse,
     :sum, :prod, :maximum, :minimum, :extrema,
-    :copy
+    :copy, :collect,
 )
     @eval function Base.$(op)(r::AllWrappers; kws...)
-        k = $(op)(request_value(r, Val(:read)); kws...)
-        if !is_static(eltype(k))
-            error(
-                "Refusing to return result of " * string($(op)) *
-                " with a non-isbits element type, because this can result in unintended aliasing with the original array. " *
-                "Use `" * string($(op)) * "(@take!(d))` instead."
-            )
+        out = $(op)(request_value(r, Val(:read)); kws...)
+        if !is_static_elements(out)
+            throw(AliasedReturnError($(op), typeof(out), 1))
         end
-        return k
+        return out
     end
 end
+# 2 args
+for op in (
+    :union, :intersect, :setdiff, :symdiff, :merge
+)
+    @eval function Base.$(op)(x::AllWrappers, y::AllWrappers)
+        out = $(op)(request_value(x, Val(:read)), request_value(y, Val(:read)))
+        if !is_static_elements(out)
+            throw(AliasedReturnError($(op), typeof(out), 2))
+        end
+        return out
+    end
+end
+
 
 # ---- Non-mutating; unsafe to return ----
 Base.sizehint!(r::AllWrappers, n) = (sizehint!(request_value(r, Val(:read)), _maybe_read(n)); nothing)
