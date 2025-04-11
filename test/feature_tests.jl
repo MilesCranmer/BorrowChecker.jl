@@ -1392,6 +1392,59 @@ end
     @test @take!(nums) == [1, 2, 4]
 end
 
+@testitem "Set operations and AliasedReturnError" begin
+    using BorrowChecker: is_moved, AliasedReturnError
+
+    # Test set operations with isbits elements
+    @own set1 = Set([1, 2, 3])
+    @own set2 = Set([3, 4, 5])
+
+    # These should all work fine with isbits elements
+    @test union(set1, set2) == Set([1, 2, 3, 4, 5])
+    @test intersect(set1, set2) == Set([3])
+    @test setdiff(set1, set2) == Set([1, 2])
+    @test symdiff(set1, set2) == Set([1, 2, 4, 5])
+
+    # Test with dictionaries
+    @own dict1 = Dict(1 => "a", 2 => "b")
+    @own dict2 = Dict(2 => "c", 3 => "d")
+    @test merge(dict1, dict2) == Dict(1 => "a", 2 => "c", 3 => "d")
+
+    # Test that operations with non-isbits elements throw AliasedReturnError
+    @own vec_set1 = Set([[1], [2]])
+    @own vec_set2 = Set([[2], [3]])
+    @test_throws AliasedReturnError union(vec_set1, vec_set2)
+    @test_throws AliasedReturnError intersect(vec_set1, vec_set2)
+    @test_throws AliasedReturnError setdiff(vec_set1, vec_set2)
+    @test_throws AliasedReturnError symdiff(vec_set1, vec_set2)
+
+    # Test with dictionaries containing non-isbits values
+    @own vec_dict1 = Dict(1 => [1, 2], 2 => [3, 4])
+    @own vec_dict2 = Dict(2 => [5, 6], 3 => [7, 8])
+    @test_throws AliasedReturnError merge(vec_dict1, vec_dict2)
+    @test_throws AliasedReturnError pairs(vec_dict1)
+    @test_throws AliasedReturnError collect(vec_dict1)
+
+    # Works with isbits values
+    @own dict = Dict(1 => 2, 3 => 4)
+    @test collect(pairs(dict)) isa Vector{<:Pair}
+
+    # Test error message formatting
+    err = try
+        @own vec_dict3 = Dict(1 => [1], 2 => [2])
+        pairs(vec_dict3)
+    catch e
+        e
+    end
+
+    # Verify error message contains the right components
+    err_msg = sprint(io -> showerror(io, err))
+    @test occursin("Refusing to return result of ", err_msg)
+    @test occursin("contains mutable elements", err_msg)
+    @test occursin("unintended aliasing", err_msg)
+    @test occursin("@take!(...)", err_msg)
+end
+
 @testitem "Single argument @own syntax" begin
     using BorrowChecker: is_moved
 
