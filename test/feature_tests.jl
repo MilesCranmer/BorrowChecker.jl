@@ -561,6 +561,8 @@ end
     end
 end
 @testitem "Dictionary & LazyAccessor coverage" begin
+    using BorrowChecker: AliasedReturnError
+
     @own :mut d = Dict(:a => 1, :b => 2)
     @test haskey(d, :a)
     @test !haskey(d, :c)
@@ -576,7 +578,7 @@ end
 
     # Non-isbits key => triggers throw(...) => ErrorException
     @own :mut d2 = Dict([1] => 10, [2] => 20)
-    @test_throws ErrorException keys(d2)
+    @test_throws AliasedReturnError keys(d2)
 
     # LazyAccessor setindex! coverage
     @own :mut arr2d = [[10, 20], [30, 40]]
@@ -644,12 +646,11 @@ end
 end
 
 @testitem "Dictionary Error Paths" begin
+    using BorrowChecker: AliasedReturnError
+
     # Test error on non-isbits keys
     @own :mut d = Dict([1, 2] => 10)  # Vector{Int} is non-isbits
-    @test_throws(
-        "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
-        keys(d)
-    )
+    @test_throws AliasedReturnError keys(d)
 
     # Test error on type conversion
     @own :mut d2 = Dict(1 => 2)
@@ -657,6 +658,27 @@ end
         @ref ~lt :mut ref = d2
         @test_throws MethodError ref[1] = "string"  # Can't convert String to Int
     end
+
+    # Test AliasedReturnError message formatting
+    err = try
+        @own vec_dict = Dict(1 => [1], 2 => [2])
+        pairs(vec_dict)
+    catch e
+        e
+    end
+
+    # Verify error message contains the right components
+    err_msg = sprint(io -> showerror(io, err))
+    @test occursin("Refusing to return result of ", err_msg)
+    @test occursin("contains mutable elements", err_msg)
+    @test occursin("unintended aliasing", err_msg)
+    @test occursin("@take!(...)", err_msg)
+
+    # Test AliasedReturnError constructors
+    e1 = AliasedReturnError(keys, Dict{Int,Vector{Int}})
+    @test e1.arg_count == 1
+    e2 = AliasedReturnError(merge, Dict{Int,Vector{Int}}, 2)
+    @test e2.arg_count == 2
 end
 
 @testitem "String Operation Errors" begin
@@ -714,6 +736,8 @@ end
 end
 
 @testitem "Macro Error Paths" begin
+    using BorrowChecker: AliasedReturnError
+
     # Test error on invalid first argument to @clone
     @test_throws LoadError @eval @clone :invalid x = 42
 
@@ -741,7 +765,7 @@ end
     @own :mut arr = [NonIsBits([1])]
     @lifetime lt begin
         @ref ~lt :mut ref = arr
-        @test_throws ErrorException collect(ref)  # Non-isbits collection
+        @test_throws AliasedReturnError collect(ref)  # Non-isbits collection
         @test_throws ErrorException first(ref)    # Non-isbits element
     end
 
@@ -826,18 +850,19 @@ end
 end
 
 @testitem "Collection Operation Errors" begin
-    # Test collection operation errors
     mutable struct NonIsBits
         x::Int
     end
 
     @own :mut arr = [NonIsBits(1)]
-    @test_throws "Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead" collect(
-        arr
-    )
+    @test_throws "Use `@own for var in iter` (moves) or `@ref for var in iter` (borrows) instead" [
+        x for x in arr
+    ]
 end
 
 @testitem "Dictionary Operation Errors" begin
+    using BorrowChecker: AliasedReturnError
+
     mutable struct NonIsBits
         x::Int
     end
@@ -847,16 +872,19 @@ end
     @own :mut dictref = Ref(Dict(NonIsBits(1) => 10))
     @lifetime lt begin
         @ref ~lt :mut ref = dict
-        @test_throws(
-            "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
+        # Capture the error and verify its message
+        err = try
             keys(ref)
-        )
+        catch e
+            e
+        end
+        @test err isa AliasedReturnError
+        err_msg = sprint(io -> showerror(io, err))
+        @test occursin("Refusing to return result of keys", err_msg)
+        @test occursin("Base.KeySet", err_msg)
 
         @ref ~lt :mut ref2 = dictref
-        @test_throws(
-            "Refusing to return result of keys with a non-isbits element type, because this can result in unintended aliasing with the original array. Use `keys(@take!(d))` instead.",
-            keys(ref2[])
-        )
+        @test_throws AliasedReturnError keys(ref2[])
     end
 
     # Test dictionary operation errors
@@ -1234,7 +1262,7 @@ end
 end
 
 @testitem "Collection operations" begin
-    using BorrowChecker: is_moved
+    using BorrowChecker: is_moved, AliasedReturnError
     using Random: shuffle!, MersenneTwister
 
     # Test non-mutating operations that are safe to return
@@ -1275,15 +1303,9 @@ end
 
     # Test operations that should error on non-isbits return
     @own :mut strings = [["b"], ["c"], ["a"]]
-    @test_throws(
-        "Refusing to return result of unique with a non-isbits element type",
-        unique(strings)
-    )
-    @test_throws(
-        "because this can result in unintended aliasing with the original array. Use `sort(@take!(d))` instead.",
-        sort(strings)
-    )
-    @test_throws "Use `reverse(@take!(d))` instead." reverse(strings)
+    @test_throws AliasedReturnError unique(strings)
+    @test_throws AliasedReturnError sort(strings)
+    @test_throws AliasedReturnError reverse(strings)
     @test sort!(strings) === nothing
     @test strings == [["a"], ["b"], ["c"]]
     @test shuffle!(strings) === nothing
@@ -1368,6 +1390,59 @@ end
     @test pop!(nums) == 3
     @test push!(nums, 4) === nothing
     @test @take!(nums) == [1, 2, 4]
+end
+
+@testitem "Set operations and AliasedReturnError" begin
+    using BorrowChecker: is_moved, AliasedReturnError
+
+    # Test set operations with isbits elements
+    @own set1 = Set([1, 2, 3])
+    @own set2 = Set([3, 4, 5])
+
+    # These should all work fine with isbits elements
+    @test union(set1, set2) == Set([1, 2, 3, 4, 5])
+    @test intersect(set1, set2) == Set([3])
+    @test setdiff(set1, set2) == Set([1, 2])
+    @test symdiff(set1, set2) == Set([1, 2, 4, 5])
+
+    # Test with dictionaries
+    @own dict1 = Dict(1 => "a", 2 => "b")
+    @own dict2 = Dict(2 => "c", 3 => "d")
+    @test merge(dict1, dict2) == Dict(1 => "a", 2 => "c", 3 => "d")
+
+    # Test that operations with non-isbits elements throw AliasedReturnError
+    @own vec_set1 = Set([[1], [2]])
+    @own vec_set2 = Set([[2], [3]])
+    @test_throws AliasedReturnError union(vec_set1, vec_set2)
+    @test_throws AliasedReturnError intersect(vec_set1, vec_set2)
+    @test_throws AliasedReturnError setdiff(vec_set1, vec_set2)
+    @test_throws AliasedReturnError symdiff(vec_set1, vec_set2)
+
+    # Test with dictionaries containing non-isbits values
+    @own vec_dict1 = Dict(1 => [1, 2], 2 => [3, 4])
+    @own vec_dict2 = Dict(2 => [5, 6], 3 => [7, 8])
+    @test_throws AliasedReturnError merge(vec_dict1, vec_dict2)
+    @test_throws AliasedReturnError pairs(vec_dict1)
+    @test_throws AliasedReturnError collect(vec_dict1)
+
+    # Works with isbits values
+    @own dict = Dict(1 => 2, 3 => 4)
+    @test collect(pairs(dict)) isa Vector{<:Pair}
+
+    # Test error message formatting
+    err = try
+        @own vec_dict3 = Dict(1 => [1], 2 => [2])
+        pairs(vec_dict3)
+    catch e
+        e
+    end
+
+    # Verify error message contains the right components
+    err_msg = sprint(io -> showerror(io, err))
+    @test occursin("Refusing to return result of ", err_msg)
+    @test occursin("contains mutable elements", err_msg)
+    @test occursin("unintended aliasing", err_msg)
+    @test occursin("@take!(...)", err_msg)
 end
 
 @testitem "Single argument @own syntax" begin

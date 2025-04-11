@@ -42,4 +42,13 @@ is_static(::Type{Module}) = true
 
 is_static(::T) where {T} = is_static(T)
 
+"""
+    is_static_elements(x)
+
+Tests if both the keys and values for a given collection
+type are `is_static`.
+"""
+is_static_elements(::Type{T}) where {T} = is_static(eltype(T))
+is_static_elements(::T) where {T} = is_static_elements(T)
+
 end
