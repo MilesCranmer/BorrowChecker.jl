@@ -96,6 +96,7 @@ end
 
 @testitem "mutability check works" begin
     using BorrowChecker: is_static
+    using BorrowChecker.StaticTraitModule: is_static_elements
 
     @test is_static(1)
     @test is_static(Int)
@@ -144,6 +145,27 @@ end
     end
     @test isbitstype(Container3)
     @test is_static(Container3)
+
+    # Test is_static_elements with different collection types
+    # Collection with static elements
+    @test is_static_elements(Vector{Int})
+    @test is_static_elements(Dict{Int,String})
+    @test is_static_elements(Set{Float64})
+    @test is_static_elements([1, 2, 3])
+    @test is_static_elements(Dict(1 => "a", 2 => "b"))
+    @test is_static_elements(Set([1.0, 2.0]))
+
+    # Collections with non-static elements
+    @test !is_static_elements(Vector{Vector{Int}})
+    @test !is_static_elements(Dict{Int,Vector{Int}})
+    @test !is_static_elements(Set{Dict{Int,Int}})
+    @test !is_static_elements([[1], [2]])
+    @test !is_static_elements(Dict(1 => [1, 2], 2 => [3, 4]))
+    @test !is_static_elements(Set([Dict(1 => 2)]))
+
+    # Mixed cases (non-static either in key or value)
+    @test !is_static_elements(Dict{Vector{Int},Int})
+    @test !is_static_elements(Dict{Int,Vector{Int}})
 end
 
 @testitem "Mutability changes through moves" begin
