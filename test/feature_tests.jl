@@ -549,6 +549,54 @@ end
     end
 end
 
+@testitem "Matrix Transpose and Adjoint" begin
+    # Test with owned and borrowed arrays
+    @own mat = [1 2; 3 4]
+    @own :mut mat2 = [1 2; 3 4]
+    @own cmat = [1 + 2im 3 + 4im]
+
+    # Check error messages and types
+    err = try
+        transpose(mat)
+    catch e
+        e
+    end
+    @test err isa BorrowRuleError
+    @test occursin("Cannot create transpose of", sprint(showerror, err))
+    @test occursin("Owned{", sprint(showerror, err))
+
+    err = try
+        adjoint(mat2)
+    catch e
+        e
+    end
+    @test err isa BorrowRuleError
+    @test occursin("Cannot create adjoint of", sprint(showerror, err))
+    @test occursin(string(typeof(mat2)), sprint(showerror, err))
+
+    # Test with borrowed arrays and complex numbers
+    @lifetime lt begin
+        @ref ~lt ref = mat
+        @test transpose(ref) isa Borrowed{<:AbstractMatrix}
+        @test transpose(ref)[1, 2] == 3
+
+        # Test with mutable borrow (should also throw)
+        @ref ~lt :mut mref = mat2
+        err = try
+            transpose(mref)
+        catch e
+            e
+        end
+        @test err isa BorrowRuleError
+        @test occursin("Cannot create transpose of", sprint(showerror, err))
+        @test occursin(string(typeof(mref)), sprint(showerror, err))
+
+        # Test with complex numbers
+        @ref ~lt cref = cmat
+        @test adjoint(cref)[1, 1] == conj(1 + 2im)
+    end
+end
+
 @testitem "Reference numeric operations" begin
     @own x = 5
     @own y = 10
