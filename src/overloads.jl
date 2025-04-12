@@ -57,22 +57,30 @@ function Base.setindex!(r::LazyAccessor, value, i...)
     return nothing
 end
 
-function Base.view(::AllOwned{A}, i...) where {A<:Union{AbstractArray,Tuple}}
+function throw_view_error(op::Function, @nospecialize(r::AllWrappers))
     throw(
         BorrowRuleError(
-            "Cannot create view of an owned object. " *
-            "You can create an immutable reference with `@ref` and then create a view of that.",
+            "Cannot create $(op) of anything other than an immutable reference, but received a `$(typeof(r))`. " *
+            "You should create an immutable reference with `@ref` and then create a $(op) of that.",
         ),
     )
 end
-function Base.view(
-    r::Union{Borrowed{A},LazyAccessor{A,<:Any,<:Any,<:Borrowed}}, i...
-) where {A<:Union{AbstractArray,Tuple}}
-    return Borrowed(
-        view(request_value(r, Val(:read)), map(_maybe_read, i)...),
-        get_owner(r),
-        get_lifetime(r),
-    )
+for op in (:view, :transpose, :adjoint)
+    extra_args = op == :view ? (:(i...),) : ()
+    @eval begin
+        function Base.$(op)(r::W, $(extra_args...)) where {W<:AllWrappers{<:AbstractArray}}
+            if !(W <: Union{Borrowed,LazyAccessorOf{Borrowed}})
+                return throw_view_error($(op), r)
+            end
+            return Borrowed(
+                $(op)(
+                    request_value(r, Val(:read)), map(_maybe_read, ($(extra_args...),))...
+                ),
+                get_owner(r),
+                get_lifetime(r),
+            )
+        end
+    end
 end
 
 #! format: off
