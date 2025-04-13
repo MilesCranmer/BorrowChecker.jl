@@ -178,6 +178,10 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
   - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
 
+### Validation
+
+- `@cc closure_expr`: Verifies that closures only capture immutable references.
+
 ### Loops
 
 - `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
@@ -204,7 +208,7 @@ If you wanted to use BorrowChecker in a library, the idea is you could disable i
 
 ## Further Examples
 
-### Basic Ownership
+### Basic ownership
 
 Let's look at the basic ownership system. When you create an owned value, it's immutable by default:
 
@@ -339,7 +343,7 @@ end
 
 </details>
 
-### Mutating Owned Values
+### Mutating owned values
 
 <details>
 
@@ -381,7 +385,7 @@ end
 
 </details>
 
-### Cloning Values
+### Cloning values
 
 <details>
 
@@ -412,6 +416,41 @@ Another macro is `@move`, which is a more explicit version of `@own new = @take!
 ```
 
 Note that `@own new = old` will also work as a convenience, but `@move` is more explicit and also asserts that the new value is owned.
+
+</details>
+
+### Safe use of closures
+
+<details>
+
+Closures in BorrowChecker.jl must follow strict rules because they capture variables from their enclosing scope:
+
+```julia
+let
+    @own x = 42
+    bad_closure = () -> x + 1  # DANGEROUS: captures owned value
+end
+```
+
+The `@cc` macro validates that closures follow these rules:
+
+```julia
+let
+    @own x = 42
+
+    # This fails - owned values can't be captured
+    @test_throws ErrorException @cc (a,) -> x + a
+
+    @lifetime lt begin
+        @ref ~lt safe_ref = x  # create an immutable reference
+        
+        # This works - immutable references are safe
+        safe_closure = @cc (a,) -> safe_ref + a
+    end
+    # The reference will expire here, ensuring
+    # the closure doesn't break the borrowing rules!
+end
+```
 
 </details>
 
