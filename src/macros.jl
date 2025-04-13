@@ -491,28 +491,28 @@ end
 """
     @cc closure_expr
 
-Checks if a closure expression captures variables of disallowed types:
-- Owned{T}
-- OwnedMut{T}
-- BorrowedMut{T}
-- LazyAccessorOf{Union{Owned{T}, OwnedMut{T}, BorrowedMut{T}}}
+"Closure Check" is a macro that attempts to verify a closure is compatible with the borrow checker.
 
-Only Borrowed{T} and LazyAccessorOf{Borrowed{T}} are allowed to be captured.
+Only immutable references (created with `@ref` and `@bc`) are allowed to be captured;
+all other owned and borrowed variables that are captured will trigger an error.
 
 # Examples
 
 ```julia
 @own x = 1
 @own :mut y = 2
+
 @lifetime lt begin
     @ref ~lt z = x
     @ref ~lt :mut w = y
     
-    # This will error - captures owned variable
+    # These error as the capturing breaks borrowing rules
     bad = @cc () -> x + 1
+    bad2 = @cc () -> w + 1
     
-    # This is allowed - only captures borrowed variable
+    # However, you are allowed to capture immutable references
     good = @cc () -> z + 1
+    # This will not error.
 end
 ```
 """
