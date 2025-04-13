@@ -728,3 +728,55 @@ end
         )
     end
 end
+
+@testitem "Simple @spawn macro" begin
+    using BorrowChecker
+    using BorrowChecker: @spawn
+
+    @test_throws "The closure function captured a variable `x" let
+        @own x = 1
+        fetch(@spawn x + 1)
+    end
+    @test_throws "The closure function captured" let
+        @own :mut x = 1
+        fetch(@spawn x + 1)
+    end
+    @test_throws "The closure function captured" let
+        @own :mut x = 1
+        @lifetime lt begin
+            @ref ~lt :mut borrowed = x
+            fetch(@spawn borrowed + 1)
+        end
+    end
+    let
+        @own :mut x = 1
+        @lifetime lt begin
+            @ref ~lt borrowed = x
+            @test fetch(@spawn borrowed + 1) == 2
+        end
+    end
+end
+
+@testitem "Valid uses of @spawn macro" begin
+    using BorrowChecker
+    using BorrowChecker: @spawn
+
+    let
+        @own x = [1, 2, 3]
+        ch = Channel(1)
+        t = @lifetime lt begin
+            @ref ~lt borrowed = x
+            @test fetch(@spawn borrowed .+ 1) == [2, 3, 4]
+
+            # We want to verify that the borrow expires in this spawn:
+            @spawn (take!(ch); borrowed .+ 1)
+        end
+        put!(ch, 1)
+        err_msg = try
+            fetch(t)
+        catch e
+            sprint(showerror, e)
+        end
+        @test occursin("Cannot use `borrowed`: value's lifetime has expired", err_msg)
+    end
+end
