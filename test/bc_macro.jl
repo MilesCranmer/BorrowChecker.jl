@@ -662,3 +662,69 @@ end
         end
     end
 end
+
+@testitem "Nested closures" begin
+    using BorrowChecker
+
+    let
+        @own complex_data = Dict("a" => 10, "b" => 20)
+        @own :mut results = []
+        counter = 0
+
+        @lifetime lt begin
+            @ref ~lt data_ref = complex_data
+
+            closure_factory = @cc (prefix) -> begin
+                local captured_counter = counter
+                counter += 1  # Modify the outer variable
+                # ^This is bad, but should not trigger an error!
+
+                # Return a new closure that captures allowed references
+                # and accepts a mutable reference as an argument (not captured)
+                return @cc (x, mut_results) -> begin
+                    # Access the borrowed dictionary
+                    value = data_ref[prefix] * x
+                    # Use the mutable reference as an argument
+                    push!(mut_results, "$(prefix): $value (#$(captured_counter))")
+                    return value
+                end
+            end
+
+            @ref ~lt :mut results_mut = results
+
+            @test closure_factory("a")(5, results_mut) == 50  # 10 * 5
+            @test closure_factory("b")(3, results_mut) == 60  # 20 * 3
+
+            # Check the results within the lifetime scope
+            @test length(results_mut) == 2
+            @test results_mut[1] == "a: 50 (#0)"
+            @test results_mut[2] == "b: 60 (#1)"
+        end
+
+        @test @take(results) == ["a: 50 (#0)", "b: 60 (#1)"]
+    end
+end
+
+@testitem "Boxed owned variables" begin
+    using BorrowChecker
+
+    let
+        @own :mut x = 42
+        f = () -> begin
+            local y = x
+            x += 1
+        end
+        # First, we verify that this created a boxed variable
+        @test f.x isa Core.Box
+        # TODO: Change when https://github.com/JuliaLang/julia/issues/15276 is fixed
+
+        # Then, we verify we can detect the underlying variable within the box
+        @test_throws(
+            "The closure function captured a variable `x::$(typeof(x))`",
+            @cc () -> begin
+                local y = x
+                x += 1
+            end
+        )
+    end
+end
