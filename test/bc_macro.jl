@@ -488,3 +488,243 @@ end
     @own x = 1
     @test @bc(f(x)) == 1
 end
+
+@testitem "Closures with disallowed capture types" begin
+    using BorrowChecker
+
+    let
+        # Owned variables cannot be captured
+        @own x = 42
+        @test_throws ErrorException @cc () -> x + 1
+
+        # OwnedMut variables cannot be captured
+        @own :mut y = 42
+        @test_throws ErrorException @cc () -> y + 1
+
+        # BorrowedMut variables cannot be captured
+        @own :mut z = 42
+        @lifetime lt begin
+            @ref ~lt :mut mutref = z
+            @test_throws ErrorException @cc () -> mutref + 1
+        end
+
+        # LazyAccessor of OwnedMut cannot be captured
+        @own :mut a = (value=42,)
+        @test_throws ErrorException @cc () -> a.value + 1
+    end
+end
+
+@testitem "Closures with allowed capture types" begin
+    using BorrowChecker
+
+    let
+        # Borrowed variables can be captured
+        @own b = 42
+        @lifetime lt begin
+            @ref ~lt borrowed = b
+            good = @cc () -> borrowed + 1
+            @test good() == 43
+        end
+
+        # LazyAccessor of Borrowed can also be captured
+        @own c = (value=42,)
+        @lifetime lt begin
+            @ref ~lt borrowed_struct = c
+            good = @cc () -> borrowed_struct.value + 1
+            @test good() == 43
+        end
+
+        # Regular variables can be captured
+        regular = 42
+        good = @cc () -> regular + 1
+        @test good() == 43
+    end
+end
+
+@testitem "Closures with multiple captures" begin
+    using BorrowChecker
+
+    let
+        # Multiple valid captures
+        @own b1 = 10
+        @own b2 = 20
+        regular = 5
+
+        @lifetime lt begin
+            @ref ~lt ref1 = b1
+            @ref ~lt ref2 = b2
+
+            # All safe captures
+            good = @cc () -> ref1 + ref2 + regular
+            @test good() == 35
+        end
+
+        # Mix of valid and invalid captures
+        @own x = 10
+        @lifetime lt begin
+            @ref ~lt safe_ref = x
+
+            # One invalid (owned) + one valid (borrowed) + one regular
+            @test_throws ErrorException @cc () -> x + safe_ref + regular
+        end
+
+        # Multiple invalid captures
+        @own :mut y = 20
+        @own z = 30
+
+        # Both owned variables, should fail
+        @test_throws ErrorException @cc () -> y + z
+    end
+end
+
+@testitem "Closures with input arguments" begin
+    using BorrowChecker
+
+    let
+        # Valid capture with input argument
+        @own x = 42
+        @own alpha = 42
+        @own beta = 42
+        regular = 5
+
+        @lifetime lt begin
+            @ref ~lt borrowed = x
+
+            # Closure with input argument and valid capture
+            good = @cc input -> borrowed + input + regular
+            @test good(3) == 50  # 42 + 3 + 5
+            @test_throws ErrorException @cc input -> alpha + input + regular
+
+            # Verifying we can also do keyword arguments
+            good_kw = @cc bar(a; b=2) = borrowed + a + b + regular
+            @test good_kw(3) == 52  # 42 + 3 + 2 + 5
+            @test good_kw(3; b=10) == 60  # 42 + 3 + 10 + 5
+        end
+        @test_throws ErrorException @cc foo(a::Int, b=2) = beta + a + b + regular
+
+        # Invalid capture with input argument
+        @own y = 100
+
+        # The owned variable is still not allowed to be captured
+        # even with input arguments present
+        @test_throws ErrorException @cc (input,) -> y + input
+    end
+end
+
+@testitem "Closures with multiple arguments" begin
+    using BorrowChecker
+
+    let
+        # Test with multiple arguments including mutable references
+        @own :mut a = [1, 2]
+        @own b = 5
+        @own :mut c = [10, 20]
+        regular = 100
+
+        @lifetime lt begin
+            @ref ~lt :mut mut_a = a
+            @ref ~lt borrowed_b = b
+            @ref ~lt :mut mut_c = c
+
+            # Closure with multiple arguments of different types
+            process = @cc (x_mut, y, z_mut) -> begin
+                push!(x_mut, y + 1)
+                push!(z_mut, y * 2)
+                return borrowed_b + regular
+            end
+
+            # Call with multiple arguments
+            result = process(mut_a, 3, mut_c)
+            @test result == 105  # borrowed_b (5) + regular (100)
+
+            # Call again with different parameters
+            result = process(mut_c, 7, mut_a)
+            @test result == 105
+        end
+
+        # Now check the results AFTER the lifetime has ended and borrows are released
+        @test @take(a) == [1, 2, 4, 14]  # Added 3+1 and 7*2
+        @test @take(c) == [10, 20, 6, 8]  # Added 3*2 and 7+1
+    end
+end
+@testitem "Closure with arg name matching a captured name" begin
+    using BorrowChecker
+
+    let
+        @own x = 42
+        f = @cc x -> x + 1
+        @test f(1) == 2
+
+        @lifetime lt begin
+            @ref ~lt r = x
+            g = @cc foo(a; x) = a + x + r
+            @test g(1; x=2) == 1 + 2 + 42
+        end
+    end
+end
+
+@testitem "Nested closures" begin
+    using BorrowChecker
+
+    let
+        @own complex_data = Dict("a" => 10, "b" => 20)
+        @own :mut results = []
+        counter = 0
+
+        @lifetime lt begin
+            @ref ~lt data_ref = complex_data
+
+            closure_factory = @cc (prefix) -> begin
+                local captured_counter = counter
+                counter += 1  # Modify the outer variable
+                # ^This is bad, but should not trigger an error!
+
+                # Return a new closure that captures allowed references
+                # and accepts a mutable reference as an argument (not captured)
+                return @cc (x, mut_results) -> begin
+                    # Access the borrowed dictionary
+                    value = data_ref[prefix] * x
+                    # Use the mutable reference as an argument
+                    push!(mut_results, "$(prefix): $value (#$(captured_counter))")
+                    return value
+                end
+            end
+
+            @ref ~lt :mut results_mut = results
+
+            @test closure_factory("a")(5, results_mut) == 50  # 10 * 5
+            @test closure_factory("b")(3, results_mut) == 60  # 20 * 3
+
+            # Check the results within the lifetime scope
+            @test length(results_mut) == 2
+            @test results_mut[1] == "a: 50 (#0)"
+            @test results_mut[2] == "b: 60 (#1)"
+        end
+
+        @test @take(results) == ["a: 50 (#0)", "b: 60 (#1)"]
+    end
+end
+
+@testitem "Boxed owned variables" begin
+    using BorrowChecker
+
+    let
+        @own :mut x = 42
+        f = () -> begin
+            local y = x
+            x += 1
+        end
+        # First, we verify that this created a boxed variable
+        @test f.x isa Core.Box
+        # TODO: Change when https://github.com/JuliaLang/julia/issues/15276 is fixed
+
+        # Then, we verify we can detect the underlying variable within the box
+        @test_throws(
+            "The closure function captured a variable `x::$(typeof(x))`",
+            @cc () -> begin
+                local y = x
+                x += 1
+            end
+        )
+    end
+end

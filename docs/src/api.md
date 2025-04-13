@@ -23,6 +23,12 @@ CurrentModule = BorrowChecker
 @mut
 ```
 
+## Validation
+
+```@docs
+@cc
+```
+
 ## Types
 
 ```@docs

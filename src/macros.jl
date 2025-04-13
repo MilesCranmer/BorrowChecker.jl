@@ -12,7 +12,8 @@ using ..TypesModule:
     AllWrappers,
     AllOwned,
     AllBorrowed,
-    AsMutable
+    AsMutable,
+    OrLazy
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -486,5 +487,70 @@ macro mut(expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     return esc(:($(AsMutable)($expr)))
 end
+
+"""
+    @cc closure_expr
+
+"Closure Check" is a macro that attempts to verify a closure is compatible with the borrow checker.
+
+Only immutable references (created with `@ref` and `@bc`) are allowed to be captured;
+all other owned and borrowed variables that are captured will trigger an error.
+
+# Examples
+
+```julia
+@own x = 1
+@own :mut y = 2
+
+@lifetime lt begin
+    @ref ~lt z = x
+    @ref ~lt :mut w = y
+    
+    # These error as the capturing breaks borrowing rules
+    bad = @cc () -> x + 1
+    bad2 = @cc () -> w + 1
+    
+    # However, you are allowed to capture immutable references
+    good = @cc () -> z + 1
+    # This will not error.
+end
+```
+"""
+macro cc(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(:($(_check_function_captures)($expr)))
+end
+
+function _check_function_captures(f::F) where {F}
+    for i in 1:fieldcount(F)
+        field_type = fieldtype(F, i)
+        field_name = fieldname(F, i)
+        if field_type <: Core.Box
+            _assert_capture_allowed(typeof(getfield(f, i).contents), field_name)
+        else
+            _assert_capture_allowed(field_type, field_name)
+        end
+    end
+    return f
+end
+
+function _assert_capture_allowed(::Type{T}, var_name::Symbol) where {T}
+    if !_check_capture_allowed(T)
+        error(
+            "The closure function captured a variable `$var_name::$T`. " *
+            "This is not allowed because capturing owned variables or mutable references " *
+            "violates the rules of the borrow checker. Only capturing immutable references " *
+            "is allowed. You should use `@ref` to create an immutable reference " *
+            "to the variable before capturing.",
+        )
+    end
+end
+
+# COV_EXCL_START
+_check_capture_allowed(::Type) = true
+_check_capture_allowed(::Type{<:OrLazy{Owned}}) = false
+_check_capture_allowed(::Type{<:OrLazy{OwnedMut}}) = false
+_check_capture_allowed(::Type{<:OrLazy{BorrowedMut}}) = false
+# COV_EXCL_STOP
 
 end

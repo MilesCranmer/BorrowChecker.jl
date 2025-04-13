@@ -310,6 +310,7 @@ const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllOwned{T}}
 const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
 const LazyAccessorOf{O} = LazyAccessor{T,P,S,<:O} where {T,P,S}
+const OrLazy{O} = Union{O,LazyAccessorOf{O}}
 
 """
     OrBorrowed{T}

@@ -16,11 +16,11 @@ include("disambiguations.jl")
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError, AliasedReturnError
 using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-using .MacrosModule: @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut
+using .MacrosModule: @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut, @cc
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
 export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-export @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut
+export @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut, @cc
 
 # Not exported but still available
 using .PreferencesModule: disable_by_default!
