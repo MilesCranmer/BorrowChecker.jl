@@ -114,6 +114,7 @@ nested task error: Cannot create mutable reference: `data` is already mutably bo
 ```
 
 This is because in BorrowChecker.jl's ownership model, similar to Rust, an owned object follows strict borrowing rules to prevent data races and ensure safety.
+(Though, in practice, you should use `BorrowChecker.@spawn` instead of `Threads.@spawn`, so that it validates captured variables.)
 
 ## Ownership Rules
 
@@ -155,6 +156,8 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 > ```
 >
 > This will validate that any captured variable is an immutable reference.
+> Similarly, you should generally prefer the `BorrowChecker.@spawn` macro instead of
+> `Threads.@spawn` to validate captured variables.
 
 ## API
 
@@ -181,6 +184,7 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 ### Validation
 
 - `@cc closure_expr`: Verifies that closures only capture immutable references.
+- `BorrowChecker.@spawn [options...] expr`: A safety wrapper around `Threads.@spawn` that applies `@cc` to the expression (which is internally put inside a closure).
 
 ### Loops
 
@@ -449,6 +453,22 @@ let
     end
     # The reference will expire here, ensuring
     # the closure doesn't break the borrowing rules!
+end
+```
+
+For threads, you can use the `BorrowChecker.@spawn` macro instead of the standard `Threads.@spawn`.
+This ensures safe captures by automatically applying `@cc` to the closure (which is generated internally by `@spawn`):
+
+```julia
+@own x = 42
+@lifetime lt begin
+    @ref ~lt safe_ref = x
+
+    tasks = [
+        BorrowChecker.@spawn safe_ref + 1
+        for _ in 1:10
+    ]
+    sum(fetch, tasks)
 end
 ```
 
