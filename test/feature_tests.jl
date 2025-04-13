@@ -540,12 +540,19 @@ end
     # Test that views are not allowed on owned arrays
     @own x = [1, 2, 3, 4]
     @test_throws BorrowRuleError view(x, 1:2)
+    @test_throws BorrowRuleError reshape(x, 1, 4)
+    @test_throws BorrowRuleError reshape(x, (1, 4))
 
     # Test that views work on borrowed arrays
     @lifetime lt begin
         @ref ~lt ref = x
         @test view(ref, 1:2) isa Borrowed{<:AbstractVector{Int}}
+        @test reshape(ref, 1, 4) isa Borrowed{<:AbstractMatrix{Int}}
+        @test reshape(ref, (1, 4)) isa Borrowed{<:AbstractMatrix{Int}}
+        @test reshape(ref, (1, :)) isa Borrowed{<:AbstractMatrix{Int}}
+        @test reshape(ref, (1, :))[:] == ref[:]
         @test_throws BorrowRuleError @own bound_view = view(ref, 1:2)
+        @test_throws BorrowRuleError @own bound_reshape = reshape(ref, 1, 4)
     end
 end
 

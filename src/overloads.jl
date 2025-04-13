@@ -65,8 +65,8 @@ function throw_view_error(op::Function, @nospecialize(r::AllWrappers))
         ),
     )
 end
-for op in (:view, :transpose, :adjoint)
-    extra_args = op == :view ? (:(i...),) : ()
+for op in (:view, :reshape, :transpose, :adjoint)
+    extra_args = op in (:view, :reshape) ? (:(i...),) : ()
     @eval begin
         function Base.$(op)(r::W, $(extra_args...)) where {W<:AllWrappers{<:AbstractArray}}
             if !(W <: Union{Borrowed,LazyAccessorOf{Borrowed}})
