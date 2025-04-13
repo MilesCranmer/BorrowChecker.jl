@@ -13,7 +13,7 @@
 This is an experimental package for emulating a runtime borrow checker in Julia, using a macro layer over regular code. This is built to mimic Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
 > [!WARNING]
-> BorrowChecker.jl does not promise memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
+> BorrowChecker.jl does not guarantee memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
 
 ## Usage
 
@@ -113,14 +113,50 @@ Now, when you attempt to fetch the tasks, you will get this error:
 nested task error: Cannot create mutable reference: `data` is already mutably borrowed
 ```
 
-This is because in BorrowChecker.jl's ownership model, **you can only have one mutable reference to a value at a time**!
+This is because in BorrowChecker.jl's ownership model, similar to Rust, an owned object follows strict borrowing rules to prevent data races and ensure safety.
 
-The rules are: while you can have multiple _immutable_ references (reading from multiple threads), you cannot have multiple _mutable_ references, and also not both mutable and immutable references. You also cannot access a reference after the lifetime has ended (which in this case, is the duration of the `@bc` macro). You also cannot move ownership while a reference is live.
+## Ownership Rules
 
-## API
+At any given time, an owned object can only be accessed according to one of the following conditions:
+
+1. **Direct Ownership:**
+    - The object is accessed directly via its owning variable.
+    - No active references (`Borrowed` or `BorrowedMut`) exist.
+    - In this state, ownership can be transferred (moved) to another variable, after which the original variable becomes inaccessible. The object can also be mutated if it was declared as mutable (`@own :mut ...`).
+
+2. **Immutable Borrows:**
+    - One or more immutable references (`Borrowed`) to the object exist.
+    - While any immutable reference is active:
+        - The original owning variable _cannot_ be mutated directly.
+        - Ownership _cannot_ be moved.
+        - No mutable references (`BorrowedMut`) can be created.
+    - Multiple immutable references can coexist peacefully. This allows multiple parts of the code to read the data concurrently without interference.
+
+3. **A Mutable Borrow:**
+    - Exactly one mutable reference (`BorrowedMut`) to the object exists.
+    - While the mutable reference is active:
+        - The original owning variable _cannot_ be accessed or mutated directly.
+        - Ownership _cannot_ be moved.
+        - No other references (neither immutable `Borrowed` nor other mutable `BorrowedMut`) can be created.
+    - The object _can_ be mutated through the single active mutable reference. This ensures exclusive write access, preventing data races.
+
+In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedMut`), but not both simultaneously. While any borrow is active, the original owner faces restrictions (cannot be moved, cannot be mutated directly if borrowed immutably, cannot be accessed at all if borrowed mutably).
+
+### Sharp Edges
 
 > [!CAUTION]
-> The API is under active development and may change in future versions.
+> Be especially careful with closure functions that capture variables, as
+> this is an easy way to silently break the borrowing rules.
+> You should always use the `@cc` macro to wrap closures as a form of
+> validation:
+>
+> ```julia
+> safe_closure = @cc (x, y) -> x + y
+> ```
+>
+> This will validate that any captured variable is an immutable reference.
+
+## API
 
 ### Basics
 
