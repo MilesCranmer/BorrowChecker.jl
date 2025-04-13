@@ -1,6 +1,6 @@
 module MacrosModule
 
-using MacroTools: @q, isexpr, splitarg, isdef, splitdef
+using MacroTools: @q, isexpr, splitarg, isdef
 
 using ..TypesModule:
     Owned,
