@@ -538,10 +538,10 @@ function _assert_capture_allowed(::Type{T}, var_name::Symbol) where {T}
     if !_check_capture_allowed(T)
         error(
             "The closure function captured a variable `$var_name::$T`. " *
-            "This is disallowed because variable captures of owned and mutable references " *
-            "breaks the rules of the borrow checker. Only immutable references are allowed. " *
-            "To fix this, you should use `@ref` to create an immutable reference to the " *
-            "variable before capturing.",
+            "This is not allowed because capturing owned variables or mutable references " *
+            "violates the rules of the borrow checker. Only capturing immutable references " *
+            "is allowed. You should use `@ref` to create an immutable reference " *
+            "to the variable before capturing.",
         )
     end
 end

@@ -117,7 +117,7 @@ This is because in BorrowChecker.jl's ownership model, similar to Rust, an owned
 
 ## Ownership Rules
 
-At any given time, an owned object can only be accessed according to one of the following conditions:
+At any given time, an object managed by BorrowChecker.jl can only be accessed in one of the following states:
 
 1. **Direct Ownership:**
     - The object is accessed directly via its owning variable.
