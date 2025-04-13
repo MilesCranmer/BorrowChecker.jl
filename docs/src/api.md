@@ -27,6 +27,7 @@ CurrentModule = BorrowChecker
 
 ```@docs
 @cc
+BorrowChecker.@spawn
 ```
 
 ## Types

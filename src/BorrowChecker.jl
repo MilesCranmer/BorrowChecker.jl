@@ -26,6 +26,7 @@ export @own, @move, @ref, @take, @take!, @lifetime, @clone, @bc, @mut, @cc
 using .PreferencesModule: disable_by_default!
 using .StaticTraitModule: is_static
 using .TypesModule: AsMutable, Lifetime, LazyAccessorOf, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows
+using .MacrosModule: @spawn
 #! format: on
 
 end

@@ -553,4 +553,25 @@ _check_capture_allowed(::Type{<:OrLazy{OwnedMut}}) = false
 _check_capture_allowed(::Type{<:OrLazy{BorrowedMut}}) = false
 # COV_EXCL_STOP
 
+"""
+    BorrowChecker.@spawn [options...] expr
+
+`Threads.@spawn` but with [`@cc`](@ref) applied to the expression
+to ensure safe captures.
+"""
+macro spawn(expr, args...)
+    is_borrow_checker_enabled(__module__) ||
+        return esc(:($(Threads).@spawn($expr, $(args...))))
+    return esc(_spawn(expr, args...))
+end
+
+function _spawn(args...)
+    inner_closure = gensym("inner_closure")
+    return quote
+        let $inner_closure = $(@__MODULE__).@cc () -> $(last(args))
+            $(Threads).@spawn($(args[1:(end - 1)]...), $(inner_closure)())
+        end
+    end
+end
+
 end

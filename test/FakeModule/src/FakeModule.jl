@@ -1,6 +1,7 @@
 module FakeModule
 
 using BorrowChecker
+using BorrowChecker: @spawn
 using Test
 
 function test()
@@ -41,6 +42,12 @@ function test()
         f(y) = (@test y isa Vector{Int}; y)
         @test @bc(f(z)) === f(z)
         @test @bc(f(@mut(z_mut))) === f(z_mut)
+    end
+
+    let
+        # This spawn still works because the borrow checker is disabled
+        @own x = 1
+        @test fetch(@spawn x + 1) == 2
     end
 end
 
