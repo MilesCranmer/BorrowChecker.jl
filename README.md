@@ -544,14 +544,15 @@ function process_data(x, y, z)
     @own x, y
     @own :mut z
 
-    @own tasks = [
-        Threads.@spawn(@bc(foo(z))),
-        Threads.@spawn(@bc(foo(z)))
-    ]
-    sum(map(fetch, @take!(tasks)))
+    @lifetime lt begin
+        @ref ~lt r = z
+        tasks = [
+            BorrowChecker.@spawn(foo(r)),
+            BorrowChecker.@spawn(foo(r)),
+        ]
+        sum(fetch, tasks)
+    end
 end
 ```
 
 Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context! Immutable references are safe to pass in a multi-threaded context, so this doubles as a good way to prevent unintended thread races.
-
-Note that this will nicely handle the case of multiple mutable references—if we had written `@bc foo(@mut(z))` while the other thread was running, we would see a `BorrowRuleError` because `z` is already mutably borrowed!
