@@ -1,6 +1,6 @@
 module MacrosModule
 
-using MacroTools: @q, isexpr, splitarg, isdef
+using MacroTools: @q, isexpr, splitarg, isdef, splitdef
 
 using ..TypesModule:
     Owned,
@@ -12,7 +12,8 @@ using ..TypesModule:
     AllWrappers,
     AllOwned,
     AllBorrowed,
-    AsMutable
+    AsMutable,
+    OrLazy
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -485,6 +486,96 @@ Marks a value to be borrowed mutably in a `@bc` macro call.
 macro mut(expr)
     is_borrow_checker_enabled(__module__) || return esc(expr)
     return esc(:($(AsMutable)($expr)))
+end
+
+"""
+    @cc closure_expr
+
+Checks if a closure expression captures variables of disallowed types:
+- Owned{T}
+- OwnedMut{T}
+- BorrowedMut{T}
+- LazyAccessorOf{Union{Owned{T}, OwnedMut{T}, BorrowedMut{T}}}
+
+Only Borrowed{T} and LazyAccessorOf{Borrowed{T}} are allowed to be captured.
+
+# Examples
+
+```julia
+@own x = 1
+@own :mut y = 2
+@lifetime lt begin
+    @ref ~lt z = x
+    @ref ~lt :mut w = y
+    
+    # This will error - captures owned variable
+    bad = @cc () -> x + 1
+    
+    # This is allowed - only captures borrowed variable
+    good = @cc () -> z + 1
+end
+```
+"""
+macro cc(expr)
+    is_borrow_checker_enabled(__module__) || return esc(expr)
+    return esc(_cc(expr))
+end
+
+# Helper functions to check if a variable's type is allowed to be captured using multiple dispatch
+# COV_EXCL_START
+_check_capture_allowed(var_value) = true
+_check_capture_allowed(var_value::OrLazy{Owned}) = false
+_check_capture_allowed(var_value::OrLazy{OwnedMut}) = false
+_check_capture_allowed(var_value::OrLazy{BorrowedMut}) = false
+# COV_EXCL_STOP
+
+function _assert_capture_allowed(var_value, var_name::Symbol)
+    if !_check_capture_allowed(var_value)
+        error(
+            "Closure captures a variable `$var_name::$(typeof(var_value))`, " *
+            "which is a disallowed type for capture. " *
+            "Only immutable references are allowed (see `@ref`).",
+        )
+    end
+end
+
+#! format: off
+_collect_symbols!(symbols, ex::Symbol) = (push!(symbols, ex); nothing)
+_collect_symbols!(symbols, ex::Expr) = foreach(Base.Fix1(_collect_symbols!, symbols), ex.args)
+_collect_symbols!(_, _) = nothing  # COV_EXCL_LINE
+#! format: on
+
+function _cc(expr)
+    fdef = splitdef(expr)
+
+    # Now extract all argument names
+    arg_symbols = Set{Symbol}()
+    all_args = vcat(get(fdef, :args, []), get(fdef, :kwargs, []))
+    for arg in all_args
+        arg_info = splitarg(arg)
+        _collect_symbols!(arg_symbols, arg_info[1])
+    end
+
+    body_symbols = Set{Symbol}()
+    _collect_symbols!(body_symbols, fdef[:body])
+
+    # The captured variables are those in body that aren't arguments
+    possible_captures = setdiff(body_symbols, arg_symbols)
+
+    # Create runtime checks for each captured variable
+    checks = [
+        quote
+            if $(Base).@isdefined($(var))
+                $(_assert_capture_allowed)($(var), $(QuoteNode(var)))
+            end
+        end for var in possible_captures
+    ]
+
+    # Return the original closure if all checks pass
+    return quote
+        $(checks...)
+        $(expr)
+    end
 end
 
 end

@@ -488,3 +488,91 @@ end
     @own x = 1
     @test @bc(f(x)) == 1
 end
+
+@testitem "Closures with disallowed capture types" begin
+    using BorrowChecker
+
+    let
+        # Owned variables cannot be captured
+        @own x = 42
+        @test_throws ErrorException @cc () -> x + 1
+
+        # OwnedMut variables cannot be captured
+        @own :mut y = 42
+        @test_throws ErrorException @cc () -> y + 1
+
+        # BorrowedMut variables cannot be captured
+        @own :mut z = 42
+        @lifetime lt begin
+            @ref ~lt :mut mutref = z
+            @test_throws ErrorException @cc () -> mutref + 1
+        end
+
+        # LazyAccessor of OwnedMut cannot be captured
+        @own :mut a = (value=42,)
+        @test_throws ErrorException @cc () -> a.value + 1
+    end
+end
+
+@testitem "Closures with allowed capture types" begin
+    using BorrowChecker
+
+    let
+        # Borrowed variables can be captured
+        @own b = 42
+        @lifetime lt begin
+            @ref ~lt borrowed = b
+            good = @cc () -> borrowed + 1
+            @test good() == 43
+        end
+
+        # LazyAccessor of Borrowed can also be captured
+        @own c = (value=42,)
+        @lifetime lt begin
+            @ref ~lt borrowed_struct = c
+            good = @cc () -> borrowed_struct.value + 1
+            @test good() == 43
+        end
+
+        # Regular variables can be captured
+        regular = 42
+        good = @cc () -> regular + 1
+        @test good() == 43
+    end
+end
+
+@testitem "Closures with multiple captures" begin
+    using BorrowChecker
+
+    let
+        # Multiple valid captures
+        @own b1 = 10
+        @own b2 = 20
+        regular = 5
+
+        @lifetime lt begin
+            @ref ~lt ref1 = b1
+            @ref ~lt ref2 = b2
+
+            # All safe captures
+            good = @cc () -> ref1 + ref2 + regular
+            @test good() == 35
+        end
+
+        # Mix of valid and invalid captures
+        @own x = 10
+        @lifetime lt begin
+            @ref ~lt safe_ref = x
+
+            # One invalid (owned) + one valid (borrowed) + one regular
+            @test_throws ErrorException @cc () -> x + safe_ref + regular
+        end
+
+        # Multiple invalid captures
+        @own :mut y = 20
+        @own z = 30
+
+        # Both owned variables, should fail
+        @test_throws ErrorException @cc () -> y + z
+    end
+end
