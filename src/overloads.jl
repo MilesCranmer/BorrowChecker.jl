@@ -213,6 +213,7 @@ end
 
 # --- DICTIONARY OPERATIONS ---
 # Dictionary-specific operations
+# TODO: This is not safe for non-static values
 Base.getindex(r::AllWrappers{<:AbstractDict}, key) = getindex(request_value(r, Val(:read)), _maybe_read(key))
 Base.delete!(r::AllWrappers{<:AbstractDict}, key) = (delete!(request_value(r, Val(:write)), _maybe_read(key)); nothing)
 # --- END DICTIONARY OPERATIONS ---
