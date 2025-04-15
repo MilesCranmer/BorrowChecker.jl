@@ -132,3 +132,24 @@ end
     @test startswith(err_msg, "MutexMismatchError: ")
     @test occursin("must be the same", err_msg)
 end
+
+@testitem "Mutex show method" begin
+    using BorrowChecker
+
+    # Test showing a mutex with a simple value
+    m1 = Mutex(42)
+    output = sprint(show, m1)
+    @test output == "Mutex{Int64}(42)"
+
+    # Test showing a mutex with a more complex value
+    m2 = Mutex([1, 2, 3])
+    output = sprint(show, m2)
+    @test output == "Mutex{Vector{Int64}}([1, 2, 3])"
+
+    # Test showing a mutex with a composite type
+    m3 = Mutex((a=1, b="test"))
+    output = sprint(show, m3)
+    @test occursin("NamedTuple", output)
+    @test occursin("a = 1", output)
+    @test occursin("b = \"test\"", output)
+end

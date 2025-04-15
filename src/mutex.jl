@@ -77,10 +77,13 @@ function Base.showerror(io::IO, ::MutexGuardValueAccessError)
 end
 
 function Base.show(io::IO, m::AbstractMutex{T}) where {T}
+    Base.lock(m)
     print(io, "Mutex{", T, "}(")
     value = request_value(unsafe_get_owner(m), Val(:read))
     show(io, value)
-    return print(io, ")")
+    print(io, ")")
+    Base.unlock(m)
+    return nothing
 end
 
 """
