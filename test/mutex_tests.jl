@@ -11,14 +11,14 @@ using Base.Threads: @spawn, Condition, ReentrantLock
 
     # Verify we can access the mutex's value inside a lock
     lock(m) do
-        @ref ~m :mut arr = m[]
+        @ref_into :mut arr = m[]
         @test arr == [1, 2, 3]
         push!(arr, 4)
     end
 
     # Verify the value was modified
     lock(m) do
-        @ref ~m arr = m[]
+        @ref_into arr = m[]
         @test arr == [1, 2, 3, 4]
     end
 
@@ -39,14 +39,14 @@ end
     # Modify the value safely through the mutex
     Threads.@threads for _ in 1:10
         lock(m) do
-            @ref ~m :mut dict = m[]
+            @ref_into :mut dict = m[]
             dict[:counter] += 1
         end
     end
 
     # Verify the modification worked
     lock(m) do
-        @ref ~m dict = m[]
+        @ref_into dict = m[]
         @test dict[:counter] == 10
     end
 end
@@ -59,7 +59,7 @@ end
 
     Base.@lock m begin
         # Create an immutable reference
-        @ref ~m arr_immut = m[]
+        @ref_into arr_immut = m[]
         @test arr_immut == [1, 2, 3]
 
         # We shouldn't be able to modify the immutable reference
@@ -68,7 +68,7 @@ end
 
     out = Base.@lock m begin
         # Create a mutable reference
-        @ref ~m :mut arr_mut = m[]
+        @ref_into :mut arr_mut = m[]
         push!(arr_mut, 4)
         @test arr_mut == [1, 2, 3, 4]
         arr_mut
@@ -81,7 +81,7 @@ end
 @testitem "Mutex error messages" begin
     using BorrowChecker
     using BorrowChecker.MutexModule:
-        LockNotHeldError, NoOwningMutexError, MutexGuardValueAccessError, MutexMismatchError
+        LockNotHeldError, NoOwningMutexError, MutexGuardValueAccessError
 
     # Test LockNotHeldError message
     m1 = Mutex([1, 2, 3])
@@ -118,23 +118,6 @@ end
     err_msg = sprint(io -> showerror(io, err))
     @test startswith(err_msg, "MutexGuardValueAccessError: ")
     @test occursin("must be accessed through a reference", err_msg)
-
-    # Test MutexMismatchError message
-    m4 = Mutex([1, 2, 3])
-    lock(m4)
-    guard = m4[]
-    m5 = Mutex([4, 5, 6])
-    err = try
-        # Create a ref that tries to mix different mutexes
-        @ref ~m5 failed = guard
-    catch e
-        e
-    end
-    unlock(m4)
-    @test err isa MutexMismatchError
-    err_msg = sprint(io -> showerror(io, err))
-    @test startswith(err_msg, "MutexMismatchError: ")
-    @test occursin("must be the same", err_msg)
 end
 
 @testitem "Mutex show method" begin
@@ -191,4 +174,36 @@ end
     @test occursin(
         "Cannot create a Mutex around an object of type `$(typeof(owned_value))`", err_msg
     )
+end
+
+@testitem "@ref_into error messages" begin
+    using BorrowChecker
+    using BorrowChecker.MacrosModule: _ref_into
+
+    # Test error for invalid first argument to @ref_into
+    err = try
+        @eval @ref_into :invalid_mut x = y
+    catch e
+        e
+    end
+    err_msg = sprint(showerror, err)
+    @test occursin("First argument to @ref_into must be :mut", err_msg)
+
+    # Test error for non-assignment expression
+    err = try
+        @eval @ref_into x * 2
+    catch e
+        e
+    end
+    err_msg = sprint(showerror, err)
+    @test occursin("@ref_into requires an assignment expression", err_msg)
+
+    # Test error for non-assignment expression with :mut flag
+    err = try
+        @eval @ref_into :mut x * 2
+    catch e
+        e
+    end
+    err_msg = sprint(showerror, err)
+    @test occursin("@ref_into requires an assignment expression", err_msg)
 end

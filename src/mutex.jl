@@ -166,11 +166,14 @@ Throws a `LockNotHeldError` if the current task does not hold the lock.
 Base.getindex(m::AbstractMutex) = MutexGuard(m)
 # TODO: This MutexGuard shouldn't be passed when BorrowChecker is disabled
 
-# Overload ref for MutexGuard to create proper references
-function ref(
-    mutex::AbstractMutex, guard::MutexGuard, dest_symbol::Symbol, ::Val{mut}
-) where {mut}
-    mutex !== guard.mutex && throw(MutexMismatchError())
+"""
+    ref_into(guard::MutexGuard, dest_symbol::Symbol, ::Val{mut})
+
+Create a reference directly from a MutexGuard without needing to specify a lifetime.
+This is used by the @ref_into macro to simplify the syntax for creating references.
+"""
+function ref_into(guard::MutexGuard, dest_symbol::Symbol, ::Val{mut}) where {mut}
+    mutex = guard.mutex
     _verify_task(mutex)
 
     if mut
@@ -178,14 +181,6 @@ function ref(
     else
         return Borrowed(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)
     end
-end
-
-struct MutexMismatchError <: AbstractMutexError end
-
-function Base.showerror(io::IO, ::MutexMismatchError)
-    print(io, "MutexMismatchError: ")
-    print(io, "The lifetime mutex and guard mutex must be the same.")
-    return nothing
 end
 
 # Prevent ownership of mutexes

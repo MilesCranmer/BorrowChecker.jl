@@ -20,6 +20,7 @@ CurrentModule = BorrowChecker
 @lifetime
 @ref
 Mutex
+@ref_into
 @bc
 @mut
 ```

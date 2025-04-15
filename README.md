@@ -179,7 +179,8 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
   - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
 - `Mutex(value)`: Creates a thread-safe container for `value`. Mutexes manage lifetimes implicitly during locks and do not need `@own`.
-  - Use `lock(m)` to acquire the lock, `@ref ~m [:mut] var = m[]` to create a reference to the value inside the mutex, and `unlock(m)` to release the lock.
+- `@ref_into [:mut] var = mutex[]`: Create a reference to the value inside a mutex.
+  - Use `lock(m)` to acquire the lock, `@ref_into` to create a reference to the value inside the mutex, and `unlock(m)` to release the lock.
 - `@bc f(args...; kws...)`: This convenience macro automatically creates a lifetime scope for the duration of the function, and sets up borrowing for any owned input arguments.
   - Use `@mut(arg)` to mark an input as mutable.
 
