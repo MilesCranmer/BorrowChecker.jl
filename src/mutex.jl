@@ -139,10 +139,8 @@ end
 Access the mutex for referencing. Must be used inside a lock block and with @ref.
 Throws a `LockNotHeldError` if the current task does not hold the lock.
 """
-function Base.getindex(m::AbstractMutex)
-    get_locked_by(m) !== current_task() && throw(LockNotHeldError())
-    return MutexGuard(m)
-end
+Base.getindex(m::AbstractMutex) = MutexGuard(m)
+# TODO: This MutexGuard shouldn't be passed when BorrowChecker is disabled
 
 # Overload ref for MutexGuard to create proper references
 function ref(
