@@ -18,21 +18,28 @@ function increment_immutable_borrows! end
 function decrement_immutable_borrows! end
 
 """
+    AbstractWrapper{T}
+
+Base type for all wrapper types in the BorrowChecker system.
+"""
+abstract type AbstractWrapper{T} end
+
+"""
     AbstractOwned{T}
 
-Base type for all owned value types in the BorrowChecker system.
+Base type for all owned value types.
 """
-abstract type AbstractOwned{T} end
+abstract type AbstractOwned{T} <: AbstractWrapper{T} end
 
 """
     AbstractBorrowed{T}
 
-Base type for all borrowed reference types in the BorrowChecker system.
+Base type for all borrowed reference types.
 """
-abstract type AbstractBorrowed{T} end
+abstract type AbstractBorrowed{T} <: AbstractWrapper{T} end
 
 """
-    Owned{T}
+    Owned{T} <: AbstractOwned{T}
 
 An immutable owned value. Common operations:
 - Create using `@own x = value`
@@ -66,7 +73,7 @@ end
 #       validate it to ensure we have not moved tasks.
 
 """
-    OwnedMut{T}
+    OwnedMut{T} <: AbstractOwned{T}
 
 A mutable owned value. Common operations:
 - Create using `@own :mut x = value`
@@ -114,7 +121,7 @@ end
 struct NoLifetime end
 
 """
-    Borrowed{T,O<:AbstractOwned}
+    Borrowed{T,O<:AbstractOwned} <: AbstractBorrowed{T}
 
 An immutable reference to an owned value. Common operations:
 - Create using `@ref lt x = value`
@@ -166,7 +173,7 @@ struct Borrowed{T,O<:AbstractOwned} <: AbstractBorrowed{T}
 end
 
 """
-    BorrowedMut{T,O<:OwnedMut}
+    BorrowedMut{T,O<:OwnedMut} <: AbstractBorrowed{T}
 
 A mutable reference to an owned value. Common operations:
 - Create using `@ref lt :mut x = value`
@@ -234,7 +241,7 @@ struct BorrowedMut{T,O<:OwnedMut} <: AbstractBorrowed{T}
 end
 
 """
-    LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}}
+    LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}} <: AbstractWrapper{T}
 
 A lazy accessor for properties or indices of owned or borrowed values.
 Maintains ownership semantics while allowing property/index access without copying or moving.
@@ -253,7 +260,7 @@ x.a  # Returns a LazyAccessor
 - `property_type::Type{T}`: Type of the accessed property/index
 - `target::O`: The original owned/borrowed value
 """
-struct LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}}
+struct LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}} <: AbstractWrapper{T}
     parent::P
     property::S
     property_type::Type{T}
@@ -308,7 +315,7 @@ const AllOwned{T} = AbstractOwned{T}
 const AllImmutable{T} = Union{Borrowed{T},Owned{T}}
 const AllMutable{T} = Union{BorrowedMut{T},OwnedMut{T}}
 const AllEager{T} = Union{AllBorrowed{T},AllOwned{T}}
-const AllWrappers{T} = Union{AllEager{T},LazyAccessor{T}}
+const AllWrappers{T} = AbstractWrapper{T}
 const LazyAccessorOf{O} = LazyAccessor{T,P,S,<:O} where {T,P,S}
 const OrLazy{O} = Union{O,LazyAccessorOf{O}}
 
