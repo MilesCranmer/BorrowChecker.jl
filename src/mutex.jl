@@ -40,24 +40,40 @@ mutable struct Mutex{T} <: AbstractMutex{T}
     end
 end
 
-struct LockNotHeldError <: Exception end
-struct MutexGuardValueAccessError <: Exception end
-struct MutexMismatchError <: Exception end
-struct NoOwningMutexError <: Exception end
-
 get_lock(m::AbstractMutex) = getfield(m, :lock)
 
 unsafe_get_owner(m::AbstractMutex) = getfield(m, :value)
 
 get_lifetime(m::AbstractMutex) = getfield(m, :lifetime)::Lifetime
 
-function get_locked_by(m::AbstractMutex)
+abstract type AbstractMutexError <: Exception end
+
+struct LockNotHeldError <: AbstractMutexError end
+
+function _verify_task(m::AbstractMutex)
     isone(get_lock(m).owned) || throw(LockNotHeldError())
-    return getfield(m, :locked_by)::Task
+    getfield(m, :locked_by) === current_task() || throw(LockNotHeldError())
+    return nothing
 end
+
+function Base.showerror(io::IO, ::LockNotHeldError)
+    print(io, "LockNotHeldError: ")
+    print(io, "Current task does not hold the lock for this Mutex. ")
+    print(io, "Access via `m[]` is only allowed when the lock is held by the current task.")
+    return nothing
+end
+
+struct MutexGuardValueAccessError <: AbstractMutexError end
 
 function Base.getproperty(::AbstractMutex, _::Symbol)
     throw(MutexGuardValueAccessError())
+end
+
+function Base.showerror(io::IO, ::MutexGuardValueAccessError)
+    print(io, "MutexGuardValueAccessError: ")
+    print(io, "The mutex value must be accessed through a reference. ")
+    print(io, "For example, `@ref ~m [:mut] ref_var = m[]`.")
+    return nothing
 end
 
 function Base.show(io::IO, m::AbstractMutex{T}) where {T}
@@ -65,28 +81,6 @@ function Base.show(io::IO, m::AbstractMutex{T}) where {T}
     value = request_value(unsafe_get_owner(m), Val(:read))
     show(io, value)
     return print(io, ")")
-end
-
-function Base.showerror(io::IO, ::LockNotHeldError)
-    return print(
-        io,
-        "Current task does not hold the lock for this Mutex. Access via `m[]` is only allowed when the lock is held by the current task.",
-    )
-end
-function Base.showerror(io::IO, ::MutexGuardValueAccessError)
-    return print(
-        io,
-        "The value protected by a mutex must be accessed through a reference. Use `@ref ~m [:mut] ref_var = m[]` to create a reference.",
-    )
-end
-function Base.showerror(io::IO, ::MutexMismatchError)
-    return print(io, "Mutex mismatch: the lifetime mutex and guard mutex must be the same")
-end
-function Base.showerror(io::IO, ::NoOwningMutexError)
-    return print(
-        io,
-        "Cannot own a mutex. Use regular Julia assignment syntax, like `m = Mutex([1, 2, 3])`.",
-    )
 end
 
 """
@@ -107,7 +101,7 @@ end
 Unlock the mutex, cleaning up all references created during this lock session.
 """
 function Base.unlock(m::AbstractMutex)
-    get_locked_by(m) !== current_task() && throw(LockNotHeldError())
+    _verify_task(m)
     cleanup!(get_lifetime(m))
     m.lifetime = nothing
     m.locked_by = nothing
@@ -126,9 +120,7 @@ struct MutexGuard{T,M<:AbstractMutex{T}}
     mutex::M
 
     function MutexGuard(mutex::M) where {T,M<:AbstractMutex{T}}
-        if current_task() !== get_locked_by(mutex)
-            throw(LockNotHeldError())
-        end
+        _verify_task(mutex)
         return new{T,M}(mutex)
     end
 end
@@ -147,7 +139,7 @@ function ref(
     mutex::AbstractMutex, guard::MutexGuard, dest_symbol::Symbol, ::Val{mut}
 ) where {mut}
     mutex !== guard.mutex && throw(MutexMismatchError())
-    get_locked_by(mutex) !== current_task() && throw(LockNotHeldError())
+    _verify_task(mutex)
 
     if mut
         return BorrowedMut(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)
@@ -156,9 +148,26 @@ function ref(
     end
 end
 
+struct MutexMismatchError <: AbstractMutexError end
+
+function Base.showerror(io::IO, ::MutexMismatchError)
+    print(io, "MutexMismatchError: ")
+    print(io, "The lifetime mutex and guard mutex must be the same.")
+    return nothing
+end
+
 # Prevent ownership of mutexes
 function own(::AbstractMutex, _, _::Symbol, ::Val{mut}) where {mut}
     throw(NoOwningMutexError())
+end
+
+struct NoOwningMutexError <: AbstractMutexError end
+
+function Base.showerror(io::IO, ::NoOwningMutexError)
+    print(io, "NoOwningMutexError: ")
+    print(io, "Cannot own a mutex. Use regular Julia assignment syntax, ")
+    print(io, "like `m = Mutex([1, 2, 3])`.")
+    return nothing
 end
 
 end # module MutexModule

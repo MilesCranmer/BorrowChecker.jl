@@ -74,12 +74,61 @@ end
     end
 end
 
-@testitem "Cannot own a mutex" begin
+@testitem "Mutex error messages" begin
     using BorrowChecker
-    using BorrowChecker.MutexModule: NoOwningMutexError
+    using BorrowChecker.MutexModule:
+        LockNotHeldError, NoOwningMutexError, MutexGuardValueAccessError, MutexMismatchError
 
-    m = Mutex([1, 2, 3])
+    # Test LockNotHeldError message
+    m1 = Mutex([1, 2, 3])
+    err = try
+        m1[]
+    catch e
+        e
+    end
+    @test err isa LockNotHeldError
+    err_msg = sprint(io -> showerror(io, err))
+    @test startswith(err_msg, "LockNotHeldError: ")
+    @test occursin("Current task does not hold the lock", err_msg)
 
-    @test_throws NoOwningMutexError @own m_owned = m
-    @test_throws NoOwningMutexError @own :mut m_owned_mut = m
+    # Test NoOwningMutexError message
+    m2 = Mutex([1, 2, 3])
+    err = try
+        @own m_owned = m2
+    catch e
+        e
+    end
+    @test err isa NoOwningMutexError
+    err_msg = sprint(io -> showerror(io, err))
+    @test startswith(err_msg, "NoOwningMutexError: ")
+    @test occursin("Cannot own a mutex", err_msg)
+
+    # Test MutexGuardValueAccessError message
+    m3 = Mutex([1, 2, 3])
+    err = try
+        m3.value  # Try to access a property directly
+    catch e
+        e
+    end
+    @test err isa MutexGuardValueAccessError
+    err_msg = sprint(io -> showerror(io, err))
+    @test startswith(err_msg, "MutexGuardValueAccessError: ")
+    @test occursin("must be accessed through a reference", err_msg)
+
+    # Test MutexMismatchError message
+    m4 = Mutex([1, 2, 3])
+    lock(m4)
+    guard = m4[]
+    m5 = Mutex([4, 5, 6])
+    err = try
+        # Create a ref that tries to mix different mutexes
+        @ref ~m5 failed = guard
+    catch e
+        e
+    end
+    unlock(m4)
+    @test err isa MutexMismatchError
+    err_msg = sprint(io -> showerror(io, err))
+    @test startswith(err_msg, "MutexMismatchError: ")
+    @test occursin("must be the same", err_msg)
 end
