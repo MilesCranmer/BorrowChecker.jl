@@ -3,8 +3,9 @@ module MutexModule
 using ..ErrorsModule: BorrowRuleError
 using ..TypesModule:
     Owned, OwnedMut, AbstractOwned, Lifetime, Borrowed, BorrowedMut, is_mutable
-using ..SemanticsModule: request_value, own
-import ..SemanticsModule: ref, cleanup!
+using ..SemanticsModule: request_value, validate_mode, cleanup!
+
+import ..SemanticsModule: ref, own
 
 """
     AbstractMutex{T}
@@ -40,26 +41,37 @@ mutable struct Mutex{T} <: AbstractMutex{T}
     end
 end
 
-get_lock(m::Mutex) = getfield(m, :lock)
-get_locked_by(m::Mutex) = getfield(m, :locked_by)
-get_value(m::Mutex) = getfield(m, :value)
-get_lifetime(m::Mutex) = getfield(m, :lifetime)::Lifetime
+struct LockNotHeldError <: Exception end
+struct MutexGuardValueAccessError <: Exception end
+struct MutexMismatchError <: Exception end
+struct NoOwningMutexError <: Exception end
 
-function Base.show(io::IO, m::Mutex{T}) where {T}
+get_lock(m::AbstractMutex) = getfield(m, :lock)
+
+unsafe_get_owner(m::AbstractMutex) = getfield(m, :value)
+
+get_lifetime(m::AbstractMutex) = getfield(m, :lifetime)::Lifetime
+
+function get_locked_by(m::AbstractMutex)
+    isone(get_lock(m).owned) || throw(LockNotHeldError())
+    return getfield(m, :locked_by)::Task
+end
+
+function Base.getproperty(::AbstractMutex, _::Symbol)
+    throw(MutexGuardValueAccessError())
+end
+
+function Base.show(io::IO, m::AbstractMutex{T}) where {T}
     print(io, "Mutex{", T, "}(")
-    value = request_value(get_value(m), Val(:read))
+    value = request_value(unsafe_get_owner(m), Val(:read))
     show(io, value)
     return print(io, ")")
 end
 
-struct LockNotHeldError <: Exception end
-struct MutexGuardValueAccessError <: Exception end
-struct MutexMismatchError <: Exception end
-
 function Base.showerror(io::IO, ::LockNotHeldError)
     return print(
         io,
-        "Current task does not hold the lock for this Mutex. Access via `m[]` is only allowed inside a lock(m)/unlock(m) block.",
+        "Current task does not hold the lock for this Mutex. Access via `m[]` is only allowed when the lock is held by the current task.",
     )
 end
 function Base.showerror(io::IO, ::MutexGuardValueAccessError)
@@ -71,6 +83,12 @@ end
 function Base.showerror(io::IO, ::MutexMismatchError)
     return print(io, "Mutex mismatch: the lifetime mutex and guard mutex must be the same")
 end
+function Base.showerror(io::IO, ::NoOwningMutexError)
+    return print(
+        io,
+        "Cannot own a mutex. Use regular Julia assignment syntax, like `m = Mutex([1, 2, 3])`.",
+    )
+end
 
 """
     lock(m::AbstractMutex)
@@ -79,8 +97,6 @@ Lock the mutex, creating a lifetime to allow for references to the protected val
 """
 function Base.lock(m::AbstractMutex)
     Base.lock(get_lock(m))
-    m.locked_by::Nothing
-    m.lifetime::Nothing
     m.locked_by = current_task()
     m.lifetime = Lifetime()
     return m
@@ -96,6 +112,7 @@ end
 Unlock the mutex, cleaning up all references created during this lock session.
 """
 function Base.unlock(m::AbstractMutex)
+    get_locked_by(m) !== current_task() && throw(LockNotHeldError())
     cleanup!(get_lifetime(m))
     m.lifetime = nothing
     m.locked_by = nothing
@@ -144,10 +161,15 @@ function ref(
     get_locked_by(mutex) !== current_task() && throw(LockNotHeldError())
 
     if mut
-        return BorrowedMut(get_value(mutex), get_lifetime(mutex), dest_symbol)
+        return BorrowedMut(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)
     else
-        return Borrowed(get_value(mutex), get_lifetime(mutex), dest_symbol)
+        return Borrowed(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)
     end
+end
+
+# Prevent ownership of mutexes
+function own(::AbstractMutex, _, _::Symbol, ::Val{mut}) where {mut}
+    throw(NoOwningMutexError())
 end
 
 end # module MutexModule

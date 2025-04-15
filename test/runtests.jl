@@ -7,6 +7,7 @@ include("reference_tests.jl")
 include("feature_tests.jl")
 include("integration_tests.jl")
 include("complex_macros.jl")
+include("mutex_tests.jl")
 
 @testitem "Aqua" begin
     using Aqua
