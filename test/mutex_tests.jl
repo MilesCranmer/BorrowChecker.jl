@@ -152,4 +152,19 @@ end
     @test occursin("NamedTuple", output)
     @test occursin("a = 1", output)
     @test occursin("b = \"test\"", output)
+
+    # Test showing a locked mutex
+    m4 = Mutex(42)
+    try
+        lock(m4)
+        local output = sprint(show, m4)
+        @test output == "Mutex{Int64}([locked])"
+        @test trylock(m4) == false
+        @test islocked(m4) == true
+    finally
+        unlock(m4)
+    end
+    @test islocked(m4) == false
+    @test trylock(m4) == true
+    unlock(m4)
 end

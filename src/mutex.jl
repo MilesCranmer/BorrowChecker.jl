@@ -77,12 +77,18 @@ function Base.showerror(io::IO, ::MutexGuardValueAccessError)
 end
 
 function Base.show(io::IO, m::AbstractMutex{T}) where {T}
-    Base.lock(m)
-    print(io, "Mutex{", T, "}(")
-    value = request_value(unsafe_get_owner(m), Val(:read))
-    show(io, value)
-    print(io, ")")
-    Base.unlock(m)
+    if trylock(m)
+        try
+            print(io, "Mutex{", T, "}(")
+            value = request_value(unsafe_get_owner(m), Val(:read))
+            show(io, value)
+            print(io, ")")
+        finally
+            unlock(m)
+        end
+    else
+        print(io, "Mutex{", T, "}([locked])")
+    end
     return nothing
 end
 
@@ -110,6 +116,20 @@ function Base.unlock(m::AbstractMutex)
     m.locked_by = nothing
     Base.unlock(get_lock(m))
     return nothing
+end
+
+function Base.trylock(m::AbstractMutex)
+    if Base.trylock(get_lock(m))
+        m.locked_by = current_task()
+        m.lifetime = Lifetime()
+        return true
+    else
+        return false
+    end
+end
+
+function Base.islocked(m::AbstractMutex)
+    return Base.islocked(get_lock(m))
 end
 
 """
