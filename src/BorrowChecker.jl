@@ -30,7 +30,7 @@ using .PreferencesModule: disable_by_default!
 using .StaticTraitModule: is_static
 using .TypesModule: AsMutable, Lifetime, LazyAccessorOf, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows
 using .MacrosModule: @spawn
-using .MutexModule: AbstractMutex, MutexGuard
+using .MutexModule: AbstractMutex, MutexGuard, LockNotHeldError, NoOwningMutexError, MutexGuardValueAccessError
 #! format: on
 
 end

@@ -344,19 +344,19 @@ end
 ```
 """
 macro ref_into(expr::Expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
-    return _ref_into(expr, false)
+    enabled = is_borrow_checker_enabled(__module__)
+    return _ref_into(expr, false, enabled)
 end
 
 macro ref_into(mut_flag::QuoteNode, expr::Expr)
-    is_borrow_checker_enabled(__module__) || return esc(expr)
     if mut_flag.value != :mut
         error("First argument to @ref_into must be :mut")
     end
-    return _ref_into(expr, true)
+    enabled = is_borrow_checker_enabled(__module__)
+    return _ref_into(expr, true, enabled)
 end
 
-function _ref_into(expr::Expr, mut::Bool)
+function _ref_into(expr::Expr, mut::Bool, enabled::Bool)
     if !Meta.isexpr(expr, :(=))
         error(
             "@ref_into requires an assignment expression, " *
@@ -365,7 +365,7 @@ function _ref_into(expr::Expr, mut::Bool)
     end
     dest = expr.args[1]
     src = expr.args[2]
-    return esc(:($dest = $(ref_into)($src, $(QuoteNode(dest)), Val($mut))))
+    return esc(:($dest = $(ref_into)($src, $(QuoteNode(dest)), Val($mut), Val($enabled))))
 end
 
 """

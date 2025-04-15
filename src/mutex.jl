@@ -172,11 +172,15 @@ Base.getindex(m::AbstractMutex) = MutexGuard(m)
 Create a reference directly from a MutexGuard without needing to specify a lifetime.
 This is used by the @ref_into macro to simplify the syntax for creating references.
 """
-function ref_into(guard::MutexGuard, dest_symbol::Symbol, ::Val{mut}) where {mut}
+function ref_into(
+    guard::MutexGuard, dest_symbol::Symbol, ::Val{mut}, ::Val{enabled}
+) where {mut,enabled}
     mutex = guard.mutex
     _verify_task(mutex)
 
-    if mut
+    if !enabled
+        return unsafe_get_owner(mutex)
+    elseif mut
         return BorrowedMut(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)
     else
         return Borrowed(unsafe_get_owner(mutex), get_lifetime(mutex), dest_symbol)

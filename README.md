@@ -520,7 +520,7 @@ Mutex{Vector{Int64}}([1, 2, 3])
 
 julia> lock(m);
 
-julia> @ref ~m :mut data = m[]
+julia> @ref_into :mut data = m[]
        # ^Mutable reference to the mutex-protected value
 BorrowedMut{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3], :data)
 
@@ -549,7 +549,7 @@ Mutex{Dict{String, Int64}}(Dict("count" => 0))
 julia> @sync for i in 1:100
            Threads.@spawn begin
                lock(m) do
-                   @ref ~m :mut d = m[]
+                   @ref_into :mut d = m[]
                    d["count"] += 1
                end
            end
@@ -559,7 +559,7 @@ julia> m
 Mutex{Dict{String, Int64}}(Dict("count" => 100))
 
 julia> d = lock(m) do
-           @ref ~m :mut d = m[]
+           @ref_into :mut d = m[]
            d
        end;
 
