@@ -23,7 +23,7 @@ Provides safe concurrent access to the protected value.
 ```julia
 m = Mutex([1, 2, 3])
 lock(m)
-@ref ~m :mut arr = m[]
+@ref_into :mut arr = m[]
 push!(arr, 4)
 unlock(m)
 ```
@@ -81,7 +81,7 @@ end
 function Base.showerror(io::IO, ::MutexGuardValueAccessError)
     print(io, "MutexGuardValueAccessError: ")
     print(io, "The mutex value must be accessed through a reference. ")
-    print(io, "For example, `@ref ~m [:mut] ref_var = m[]`.")
+    print(io, "For example, `@ref_into :mut ref_var = m[]`.")
     return nothing
 end
 
@@ -146,7 +146,7 @@ end
 
 A guard object that represents a locked mutex. 
 Created automatically when accessing a mutex's value with `m[]`.
-Use `@ref ~lt [:mut] ref_var = mutex_guard` to obtain a reference to the guarded value.
+Use `@ref_into [:mut] ref_var = mutex_guard` to obtain a reference to the guarded value.
 """
 struct MutexGuard{T,M<:AbstractMutex{T}}
     mutex::M
