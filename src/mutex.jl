@@ -1,7 +1,7 @@
 module MutexModule
 
 using ..ErrorsModule: BorrowRuleError
-using ..TypesModule: OwnedMut, Lifetime, Borrowed, BorrowedMut
+using ..TypesModule: AllWrappers, OwnedMut, Lifetime, Borrowed, BorrowedMut
 using ..SemanticsModule: request_value, validate_mode, cleanup!
 
 import ..SemanticsModule: ref, own
@@ -37,6 +37,15 @@ mutable struct Mutex{T} <: AbstractMutex{T}
     function Mutex(value::T) where {T}
         owned_value = own(value, :anonymous, :anonymous, Val(true))
         return new{T}(owned_value, Threads.SpinLock(), nothing, nothing)
+    end
+    function Mutex(r::AllWrappers)
+        throw(
+            ArgumentError(
+                "Cannot create a Mutex around an object of type `$(typeof(r))`. " *
+                "Use `@take!` or `@take` to transfer ownership first, e.g.: " *
+                "`Mutex(@take!(value))` or `Mutex(@take(value))`",
+            ),
+        )
     end
 end
 

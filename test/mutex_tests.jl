@@ -172,3 +172,23 @@ end
     @test trylock(m4) == true
     unlock(m4)
 end
+
+@testitem "Disallowed Mutex creation" begin
+    using BorrowChecker
+
+    # Create an owned value
+    @own owned_value = [1, 2, 3]
+
+    # Test that creating a Mutex with a wrapper throws the expected error
+    err = try
+        Mutex(owned_value)
+    catch e
+        e
+    end
+
+    @test err isa ArgumentError
+    err_msg = sprint(io -> showerror(io, err))
+    @test occursin(
+        "Cannot create a Mutex around an object of type `$(typeof(owned_value))`", err_msg
+    )
+end
