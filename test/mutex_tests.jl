@@ -66,12 +66,16 @@ end
         @test_throws BorrowRuleError push!(arr_immut, 4)
     end
 
-    Base.@lock m begin
+    out = Base.@lock m begin
         # Create a mutable reference
         @ref ~m :mut arr_mut = m[]
         push!(arr_mut, 4)
         @test arr_mut == [1, 2, 3, 4]
+        arr_mut
     end
+    @test_throws ExpiredError push!(out, 5)
+    s = sprint(show, out)
+    @test s == "[expired reference]"
 end
 
 @testitem "Mutex error messages" begin
