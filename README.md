@@ -502,6 +502,70 @@ way to handle the majority of borrowing patterns. You can freely mix owned, borr
 
 </details>
 
+### Safe Multi-threading with `Mutex`
+
+<details>
+
+BorrowChecker provides a `Mutex` type analogous to Rust's `Mutex`, for
+thread-safe access to shared data, fully integrated with the
+ownership and borrowing system.
+
+```julia
+julia> m = Mutex([1, 2, 3])
+       # ^Regular Julia assignment syntax is fine for Mutexes!
+Mutex{Vector{Int64}}([1, 2, 3])
+
+julia> lock(m);
+
+julia> @ref ~m :mut data = m[]
+       # ^Mutable reference to the mutex-protected value
+BorrowedMut{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3], :data)
+
+julia> push!(data, 4);
+
+julia> unlock(m);
+
+julia> m
+Mutex{Vector{Int64}}([1, 2, 3, 4])
+```
+
+The value protected by the mutex is an `OwnedMut` object,
+which can therefore be modified.
+
+Because this value is protected by a spinlock, it is safe to pass
+around with regular Julia assignment syntax. At any point you wish
+to read or write to the value, you can use the `@ref ~m` syntax to
+create a reference to the value.
+
+This reference will automatically expire when the lock is released.
+
+```julia
+julia> m = Mutex(Dict("count" => 0))
+Mutex{Dict{String, Int64}}(Dict("count" => 0))
+
+julia> @sync for i in 1:100
+           Threads.@spawn begin
+               lock(m) do
+                   @ref ~m :mut d = m[]
+                   d["count"] += 1
+               end
+           end
+       end
+
+julia> m
+Mutex{Dict{String, Int64}}(Dict("count" => 100))
+
+julia> d = lock(m) do
+           @ref ~m :mut d = m[]
+           d
+       end;
+
+julia> d["count"]  # Try to access the value after the lock is released!
+ERROR: Cannot use `d`: value's lifetime has expired
+```
+
+</details>
+
 ### Introducing BorrowChecker.jl to Your Codebase
 
 When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function. The simplified version of `@own` is particularly useful in this case:
