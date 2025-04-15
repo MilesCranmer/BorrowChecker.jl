@@ -1,8 +1,7 @@
 module MutexModule
 
 using ..ErrorsModule: BorrowRuleError
-using ..TypesModule:
-    Owned, OwnedMut, AbstractOwned, Lifetime, Borrowed, BorrowedMut, is_mutable
+using ..TypesModule: OwnedMut, Lifetime, Borrowed, BorrowedMut
 using ..SemanticsModule: request_value, validate_mode, cleanup!
 
 import ..SemanticsModule: ref, own
@@ -101,10 +100,6 @@ function Base.lock(m::AbstractMutex)
     m.lifetime = Lifetime()
     return m
 end
-function Base.lock(m_owned::Owned{<:AbstractMutex})
-    validate_mode(m_owned, Val(:read))
-    return lock(request_value(m_owned, Val(:read)))
-end
 
 """
     unlock(m::AbstractMutex)
@@ -118,10 +113,6 @@ function Base.unlock(m::AbstractMutex)
     m.locked_by = nothing
     Base.unlock(get_lock(m))
     return nothing
-end
-function Base.unlock(m_owned::Owned{<:AbstractMutex})
-    validate_mode(m_owned, Val(:read))
-    return unlock(request_value(m_owned, Val(:read)))
 end
 
 """
