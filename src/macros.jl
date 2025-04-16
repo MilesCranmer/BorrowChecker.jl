@@ -30,6 +30,7 @@ using ..SemanticsModule:
     cleanup!,
     maybe_ref
 using ..PreferencesModule: is_borrow_checker_enabled
+using ..MutexModule: ref_into
 
 """
     @own [:mut] x = value
@@ -322,6 +323,49 @@ function _ref(lifetime_expr::Expr, expr::Expr, mut::Bool)
     else
         error("@ref requires an assignment expression or for loop")
     end
+end
+
+"""
+    @ref_into [:mut] var = mutex[]
+
+Create a reference to the protected value in a mutex.
+
+If `:mut` is specified, creates a mutable reference.
+Otherwise, creates an immutable reference.
+
+# Examples
+
+```julia
+m = Mutex([1, 2, 3])
+lock(m) do
+    @ref_into :mut arr2 = m[]
+    push!(arr2, 4)
+end
+```
+"""
+macro ref_into(expr::Expr)
+    enabled = is_borrow_checker_enabled(__module__)
+    return _ref_into(expr, false, enabled)
+end
+
+macro ref_into(mut_flag::QuoteNode, expr::Expr)
+    if mut_flag.value != :mut
+        error("First argument to @ref_into must be :mut")
+    end
+    enabled = is_borrow_checker_enabled(__module__)
+    return _ref_into(expr, true, enabled)
+end
+
+function _ref_into(expr::Expr, mut::Bool, enabled::Bool)
+    if !Meta.isexpr(expr, :(=))
+        error(
+            "@ref_into requires an assignment expression, " *
+            "e.g. `@ref_into :mut r = mutex[]`",
+        )
+    end
+    dest = expr.args[1]
+    src = expr.args[2]
+    return esc(:($dest = $(ref_into)($src, $(QuoteNode(dest)), Val($mut), Val($enabled))))
 end
 
 """

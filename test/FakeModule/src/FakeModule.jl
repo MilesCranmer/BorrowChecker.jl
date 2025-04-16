@@ -1,7 +1,7 @@
 module FakeModule
 
 using BorrowChecker
-using BorrowChecker: @spawn
+using BorrowChecker: @spawn, LockNotHeldError
 using Test
 
 function test()
@@ -48,6 +48,16 @@ function test()
         # This spawn still works because the borrow checker is disabled
         @own x = 1
         @test fetch(@spawn x + 1) == 2
+    end
+
+    let
+        m = Mutex([1, 2, 3])
+        # Locking should still work:
+        @test_throws LockNotHeldError @ref_into :mut arr = m[]
+        @test !islocked(m)
+        lock(m)
+        @test islocked(m)
+        @ref_into :mut arr = m[]
     end
 end
 

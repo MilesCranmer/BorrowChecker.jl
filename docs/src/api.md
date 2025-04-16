@@ -19,6 +19,8 @@ CurrentModule = BorrowChecker
 ```@docs
 @lifetime
 @ref
+Mutex
+@ref_into
 @bc
 @mut
 ```

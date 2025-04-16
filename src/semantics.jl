@@ -143,6 +143,8 @@ function Base.show(io::IO, r::AllBorrowed)
     if is_moved(r)
         # TODO: I don't think we can ever get here?
         print(io, "[reference to moved value]")  # COV_EXCL_LINE
+    elseif is_expired(r)
+        print(io, "[expired reference]")
     else
         constructor = constructorof(typeof(r))
         value = request_value(r, Val(:read))

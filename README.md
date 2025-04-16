@@ -175,11 +175,14 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 
 ### References and Lifetimes
 
-- `@bc f(args...; kws...)`: This convenience macro automatically creates a lifetime scope for the duration of the function, and sets up borrowing for any owned input arguments.
-    - Use `@mut(arg)` to mark an input as mutable.
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
   - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
+- `Mutex(value)`: Creates a thread-safe container for `value`. Mutexes manage lifetimes implicitly during locks and do not need `@own`.
+- `@ref_into [:mut] var = mutex[]`: Create a reference to the value inside a mutex.
+  - Use `lock(m)` to acquire the lock, `@ref_into` to create a reference to the value inside the mutex, and `unlock(m)` to release the lock.
+- `@bc f(args...; kws...)`: This convenience macro automatically creates a lifetime scope for the duration of the function, and sets up borrowing for any owned input arguments.
+  - Use `@mut(arg)` to mark an input as mutable.
 
 ### Validation
 
@@ -499,6 +502,70 @@ Under the hood, `@bc` wraps the function call in a `@lifetime` block, so referen
 
 This approach works with multiple positional and keyword arguments, and is a convenient
 way to handle the majority of borrowing patterns. You can freely mix owned, borrowed, and normal Julia values in the same call, and the macro will handle ephemeral references behind the scenes. For cases needing more control or longer lifetimes, manual `@lifetime` usage is a good option.
+
+</details>
+
+### Safe multi-threading with `Mutex`
+
+<details>
+
+BorrowChecker provides a `Mutex` type analogous to Rust's `Mutex`, for
+thread-safe access to shared data, fully integrated with the
+ownership and borrowing system.
+
+```julia
+julia> m = Mutex([1, 2, 3])
+       # ^Regular Julia assignment syntax is fine for Mutexes!
+Mutex{Vector{Int64}}([1, 2, 3])
+
+julia> lock(m);
+
+julia> @ref_into :mut data = m[]
+       # ^Mutable reference to the mutex-protected value
+BorrowedMut{Vector{Int64},OwnedMut{Vector{Int64}}}([1, 2, 3], :data)
+
+julia> push!(data, 4);
+
+julia> unlock(m);
+
+julia> m
+Mutex{Vector{Int64}}([1, 2, 3, 4])
+```
+
+The value protected by the mutex is an `OwnedMut` object,
+which can therefore be modified.
+
+Because this value is protected by a spinlock, it is safe to pass
+around with regular Julia assignment syntax. At any point you wish
+to read or write to the value, you can use the `@ref ~m` syntax to
+create a reference to the value.
+
+This reference will automatically expire when the lock is released.
+
+```julia
+julia> m = Mutex(Dict("count" => 0))
+Mutex{Dict{String, Int64}}(Dict("count" => 0))
+
+julia> @sync for i in 1:100
+           Threads.@spawn begin
+               lock(m) do
+                   @ref_into :mut d = m[]
+                   d["count"] += 1
+               end
+           end
+       end
+
+julia> m
+Mutex{Dict{String, Int64}}(Dict("count" => 100))
+
+julia> d = lock(m) do
+           @ref_into :mut d = m[]
+           d
+       end;
+
+julia> d["count"]  # Try to access the value after the lock is released!
+ERROR: Cannot use `d`: value's lifetime has expired
+```
 
 </details>
 
