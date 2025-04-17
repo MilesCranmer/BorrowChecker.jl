@@ -132,6 +132,7 @@ Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i)
 Base.in(item, collection::AllWrappers) = in(item, request_value(collection, Val(:read)))
 Base.in(item::AllWrappers, collection::AllWrappers) = in(request_value(item, Val(:read)), request_value(collection, Val(:read)))
 Base.count(f, r::AllWrappers) = count(f, request_value(r, Val(:read)))
+Base.BroadcastStyle(::Type{<:AllWrappers{A}}) where {A} = Base.BroadcastStyle(A)
 
 # ---- Non-mutating; possibly unsafe to return ----
 # 1 arg
@@ -180,6 +181,7 @@ for op in (:push!, :append!)
     @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)), _maybe_read(n)); nothing)
+Base.copyto!(dest::AllWrappers, src) = (copyto!(request_value(dest, Val(:write)), src); nothing)
 for op in (:empty!, :sort!, :reverse!, :unique!)
     @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
