@@ -132,7 +132,6 @@ Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i)
 Base.in(item, collection::AllWrappers) = in(item, request_value(collection, Val(:read)))
 Base.in(item::AllWrappers, collection::AllWrappers) = in(request_value(item, Val(:read)), request_value(collection, Val(:read)))
 Base.count(f, r::AllWrappers) = count(f, request_value(r, Val(:read)))
-Base.BroadcastStyle(::Type{<:AllWrappers{A}}) where {A} = Base.BroadcastStyle(A)
 
 # ---- Non-mutating; possibly unsafe to return ----
 # 1 arg
@@ -236,6 +235,7 @@ end
 # --- NUMBER OPERATIONS ---
 # 1 arg
 for op in (
+    # Math
     :sin, :cos, :tan, :sinh, :cosh, :tanh, :asin, :acos,
     :asinh, :acosh, :atanh, :sec, :csc, :cot, :asec, :acsc, :acot, :sech, :csch,
     :coth, :asech, :acsch, :acoth, :sinc, :cosc, :cosd, :cotd, :cscd, :secd,
@@ -246,6 +246,9 @@ for op in (
     :modf, :rem, :floor, :ceil, :round, :trunc,
     :inv, :sqrt, :cbrt, :abs2, :angle, :factorial,
     :(!), :-, :+, :sign, :identity, :iszero, :isone,
+    # Instantiation
+    :signed, :unsigned, :widen,
+    :one, :oneunit, :zero, :typemin, :typemax, :eps,
 )
     @eval function Base.$(op)(r::AllWrappers{<:Number})
         return Base.$(op)(request_value(r, Val(:read)))
