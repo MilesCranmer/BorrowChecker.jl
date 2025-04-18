@@ -181,6 +181,8 @@ for op in (:push!, :append!)
 end
 Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)), _maybe_read(n)); nothing)
 Base.copyto!(dest::AllWrappers, src) = (copyto!(request_value(dest, Val(:write)), src); nothing)
+Base.copyto!(dest::AllWrappers, src::AllWrappers) = (copyto!(request_value(dest, Val(:write)), request_value(src, Val(:read))); nothing)
+Base.copyto!(dest::AbstractArray, src::AllWrappers) = (copyto!(dest, request_value(src, Val(:read))); nothing)
 for op in (:empty!, :sort!, :reverse!, :unique!)
     @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
@@ -241,13 +243,12 @@ for op in (
     :coth, :asech, :acsch, :acoth, :sinc, :cosc, :cosd, :cotd, :cscd, :secd,
     :sinpi, :cospi, :sind, :tand, :acosd, :acotd, :acscd, :asecd, :asind,
     :log, :log2, :log10, :log1p, :exp, :exp2, :exp10, :expm1, :frexp, :exponent,
-    :float, :abs, :real, :imag, :conj, :unsigned,
-    :nextfloat, :prevfloat, :transpose, :significand,
+    :float, :abs, :real, :imag, :conj, :transpose, :significand,
     :modf, :rem, :floor, :ceil, :round, :trunc,
     :inv, :sqrt, :cbrt, :abs2, :angle, :factorial,
     :(!), :-, :+, :sign, :identity, :iszero, :isone,
     # Instantiation
-    :signed, :unsigned, :widen,
+    :signed, :unsigned, :widen, :prevfloat, :nextfloat,
     :one, :oneunit, :zero, :typemin, :typemax, :eps,
 )
     @eval function Base.$(op)(r::AllWrappers{<:Number})
