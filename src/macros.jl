@@ -578,7 +578,7 @@ function _check_function_captures(f::F) where {F}
     return f
 end
 
-function _assert_capture_allowed(::Type{T}, var_name::Symbol) where {T}
+function _assert_capture_allowed(::Type{T}, var_name) where {T}
     if !_check_capture_allowed(T)
         error(
             "The closure function captured a variable `$var_name::$T`. " *

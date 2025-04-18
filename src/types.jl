@@ -231,11 +231,11 @@ struct BorrowedMut{T,O<:OwnedMut} <: AbstractBorrowed{T}
         return new{T,O}(value, owner, lifetime, symbol)
     end
     function BorrowedMut(
-        owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
-    ) where {O<:AbstractOwned}
+        owner::AbstractOwned, lifetime::Lifetime, symbol::Symbol=:anonymous
+    )
         return BorrowedMut(unsafe_get_value(owner), owner, lifetime, symbol)
     end
-    function BorrowedMut(::AbstractBorrowed, ::Lifetime)
+    function BorrowedMut(::AbstractBorrowed, ::Lifetime, ::Symbol=:anonymous)
         return error("Mutable reference of references not yet implemented.")
     end
 end

@@ -14,7 +14,7 @@ for op in (
     # Types
     :eltype, :valtype, :keytype,
     # Type hierarchy
-    :supertype, :signed, :unsigned, :widen,
+    :signed, :unsigned, :widen,
     # Broadcasting
     :BroadcastStyle, :IteratorSize, :IteratorEltype, :IndexStyle,
     # Instantiation

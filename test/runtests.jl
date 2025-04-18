@@ -15,4 +15,16 @@ include("mutex_tests.jl")
     Aqua.test_all(BorrowChecker)
 end
 
+@testitem "JET" begin
+    if !(VERSION >= v"1.10.0" && VERSION < v"1.12.0-DEV.0")
+        # TODO: Turn on when JET is ready
+        exit(0)
+    end
+
+    using BorrowChecker
+    using JET
+
+    JET.test_package(BorrowChecker; target_defined_modules=true)
+end
+
 @run_package_tests
