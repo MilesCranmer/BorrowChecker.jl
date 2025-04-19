@@ -19,7 +19,7 @@ using ..TypesModule:
 using ..StaticTraitModule: is_static, is_static_elements
 using ..SemanticsModule: request_value, mark_moved!, validate_mode
 using ..ErrorsModule: BorrowRuleError, AliasedReturnError
-using ..UtilsModule: Unused, isunused
+using ..UtilsModule: Unused, isunused, @_stable
 
 _maybe_read(x) = x
 _maybe_read(x::AllWrappers) = request_value(x, Val(:read))
@@ -67,7 +67,7 @@ function throw_view_error(op::Function, @nospecialize(r::AllWrappers))
 end
 for op in (:view, :reshape, :transpose, :adjoint)
     extra_args = op in (:view, :reshape) ? (:(i...),) : ()
-    @eval begin
+    @eval @_stable begin
         function Base.$(op)(r::W, $(extra_args...)) where {W<:AllWrappers{<:AbstractArray}}
             if !(W <: Union{Borrowed,LazyAccessorOf{Borrowed}})
                 return throw_view_error($(op), r)
@@ -88,7 +88,7 @@ end
 # --- BASIC OPERATIONS ---
 Base.isnothing(r::AllWrappers) = isnothing(request_value(r, Val(:read)))
 for op in (:(==), :isequal)
-    @eval begin
+    @eval @_stable begin
         Base.$(op)(r::AllWrappers, other) = $(op)(request_value(r, Val(:read)), other)
         Base.$(op)(other, r::AllWrappers) = $(op)(other, request_value(r, Val(:read)))
         Base.$(op)(r::AllWrappers, other::AllWrappers) = $(op)(request_value(r, Val(:read)), request_value(other, Val(:read)))
@@ -98,7 +98,7 @@ Base.haskey(r::AllWrappers, other) = haskey(request_value(r, Val(:read)), _maybe
 Base.string(r::AllWrappers) = string(request_value(r, Val(:read)))
 Base.hash(r::AllWrappers, h::UInt) = hash(request_value(r, Val(:read)), h)
 for op in (:rand, :randn)
-    @eval begin
+    @eval @_stable begin
         # We don't define methods without `rng` since:
         #   1. The ambiguities are a mess.
         #   2. The user should be encouraged to `@own` the rng.
@@ -126,7 +126,7 @@ for op in (
     :eachindex, :any, :all, :ndims, :eltype, :strides,
     :issorted, :keytype, :valtype
 )
-    @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
+    @eval @_stable Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:read)))
 end
 Base.size(r::AllWrappers, i) = size(request_value(r, Val(:read)), _maybe_read(i))
 Base.in(item, collection::AllWrappers) = in(item, request_value(collection, Val(:read)))
@@ -140,7 +140,7 @@ for op in (
     :sum, :prod, :maximum, :minimum, :extrema,
     :copy, :collect,
 )
-    @eval function Base.$(op)(r::AllWrappers; kws...)
+    @eval @_stable function Base.$(op)(r::AllWrappers; kws...)
         out = $(op)(request_value(r, Val(:read)); kws...)
         if !is_static_elements(out)
             throw(AliasedReturnError($(op), typeof(out), 1))
@@ -152,7 +152,7 @@ end
 for op in (
     :union, :intersect, :setdiff, :symdiff, :merge
 )
-    @eval function Base.$(op)(x::AllWrappers, y::AllWrappers)
+    @eval @_stable function Base.$(op)(x::AllWrappers, y::AllWrappers)
         out = $(op)(request_value(x, Val(:read)), request_value(y, Val(:read)))
         if !is_static_elements(out)
             throw(AliasedReturnError($(op), typeof(out), 2))
@@ -169,7 +169,7 @@ Base.sizehint!(r::AllWrappers, n) = (sizehint!(request_value(r, Val(:read)), _ma
 # These are safe to return, because the value is inaccessible from
 # the original owner.
 for op in (:pop!, :popfirst!)
-    @eval Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:write)))
+    @eval @_stable Base.$(op)(r::AllWrappers) = $(op)(request_value(r, Val(:write)))
 end
 Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k))
 
@@ -177,14 +177,14 @@ Base.pop!(r::AllWrappers, k) = pop!(request_value(r, Val(:write)), _maybe_read(k
 # These return a new reference to the passed object which is not safe,
 # so either the user needs to keep the variable around, or use `@take!`.
 for op in (:push!, :append!)
-    @eval Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
+    @eval @_stable Base.$(op)(r::AllWrappers, items...) = ($(op)(request_value(r, Val(:write)), items...); nothing)
 end
 Base.resize!(r::AllWrappers, n::Integer) = (resize!(request_value(r, Val(:write)), _maybe_read(n)); nothing)
 Base.copyto!(dest::AllWrappers, src) = (copyto!(request_value(dest, Val(:write)), src); nothing)
 Base.copyto!(dest::AllWrappers, src::AllWrappers) = (copyto!(request_value(dest, Val(:write)), request_value(src, Val(:read))); nothing)
 Base.copyto!(dest::AbstractArray, src::AllWrappers) = (copyto!(dest, request_value(src, Val(:read))); nothing)
 for op in (:empty!, :sort!, :reverse!, :unique!)
-    @eval Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
+    @eval @_stable Base.$(op)(r::AllWrappers) = ($(op)(request_value(r, Val(:write))); nothing)
 end
 Random.shuffle!(rng::AbstractRNG, r::AllWrappers) = (Random.shuffle!(rng, request_value(r, Val(:write))); nothing)
 Random.shuffle!(r::AllWrappers) = Random.shuffle!(Random.default_rng(), r)
@@ -224,7 +224,7 @@ Base.delete!(r::AllWrappers{<:AbstractDict}, key) = (delete!(request_value(r, Va
 # --- STRING OPERATIONS ---
 Base.ncodeunits(r::AllWrappers{<:AbstractString}) = ncodeunits(request_value(r, Val(:read)))
 for op in (:startswith, :endswith)
-    @eval begin
+    @eval @_stable begin
         # both args
         Base.$(op)(r::AllWrappers{<:AbstractString}, s::AllWrappers{<:AbstractString}) = $(op)(request_value(r, Val(:read)), request_value(s, Val(:read)))
         # one arg
@@ -251,7 +251,7 @@ for op in (
     :signed, :unsigned, :widen, :prevfloat, :nextfloat,
     :one, :oneunit, :zero, :typemin, :typemax, :eps,
 )
-    @eval function Base.$(op)(r::AllWrappers{<:Number})
+    @eval @_stable function Base.$(op)(r::AllWrappers{<:Number})
         return Base.$(op)(request_value(r, Val(:read)))
     end
 end
@@ -264,7 +264,7 @@ for op in (
     :(<<), :(>>), :(>>>),
 )
     # TODO: Forward kwargs
-    @eval begin
+    @eval @_stable begin
         function Base.$(op)(l::Number, r::AllWrappers{<:Number})
             return Base.$(op)(l, request_value(r, Val(:read)))
         end
@@ -278,7 +278,7 @@ for op in (
 end
 # 3 args
 for op in (:(:), :clamp, :fma, :muladd)
-    @eval begin
+    @eval @_stable begin
         # all
         function Base.$(op)(l::AllWrappers{<:Number}, m::AllWrappers{<:Number}, r::AllWrappers{<:Number})
             return Base.$(op)(request_value(l, Val(:read)), request_value(m, Val(:read)), request_value(r, Val(:read)))

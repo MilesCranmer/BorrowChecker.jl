@@ -339,9 +339,9 @@ end
 @testitem "Nested for loop binding" begin
     using BorrowChecker: is_moved, SymbolMismatchError
 
-    @own :mut matrix = []
+    @own :mut matrix = Vector{Tuple{Int,Int}}[]
     @own for i in [Ref(1), Ref(2)]
-        @own :mut row = []
+        @own :mut row = Tuple{Int,Int}[]
         @own for j in [Ref(1), Ref(2)]
             @clone i_copy = i
             push!(row, (@take!(i_copy).x, @take!(j).x))
@@ -357,6 +357,7 @@ end
 
 @testitem "Mutable nested for loop binding" begin
     using BorrowChecker: is_moved, SymbolMismatchError
+    using DispatchDoctor: allow_unstable
 
     @own :mut matrix = []
     @own :mut for i in [Ref(1), Ref(2)]
@@ -368,7 +369,9 @@ end
         end
         push!(matrix, @take!(row))
     end
-    @test matrix == [[(1, 15), (1, 15)], [(2, 15), (2, 15)]]
+    allow_unstable() do
+        @test matrix == [[(1, 15), (1, 15)], [(2, 15), (2, 15)]]
+    end
 end
 
 @testitem "Preferences disable" begin
@@ -1116,7 +1119,7 @@ end
     @test dest == [4, 5, 6]
 
     # And with Dict
-    @own :mut dest2 = Dict()
+    @own :mut dest2 = Dict{Symbol,Int}()
     @own src2 = Dict(:a => 1, :b => 2)
     @lifetime lt begin
         @ref ~lt :mut rdest = dest2
