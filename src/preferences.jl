@@ -47,7 +47,7 @@ function is_borrow_checker_enabled(calling_module)
         if uuid == DEFAULT_UUID || !has_preference(uuid, "borrow_checker")
             (true, NotCached)
         else
-            (load_preference(uuid, "borrow_checker"), Cached)
+            (load_preference(uuid, "borrow_checker")::Bool, Cached)
         end
     end
     if cached == Cached
