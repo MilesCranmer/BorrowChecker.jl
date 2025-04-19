@@ -12,6 +12,7 @@ include("semantics.jl")
 include("mutex.jl")
 include("macros.jl")
 include("overloads.jl")
+include("type_overloads.jl")
 include("disambiguations.jl")
 
 #! format: off

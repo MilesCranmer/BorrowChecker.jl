@@ -1577,3 +1577,79 @@ end
         @test k isa OwnedMut{Int}
     end
 end
+
+@testitem "Type overloads and new methods" begin
+    using BorrowChecker
+    using BorrowChecker.TypesModule: AbstractOwned, AbstractBorrowed
+    using Base.Broadcast: BroadcastStyle
+    using Base: IteratorSize, IteratorEltype, IndexStyle
+
+    # Type trait functions for AllWrappers types
+    # Tests for type-level operations
+    @test eltype(Owned{Vector{Int}}) == Int
+    @test eltype(Borrowed{Vector{Float64}}) == Float64
+    @test eltype(BorrowedMut{Vector{String}}) == String
+
+    @test valtype(Owned{Dict{Int,String}}) == String
+    @test keytype(Owned{Dict{Int,String}}) == Int
+    @test valtype(Borrowed{Dict{Symbol,Vector{Int}}}) == Vector{Int}
+    @test keytype(Borrowed{Dict{Symbol,Vector{Int}}}) == Symbol
+
+    # Type instantiation functions
+    # These return bare types not wrapped types
+    @test one(Owned{Int}) === 1
+    @test one(Borrowed{Float64}) === 1.0
+    @test oneunit(Owned{Int}) === 1
+    @test oneunit(Borrowed{Float64}) === 1.0
+
+    @test zero(Owned{Int}) === 0
+    @test zero(Borrowed{Float64}) === 0.0
+
+    @test typemin(Owned{Int8}) == -128
+    @test typemax(Owned{UInt8}) == 255
+    @test eps(Borrowed{Float64}) === eps(Float64)
+
+    # Test instance-level operations
+    @own x = 42
+    @test one(x) === 1
+    @test oneunit(x) === 1
+    @test zero(x) === 0
+    @test unsigned(x) === unsigned(42)
+
+    # Test broadcasting traits
+    @test BroadcastStyle(Owned{Vector{Int}}) == BroadcastStyle(Vector{Int})
+    @test IteratorSize(Owned{Vector{Int}}) == IteratorSize(Vector{Int})
+    @test IteratorEltype(Borrowed{Dict{Int,String}}) == IteratorEltype(Dict{Int,String})
+    @test IndexStyle(Owned{Vector{Int}}) == IndexStyle(Vector{Int})
+end
+
+@testitem "copyto! operation" begin
+    using BorrowChecker
+
+    # Wrapped to wrapped
+    @own :mut dest_vec1 = [0, 0, 0]
+    @own src_vec1 = [1, 2, 3]
+
+    # Array to wrapped
+    @own :mut dest_vec2 = [0, 0, 0]
+    src_vec2 = [1, 2, 3]
+
+    # Wrapped to array
+    dest_vec3 = [0, 0, 0]
+    @own src_vec3 = [1, 2, 3]
+
+    @lifetime lt begin
+        @ref ~lt :mut ref_dest1 = dest_vec1
+        @ref ~lt ref_src1 = src_vec1
+        @ref ~lt :mut ref_dest2 = dest_vec2
+        @ref ~lt ref_src3 = src_vec3
+
+        copyto!(ref_dest1, ref_src1)
+        copyto!(ref_dest2, src_vec2)
+        copyto!(dest_vec3, ref_src3)
+    end
+
+    @test dest_vec1 == [1, 2, 3]
+    @test dest_vec2 == [1, 2, 3]
+    @test dest_vec3 == [1, 2, 3]
+end
