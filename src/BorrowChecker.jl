@@ -2,18 +2,21 @@ module BorrowChecker
 
 using MacroTools
 using MacroTools: rmlines
+using DispatchDoctor: @stable
 
-include("utils.jl")
-include("static_trait.jl")
-include("errors.jl")
-include("types.jl")
-include("preferences.jl")
-include("semantics.jl")
-include("mutex.jl")
-include("macros.jl")
-include("overloads.jl")
-include("type_overloads.jl")
-include("disambiguations.jl")
+@stable default_mode = "disable" begin
+    include("utils.jl")
+    include("static_trait.jl")
+    include("errors.jl")
+    include("types.jl")
+    include("preferences.jl")
+    include("semantics.jl")
+    include("mutex.jl")
+    include("macros.jl")
+    include("overloads.jl")
+    include("type_overloads.jl")
+    include("disambiguations.jl")
+end
 
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError, AliasedReturnError

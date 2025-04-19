@@ -15,7 +15,7 @@ but it also includes things like `Symbol` and `Type{T}`
 (recursively), which are not `isbits`, but which
 are immutable.
 """
-@inline function is_static(::Type{T}) where {T}
+@inline function is_static(::Type{T})::Bool where {T}
     if isbitstype(T)
         return true
     elseif T isa UnionAll || T === Union{}

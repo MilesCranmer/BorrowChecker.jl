@@ -665,6 +665,7 @@ end
 
 @testitem "Nested closures" begin
     using BorrowChecker
+    using DispatchDoctor: allow_unstable
 
     let
         @own complex_data = Dict("a" => 10, "b" => 20)
@@ -697,8 +698,10 @@ end
 
             # Check the results within the lifetime scope
             @test length(results_mut) == 2
-            @test results_mut[1] == "a: 50 (#0)"
-            @test results_mut[2] == "b: 60 (#1)"
+            allow_unstable() do
+                @test results_mut[1] == "a: 50 (#0)"
+                @test results_mut[2] == "b: 60 (#1)"
+            end
         end
 
         @test @take(results) == ["a: 50 (#0)", "b: 60 (#1)"]

@@ -1,5 +1,6 @@
 module SemanticsModule
 
+using DispatchDoctor: @unstable
 using ..TypesModule:
     Owned,
     OwnedMut,
@@ -339,7 +340,7 @@ function (m::RefMapper{mut})((i, (x, s))) where {mut}
     end
     return ref(m.lifetime, x, m.ref, s, Val(mut))
 end
-function pop_owner!(refs::Vector, owner::AllOwned, lock)
+@unstable function pop_owner!(refs::Vector, owner::AllOwned, lock)
     Base.@lock lock begin
         i = findlast(Base.Fix1(===, owner), refs)
         if isnothing(i)

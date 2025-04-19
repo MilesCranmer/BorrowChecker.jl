@@ -1,6 +1,7 @@
 module MacrosModule
 
 using MacroTools: @q, isexpr, splitarg, isdef
+using DispatchDoctor: @unstable
 
 using ..TypesModule:
     Owned,
@@ -504,7 +505,7 @@ function _process_value(out_sym, lt_sym, value)
     return :($out_sym = $(maybe_ref)($lt_sym, $value, $sym))
 end
 
-function _process_keyword_arg(lt_sym, kw_ex)
+@unstable function _process_keyword_arg(lt_sym, kw_ex)
     if kw_ex isa Symbol  # expressions like `f(; x)`
         keyword = kw_ex
         value = kw_ex
