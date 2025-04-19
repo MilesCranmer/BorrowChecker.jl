@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: jl${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.event_name }}
+    name: jl${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-dd${{ matrix.dispatch_doctor }}-${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
@@ -29,8 +29,19 @@ jobs:
           - ubuntu-latest
         arch:
           - x64
+        dispatch_doctor:
+          - 'disabled'
+        include:
+          - version: '1'
+            os: ubuntu-latest
+            arch: x64
+            dispatch_doctor: 'enabled'
     steps:
       - uses: actions/checkout@v4
+      - name: "Disable DispatchDoctor if needed"
+        if: ${{ matrix.dispatch_doctor == 'disabled' }}
+        run: sed -i 's/dispatch_doctor_mode = "error"/dispatch_doctor_mode = "disable"/' test/Project.toml
+        shell: bash
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
