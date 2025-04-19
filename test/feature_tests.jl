@@ -1021,6 +1021,10 @@ end
 end
 
 @testitem "Tuple Operations" begin
+    using DispatchDoctor: allow_unstable
+
+    #! format: off
+    allow_unstable() do
     # Test tuple indexing
     @own t = (1, [2], 3)
     @test t[1] == 1  # isbits element
@@ -1042,6 +1046,8 @@ end
         @test ref[1] == [1]
         @test ref[1] isa LazyAccessor
     end
+    end
+    #! format: on
 end
 
 @testitem "Comparison Operators" begin
@@ -1185,6 +1191,10 @@ end
 end
 
 @testitem "Complex Tuple Operations" begin
+    using DispatchDoctor: allow_unstable
+
+    #! format: off
+    allow_unstable() do
     # Test tuple with nested non-isbits
     @own t = ([1], ([2], [3]), [4])
     @test t[1] isa LazyAccessor
@@ -1215,6 +1225,8 @@ end
     @own :mut mt = ([1], [2])
     @move other = mt
     @test_throws MovedError mt[1]
+    end
+    #! format: on
 end
 
 @testitem "Additional Error Cases" begin
