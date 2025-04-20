@@ -1,6 +1,7 @@
 module TypeOverloadsModule
 
 using ..TypesModule: AllWrappers
+using ..UtilsModule: @_stable
 
 #! format: off
 
@@ -20,7 +21,7 @@ for op in (
     # Instantiation
     :one, :oneunit, :zero, :typemin, :typemax, :eps,
 )
-    @eval Base.$(op)(::Type{<:AllWrappers{T}}) where {T} = Base.$(op)(T)
+    @eval @_stable Base.$(op)(::Type{<:AllWrappers{T}}) where {T} = Base.$(op)(T)
 end
 
 
