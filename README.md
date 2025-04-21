@@ -172,17 +172,17 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 - `getproperty` and `getindex` on owned/borrowed values return a `LazyAccessor` that preserves ownership/lifetime until the raw value is used.
   - For example, for an object `x::Owned{T}`, the accessor `x.a` would return `LazyAccessor{typeof(x.a), T, Val{:a}, Owned{T}}` which has the same reading/writing constraints as the original.
 
-
 ### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
-  - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `OrBorrowed{T}` and `OrBorrowedMut{T}` to also allow regular `T`.
+  - These are `Borrowed{T}` and `BorrowedMut{T}` objects, respectively. Use these in the signature of any function you wish to make compatible with references. In the signature you can use `@&(T)` and `@&(:mut, T)` to also allow regular `T`.
 - `Mutex(value)`: Creates a thread-safe container for `value`. Mutexes manage lifetimes implicitly during locks and do not need `@own`.
 - `@ref_into [:mut] var = mutex[]`: Create a reference to the value inside a mutex.
   - Use `lock(m)` to acquire the lock, `@ref_into` to create a reference to the value inside the mutex, and `unlock(m)` to release the lock.
 - `@bc f(args...; kws...)`: This convenience macro automatically creates a lifetime scope for the duration of the function, and sets up borrowing for any owned input arguments.
   - Use `@mut(arg)` to mark an input as mutable.
+- `@& [:mut] T`: Alias for `Union{T, Borrowed[Mut]{T}}` (incl. lazy versions). Use in function signatures to accept `T` or its borrowed form.
 
 ### Validation
 
@@ -490,7 +490,7 @@ Declare which arguments should be mutable with `@mut(...)`.
 @own config = Dict("enabled" => true)
 @own :mut data = [1, 2, 3]
 
-function process(cfg::OrBorrowed{Dict}, arr::OrBorrowedMut{Vector})
+function process(cfg::@&(Dict), arr::@&(:mut, Vector))
     push!(arr, cfg["enabled"] ? 4 : -1)
     return length(arr)
 end
@@ -584,7 +584,7 @@ end
 
 This pattern is useful for generic functions because if you pass an owned variable as either `x`, `y`, or `z`, the original function will get marked as moved.
 
-The next pattern that is useful is to use `OrBorrowed{T}` (basically equal to `Union{T,Borrowed{<:T}}`) and `OrBorrowedMut{T}` aliases for extending signatures). Let's say you have some function:
+The next pattern that is useful is to use `@& T` and `@& :mut T` syntax for extending signatures. This is basically equal to `Union{T, Borrowed{T}}` and `Union{T, BorrowedMut{T}}`, respectively (as well as their lazy versions). Let's say you have some function:
 
 ```julia
 struct Bar{T}
@@ -599,7 +599,7 @@ end
 Now, you'd like to modify this so that it can accept _references_ to `Bar` objects from other functions. Since `foo` doesn't need to mutate `bar`, we can modify this as follows:
 
 ```julia
-function foo(bar::OrBorrowed{Bar{T}}) where {T}
+function foo(bar::@&(Bar{T})) where {T}
     sum(bar.x)
 end
 ```
@@ -622,4 +622,4 @@ function process_data(x, y, z)
 end
 ```
 
-Because we modified `foo` to accept `OrBorrowed{Bar{T}}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context! Immutable references are safe to pass in a multi-threaded context, so this doubles as a good way to prevent unintended thread races.
+Because we modified `foo` to accept `@& Bar{T}`, we can safely pass immutable references to `z`, and it will _not_ be marked as moved in the original context! Immutable references are safe to pass in a multi-threaded context, so this doubles as a good way to prevent unintended thread races.

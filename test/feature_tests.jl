@@ -1193,6 +1193,28 @@ end
     end
 end
 
+@testitem "@& macro type aliasing" begin
+    using BorrowChecker: OrBorrowed, OrBorrowedMut, @&
+
+    # Test immutable form
+    @test (@& Vector{Int}) === OrBorrowed{Vector{Int}}
+    # Test mutable form
+    @test (@&(:mut, Vector{Int})) === OrBorrowedMut{Vector{Int}}
+    # Test error branch
+    @test_throws LoadError @eval(@&(:notmut, Vector{Int}))
+    @test_throws "First argument to @& must be :mut" @eval(@&(:notmut, Vector{Int}))
+
+    # Test helper errors
+    @test_throws(LoadError, @eval(foo(x::@& Int64, y::@& Float64) = x + y))
+    @test_throws(
+        "Did you mean to write `@&(Int64)`?", @eval(foo(x::@& Int64, y::@& Float64) = x + y)
+    )
+    @test_throws(
+        "Did you mean to write `@&(:mut, Int64)`?",
+        @eval(foo(x::@& :mut Int64, y::@& :mut Float64) = x + y)
+    )
+end
+
 @testitem "Complex Tuple Operations" begin
     using DispatchDoctor: allow_unstable
 
