@@ -634,7 +634,7 @@ This is useful for writing generic signatures that accept either a raw value or 
 # Examples
 
 Here, we define a function that accepts a mutable borrow of a `Vector{Int}`.
-We also demonstrate the use of a [`Mutex`](@ref) to protect the vector.
+We also demonstrate the use of a [`Mutex`](@ref BorrowChecker.MutexModule.Mutex) to protect the vector.
 
 ```julia
 julia> function foo(x::@&(:mut, Vector{Int}))
