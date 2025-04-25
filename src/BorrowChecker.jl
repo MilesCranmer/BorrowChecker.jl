@@ -21,12 +21,12 @@ end
 #! format: off
 using .ErrorsModule: BorrowError, MovedError, BorrowRuleError, SymbolMismatchError, ExpiredError, AliasedReturnError
 using .TypesModule: Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-using .MacrosModule: @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut, @cc
+using .MacrosModule: @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut, @cc, @&
 using .MutexModule: Mutex
 
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
 export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
-export @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut, @cc
+export @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut, @cc, @&
 export Mutex
 
 # Not exported but still available

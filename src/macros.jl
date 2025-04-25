@@ -14,7 +14,9 @@ using ..TypesModule:
     AllOwned,
     AllBorrowed,
     AsMutable,
-    OrLazy
+    OrLazy,
+    OrBorrowed,
+    OrBorrowedMut
 using ..SemanticsModule:
     request_value,
     mark_moved!,
@@ -617,6 +619,70 @@ function _spawn(args...)
             $(Threads).@spawn($(args[1:(end - 1)]...), $(inner_closure)())
         end
     end
+end
+
+"""
+    @&(T)
+    @&(:mut, T)
+
+Type alias macro for borrowed types. `@& T` expands to `Union{T, Borrowed{T}}` and
+`@&(:mut, T)` expands to `Union{T, BorrowedMut{T}}`
+(as well as their `LazyAccessor` versions).
+
+This is useful for writing generic signatures that accept either a raw value or a borrowed value.
+
+# Examples
+
+Here, we define a function that accepts a mutable borrow of a `Vector{Int}`.
+We also demonstrate the use of a [`Mutex`](@ref BorrowChecker.MutexModule.Mutex) to protect the vector.
+
+```julia
+julia> function foo(x::@&(:mut, Vector{Int}))
+           push!(x, 4)
+           return nothing
+       end
+foo (generic function with 1 method)
+
+julia> m = Mutex([1, 2, 3])
+Mutex{Vector{Int64}}([1, 2, 3])
+
+julia> lock(m) do
+           @ref_into :mut r = m[]
+           foo(r)
+       end
+
+julia> println(m)
+Mutex{Vector{Int64}}([1, 2, 3, 4])
+```
+"""
+macro var"&"(expr)
+    Meta.isexpr(expr, :tuple) && _error_and_macro(expr.args...)
+    return esc(_wrap_borrow_type(expr, false))
+end
+
+macro var"&"(mut_flag::QuoteNode, expr)
+    Meta.isexpr(expr, :tuple) && _error_and_macro(mut_flag, expr.args...)
+    mut_flag == QuoteNode(:mut) ||
+        error("First argument to @& must be :mut if two arguments are provided")
+    return esc(_wrap_borrow_type(expr, true))
+end
+
+function _error_and_macro(args...)
+    err_msg = "It looks like you're trying to use `@&` on more than one argument."
+    err_msg *= if args[1] == QuoteNode(:mut)
+        "Did you mean to write `@&(:mut, $(args[2]))`? "
+    else
+        "Did you mean to write `@&($(args[1]))`? "
+    end
+    return error(err_msg)
+end
+
+function _wrap_borrow_type(expr, mut::Bool)
+    return :($(wrap_borrow_type)($expr, Val($mut)))
+end
+
+function wrap_borrow_type(::Type{T}, ::Val{mut}) where {T,mut}
+    return mut ? OrBorrowedMut{T} : OrBorrowed{T}
 end
 
 end
