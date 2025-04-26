@@ -103,16 +103,16 @@ for op in (:rand, :randn)
         #   1. The ambiguities are a mess.
         #   2. The user should be encouraged to `@own` the rng.
         function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, d::Integer, dims::Integer...)
-            return rand(request_value(rng, Val(:write)), d, dims...)
+            return $(op)(request_value(rng, Val(:write)), d, dims...)
         end
         function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, d::AllWrappers{<:Integer}, dims::Union{Integer,AllWrappers{<:Integer}}...)
-            return rand(request_value(rng, Val(:write)), map(_maybe_read, (d, dims...))...)
+            return $(op)(request_value(rng, Val(:write)), map(_maybe_read, (d, dims...))...)
         end
         function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, ::Type{T}, d::Integer, dims::Integer...) where {T}
-            return rand(request_value(rng, Val(:write)), T, d, dims...)
+            return $(op)(request_value(rng, Val(:write)), T, d, dims...)
         end
         function Base.$(op)(rng::AllWrappers{<:AbstractRNG}, ::Type{T}, d::AllWrappers{<:Integer}, dims::Union{Integer,AllWrappers{<:Integer}}...) where {T}
-            return rand(request_value(rng, Val(:write)), T, map(_maybe_read, (d, dims...))...)
+            return $(op)(request_value(rng, Val(:write)), T, map(_maybe_read, (d, dims...))...)
         end
     end
 end
