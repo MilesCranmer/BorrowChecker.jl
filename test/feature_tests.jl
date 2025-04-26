@@ -1215,6 +1215,18 @@ end
     )
 end
 
+@testitem "@& compatibility with type parameters" begin
+    foo(::@&(Vector{T})) where {T} = T
+
+    x = [1, 2, 3]
+    @test foo(x) == Int
+    m = Mutex([1, 2, 3])
+    Base.@lock m begin
+        @ref_into ref = m[]
+        @test foo(ref) == Int
+    end
+end
+
 @testitem "Complex Tuple Operations" begin
     using DispatchDoctor: allow_unstable
 
