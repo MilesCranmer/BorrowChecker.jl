@@ -678,11 +678,11 @@ function _error_and_macro(args...)
 end
 
 function _wrap_borrow_type(expr, mut::Bool)
-    return :($(wrap_borrow_type)($expr, Val($mut)))
-end
-
-function wrap_borrow_type(::Type{T}, ::Val{mut}) where {T,mut}
-    return mut ? OrBorrowedMut{T} : OrBorrowed{T}
+    if mut
+        return :($(OrBorrowedMut){$expr})
+    else
+        return :($(OrBorrowed){$expr})
+    end
 end
 
 end
