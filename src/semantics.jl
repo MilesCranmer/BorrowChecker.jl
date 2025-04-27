@@ -78,12 +78,14 @@ function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     elseif is_expired(r)
         throw(ExpiredError(get_symbol(r)))
     elseif mode == :write && !is_mutable(r)
-        var_str = if get_symbol(r) == :anonymous
-            "immutable reference"
-        else
-            "immutable reference `$(get_symbol(r))`"
-        end
-        throw(BorrowRuleError("Cannot write to $(var_str)"))
+        throw(BorrowRuleError("Cannot write to immutable reference `$(get_symbol(r))`"))
+    elseif mode == :write && r isa BorrowedMut && get_immutable_borrows(get_owner(r)) > 0
+        throw(
+            BorrowRuleError(
+                "Cannot write via mutable reference `$(get_symbol(r))`: " *
+                "it is temporarily frozen by an immutable borrow",
+            ),
+        )
     end
     return nothing
 end
@@ -269,10 +271,16 @@ function ref(
     owner = get_owner(ref_or_owner)
 
     if has_lifetime(ref_or_owner)
-        @assert(
-            get_lifetime(ref_or_owner) === lt,
-            "Lifetime mismatch! Nesting lifetimes is not allowed."
-        )
+        same_lt = (get_lifetime(ref_or_owner) === lt)
+
+        # Crossing lifetime boundaries is forbidden *only* when creating
+        # a **new mutable** borrow.  Immutable borrows (including a
+        # &mut  →  &  re-borrow) are always allowed.
+        if !same_lt && mut
+            throw(
+                BorrowRuleError("Cannot create a mutable borrow in a different lifetime.")
+            )
+        end
     end
 
     if mut
@@ -281,7 +289,21 @@ function ref(
         if is_owner
             return Borrowed(owner, lt, dest_symbol)
         else
-            return Borrowed(request_value(ref_or_owner, Val(:read)), owner, lt, dest_symbol)
+            # --- immutable re-borrow cases --------------------------------
+            # 1. `ref_or_owner` *is* a BorrowedMut in an outer lifetime.
+            # 2. `ref_or_owner` is a LazyAccessor *from* that BorrowedMut
+            #    (get_mutable_borrows(owner) > 0).
+            bypass_mut_check =
+                (ref_or_owner isa BorrowedMut && get_lifetime(ref_or_owner) !== lt) ||
+                (owner isa OwnedMut && get_mutable_borrows(owner) > 0)
+
+            return Borrowed(
+                request_value(ref_or_owner, Val(:read)),
+                owner,
+                lt,
+                dest_symbol;
+                bypass_mut_check,
+            )
         end
     end
 end
