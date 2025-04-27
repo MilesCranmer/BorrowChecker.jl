@@ -390,9 +390,13 @@ function maybe_ref(
     return ref(lt, val, var_symbol, Val(mut))
 end
 function maybe_ref(
-    ::Lifetime, val::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, ::Symbol, ::Val{mut}=Val(false)
+    lt::Lifetime, val::Union{AllBorrowed,LazyAccessorOf{AllBorrowed}}, var_symbol::Symbol, ::Val{mut}=Val(false)
 ) where {mut}
-    return val
+    if is_mutable(val) == mut
+        return val
+    else
+        return ref(lt, val, var_symbol, Val(mut))
+    end
 end
 function maybe_ref(
     ::Lifetime, val, ::Symbol, ::Val{mut}=Val(false)

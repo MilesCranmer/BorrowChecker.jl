@@ -332,3 +332,37 @@ end
     end
     @test v[1] == 5
 end
+
+@testitem "`@bc` should automatically downgrade to immutable borrow" begin
+    @own :mut x = [1, 2, 3]
+    f!(y::@&(:mut, Vector{Int})) = (y[1] += 1; nothing)
+
+    @test_throws MethodError @bc f!(x)
+    @bc f!(@mut(x))
+    @test x == [2, 2, 3]
+
+    @lifetime lt begin
+        @ref ~lt :mut r = x
+        @test_throws MethodError @bc f!(r)
+        @bc f!(@mut(r))
+        @test r == [3, 2, 3]
+    end
+end
+
+@testitem "`@bc` automatic downgrade even with LazyAccessor" begin
+    mutable struct A
+        a::Vector{Int}
+    end
+    @own :mut x = A([1])
+
+    @lifetime lt begin
+        @ref ~lt :mut r = x
+        @test typeof(r.a) <: BorrowChecker.LazyAccessorOf{<:BorrowedMut}
+        @test (@bc typeof(r.a)) <: Borrowed
+    end
+    @test (@bc typeof(@mut(x.a))) <: BorrowedMut
+    @lifetime lt2 begin
+        @ref ~lt2 r = x
+        @test_throws BorrowRuleError (@bc typeof(@mut(r.a)))
+    end
+end
