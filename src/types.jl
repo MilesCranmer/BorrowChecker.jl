@@ -341,8 +341,10 @@ const OrBorrowedMut{T} = Union{
 
 # Type-specific utilities
 # COV_EXCL_START
-is_mutable(r::AllMutable) = true
-is_mutable(r::AllImmutable) = false
+is_mutable(::Type{<:AllMutable}) = true
+is_mutable(::Type{<:AllImmutable}) = false
+is_mutable(::Type{<:LazyAccessorOf{T}}) where {T} = is_mutable(T)
+is_mutable(::T) where {T} = is_mutable(T)
 # COV_EXCL_STOP
 
 # Internal getters and setters
