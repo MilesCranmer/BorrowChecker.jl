@@ -145,11 +145,15 @@ struct Borrowed{T,O<:AbstractOwned} <: AbstractBorrowed{T}
     symbol::Symbol
 
     function Borrowed(
-        value::T, owner::O, lifetime::Lifetime, symbol::Symbol=:anonymous
+        value::T,
+        owner::O,
+        lifetime::Lifetime,
+        symbol::Symbol=:anonymous;
+        bypass_mut_check::Bool=false,
     ) where {T,O<:AbstractOwned}
         if is_moved(owner)
             throw(MovedError(get_symbol(owner)))
-        elseif owner isa OwnedMut && get_mutable_borrows(owner) > 0
+        elseif owner isa OwnedMut && !bypass_mut_check && get_mutable_borrows(owner) > 0
             owner_str = get_symbol(owner) == :anonymous ? "value" : "`$(get_symbol(owner))`"
             throw(
                 BorrowRuleError(

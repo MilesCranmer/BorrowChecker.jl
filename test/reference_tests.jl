@@ -34,20 +34,6 @@ end
     @test occursin("value's lifetime has expired", output)
 end
 
-@testitem "Lifetime nesting restrictions" begin
-    @own arr = [10, 20, 30]
-    @lifetime outerLT begin
-        @ref ~outerLT refA = arr
-        @lifetime innerLT begin
-            # Attempt to re-bind refA with a different lifetime
-            # triggers "Lifetime mismatch! Nesting lifetimes is not allowed."
-            @test_throws AssertionError begin
-                @ref ~innerLT refB = refA
-            end
-        end
-    end
-end
-
 @testitem "Property access through references" begin
     using BorrowChecker: get_immutable_borrows
 
@@ -240,4 +226,109 @@ end
     @test mx == [1, 4]
     @test my == [2, 5]
     @test mz == [3, 6]
+end
+
+@testitem "Field/index re-borrow via LazyAccessor" begin
+    mutable struct A
+        a::Int
+    end
+    @own :mut x = A(1)
+    @lifetime L1 begin
+        @ref ~L1 :mut r = x
+        @lifetime L2 begin
+            @ref ~L2 r2 = r.a
+            @test r2 == 1
+            @test_throws BorrowRuleError r.a = 7
+        end
+        r.a = 7            # freeze lifted
+    end
+    @test x.a == 7
+end
+
+@testitem "Sibling lifetimes don't interfere" begin
+    @own :mut v = [1, 2, 3]
+    @lifetime L1 begin
+        @ref ~L1 :mut r1 = v
+        @lifetime L2a begin
+            @ref ~L2a r2 = r1
+        end
+        @lifetime L2b begin
+            @ref ~L2b r3 = r1
+        end
+        @test_throws BorrowRuleError v[1]
+    end
+end
+
+@testitem "Mixed owned / borrowed fields" begin
+    mutable struct Box
+        data::Vector{Int}
+    end
+    @own :mut bx = Box([1, 2])
+    @lifetime outer begin
+        @ref ~outer :mut bx_ref = bx
+        @lifetime mid begin
+            @ref ~mid data_ref = bx_ref.data
+            @test data_ref == [1, 2]
+            @test_throws BorrowRuleError begin
+                @lifetime inner begin
+                    @ref ~inner :mut fail_mut = bx
+                end
+            end
+        end
+    end
+end
+
+@testitem "Re-borrow inside comprehension keeps frozen" begin
+    @own :mut numbers = [1, 2, 3, 4]
+    @lifetime L1 begin
+        @ref ~L1 r = numbers
+        total = @lifetime L2 begin
+            sum(@ref(~L2, x = i) for i in r)
+        end
+        @test total == 10
+        @test_throws BorrowRuleError r[1] = 99
+    end
+end
+
+@testitem "New mutable borrow in nested lifetime is forbidden" begin
+    @own :mut v = [1, 2]
+    @lifetime L1 begin
+        @ref ~L1 :mut r = v
+        @lifetime L2 begin
+            @test_throws BorrowRuleError @ref ~L2 :mut bad = r
+        end
+    end
+end
+
+@testitem "Move still respects freeze" begin
+    @own :mut n = [1]
+    @lifetime L1 begin
+        @ref ~L1 :mut r = n
+        @lifetime L2 begin
+            @ref ~L2 r2 = r
+            @test r2[1] == 1
+            @test_throws BorrowRuleError @move m = n
+        end
+    end
+end
+
+@testitem "Exception inside inner lifetime unwinds counters" begin
+    @own :mut v = [0]
+    try
+        @lifetime L1 begin
+            @ref ~L1 :mut r = v
+            @lifetime L2 begin
+                @ref ~L2 r2 = r
+                error("boom")
+            end
+        end
+    catch e
+        @test occursin("boom", sprint(showerror, e))
+    end
+    # Even after exception, freeze must be cleared
+    @lifetime final begin
+        @ref ~final :mut r_final = v
+        r_final[1] = 5
+    end
+    @test v[1] == 5
 end
