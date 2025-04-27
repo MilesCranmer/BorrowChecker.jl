@@ -128,6 +128,41 @@ end
     end
 end
 
+@testitem "Writing array -> element -> property" begin
+    mutable struct Person
+        name::String
+        age::Int
+    end
+
+    @own :mut people = [Person("Alice", 30), Person("Bob", 25)]
+
+    @lifetime lt begin
+        @ref ~lt :mut people_ref = people
+        people_ref[1].name = "Alicia"
+    end
+    @test people[1].name == "Alicia"
+end
+
+@testitem "Deeper property writes" begin
+    mutable struct Person
+        name::Vector{String}
+        age::Int
+    end
+    mutable struct Container
+        people::Vector{Person}
+    end
+
+    @own :mut container = Container([Person(["Alice"], 30)])
+    @lifetime lt begin
+        @ref ~lt :mut container_ref = container
+        container_ref.people[1].name[1] = "Alicia"
+    end
+    @test container.people[1].name[1] == "Alicia"
+
+    @own container2 = container
+    @test_throws BorrowRuleError container2.people[1].name[1] = "Bob"
+end
+
 @testitem "Symbol Tracking" begin
     using BorrowChecker: is_moved, get_owner, get_symbol
 
