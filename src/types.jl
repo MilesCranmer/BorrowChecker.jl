@@ -352,6 +352,12 @@ unsafe_get_value(r::OwnedMut) = getfield(r, :value)
 unsafe_get_value(r::Owned) = getfield(r, :value)
 unsafe_get_value(r::AllBorrowed) = getfield(r, :value)
 
+"""
+    unsafe_access(x::LazyAccessor)
+
+This recursively walks the parent chain of a LazyAccessor until it finds
+the raw target value.
+"""
 @inline function unsafe_access(x::LazyAccessor{T,<:Any,Val{property}}) where {T,property}
     parent = getfield(x, :parent)
     return getproperty(parent, property)::T

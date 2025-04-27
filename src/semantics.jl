@@ -124,7 +124,8 @@ end
 end
 @inline function Base.setproperty!(r::LazyAccessor, name::Symbol, value)
     target = getfield(r, :target)
-    setproperty!(request_value(target, Val(:write)), name, value)
+    validate_mode(target, Val(:write))
+    setproperty!(unsafe_access(r), name, value)
     return nothing
 end
 
