@@ -246,7 +246,7 @@ for op in (
     :float, :abs, :real, :imag, :conj, :transpose, :significand,
     :modf, :rem, :floor, :ceil, :round, :trunc,
     :inv, :sqrt, :cbrt, :abs2, :angle, :factorial,
-    :(!), :-, :+, :sign, :identity, :iszero, :isone,
+    :(!), :-, :+, :sign, :identity, :iszero, :isone, :isfinite, :isnan, :isinf,
     # Instantiation
     :signed, :unsigned, :widen, :prevfloat, :nextfloat,
     :one, :oneunit, :zero, :typemin, :typemax, :eps,
