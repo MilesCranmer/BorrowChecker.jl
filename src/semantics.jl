@@ -78,21 +78,12 @@ function validate_mode(r::AllBorrowed, ::Val{mode}) where {mode}
     elseif is_expired(r)
         throw(ExpiredError(get_symbol(r)))
     elseif mode == :write && !is_mutable(r)
-        var_str = if get_symbol(r) == :anonymous
-            "immutable reference"
-        else
-            "immutable reference `$(get_symbol(r))`"
-        end
-        throw(BorrowRuleError("Cannot write to $(var_str)"))
+        throw(BorrowRuleError("Cannot write to immutable reference `$(get_symbol(r))`"))
     elseif mode == :write && r isa BorrowedMut && get_immutable_borrows(get_owner(r)) > 0
-        var_str = if get_symbol(r) == :anonymous
-            "mutable reference"
-        else
-            "mutable reference `$(get_symbol(r))`"
-        end
         throw(
             BorrowRuleError(
-                "Cannot write via $(var_str): it is temporarily frozen by an immutable borrow",
+                "Cannot write via mutable reference `$(get_symbol(r))`: " *
+                "it is temporarily frozen by an immutable borrow",
             ),
         )
     end
