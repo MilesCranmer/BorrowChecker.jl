@@ -12,9 +12,8 @@ else
     """
     macro borrow_checker(ex)
         is_borrow_checker_enabled(__module__) || return esc(ex)
-        error("BorrowChecker.Experimental.@borrow_checker requires Julia >= 1.14.0-")
+        return error("BorrowChecker.Experimental.@borrow_checker requires Julia >= 1.14.0-")
     end
 end
 
 end
-

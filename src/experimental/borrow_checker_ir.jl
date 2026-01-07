@@ -1,6 +1,11 @@
 
-export @borrow_checker, Config, DEFAULT_CONFIG, BorrowCheckError,
-       register_effects!, register_fresh_return!, register_return_alias!
+export @borrow_checker,
+    Config,
+    DEFAULT_CONFIG,
+    BorrowCheckError,
+    register_effects!,
+    register_fresh_return!,
+    register_return_alias!
 
 import Core.Compiler
 const CC = Core.Compiler
@@ -23,7 +28,9 @@ function _default_optimize_until()
         end
         for nm in CC.ALL_PASS_NAMES
             s = lowercase(String(nm))
-            if occursin("compact_1", s) || occursin("compact 1", s) || occursin("compact1", s)
+            if occursin("compact_1", s) ||
+                occursin("compact 1", s) ||
+                occursin("compact1", s)
                 return nm
             end
         end
@@ -91,7 +98,9 @@ struct EffectSummary
     writes::BitSet    # arguments that may be mutated during the call
     consumes::BitSet  # arguments that may escape/need to be treated as consumed
 end
-EffectSummary(; writes=Int[], consumes=Int[]) = EffectSummary(BitSet(writes), BitSet(consumes))
+function EffectSummary(; writes=Int[], consumes=Int[])
+    return EffectSummary(BitSet(writes), BitSet(consumes))
+end
 
 const _known_effects = IdDict{Any,EffectSummary}()
 
@@ -107,8 +116,12 @@ Return-aliasing style for calls that return a *tracked* value.
 """
 const _ret_alias = IdDict{Any,Symbol}()
 
-function register_effects!(f; writes::AbstractVector{<:Integer}=Int[], consumes::AbstractVector{<:Integer}=Int[])
-    _known_effects[f] = EffectSummary(writes=collect(Int, writes), consumes=collect(Int, consumes))
+function register_effects!(
+    f; writes::AbstractVector{<:Integer}=Int[], consumes::AbstractVector{<:Integer}=Int[]
+)
+    _known_effects[f] = EffectSummary(;
+        writes=collect(Int, writes), consumes=collect(Int, consumes)
+    )
     return f
 end
 
@@ -170,7 +183,20 @@ function __init__()
     end
 
     # A few common Base mutators
-    for nm in (:push!, :pushfirst!, :pop!, :popfirst!, :append!, :empty!, :resize!, :sizehint!, :fill!, :sort!, :reverse!, :copyto!)
+    for nm in (
+        :push!,
+        :pushfirst!,
+        :pop!,
+        :popfirst!,
+        :append!,
+        :empty!,
+        :resize!,
+        :sizehint!,
+        :fill!,
+        :sort!,
+        :reverse!,
+        :copyto!,
+    )
         if isdefined(Base, nm)
             f = getfield(Base, nm)
             register_effects!(f; writes=[2])
@@ -269,7 +295,9 @@ end
 @inline _ssa_handle(nargs::Int, id::Int) = nargs + id
 @inline _arg_handle(id::Int) = id
 
-@inline function _handle_index(x, nargs::Int, track_arg::AbstractVector{Bool}, track_ssa::AbstractVector{Bool})
+@inline function _handle_index(
+    x, nargs::Int, track_arg::AbstractVector{Bool}, track_ssa::AbstractVector{Bool}
+)
     if x isa Core.Argument
         n = x.n
         return (1 <= n <= length(track_arg) && track_arg[n]) ? _arg_handle(n) : 0
@@ -316,10 +344,10 @@ end
 end
 
 @inline function _uf_union!(uf::UnionFind, a::Int, b::Int)
-    ((a == 0) || (b == 0) || (a == b)) && return
+    ((a == 0) || (b == 0) || (a == b)) && return nothing
     ra = _uf_find(uf, a)
     rb = _uf_find(uf, b)
-    ra == rb && return
+    ra == rb && return nothing
     if uf.rank[ra] < uf.rank[rb]
         uf.parent[ra] = rb
     elseif uf.rank[ra] > uf.rank[rb]
@@ -328,7 +356,7 @@ end
         uf.parent[rb] = ra
         uf.rank[ra] += 1
     end
-    return
+    return nothing
 end
 
 # -----------------------------------------------------------------------------
@@ -393,7 +421,9 @@ This returns effects in terms of positions in `raw_args` where:
 - `raw_args[1]` is function value
 - `raw_args[2]` is first argument, etc
 """
-function _effects_for_call(stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ssa, nargs::Int; depth::Int=0)::EffectSummary
+function _effects_for_call(
+    stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ssa, nargs::Int; depth::Int=0
+)::EffectSummary
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return EffectSummary()
     f = _resolve_callee(stmt, ir)
@@ -409,8 +439,11 @@ function _effects_for_call(stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ss
     end
 
     # If we have a statically resolved method instance, we can optionally summarize it.
-    if head === :invoke && cfg.analyze_invokes && (mi !== nothing) && depth < cfg.max_summary_depth
-        s = _summary_for_mi(mi, cfg; depth=depth+1)
+    if head === :invoke &&
+        cfg.analyze_invokes &&
+        (mi !== nothing) &&
+        depth < cfg.max_summary_depth
+        s = _summary_for_mi(mi, cfg; depth=depth + 1)
         if s !== nothing
             return s
         end
@@ -420,7 +453,7 @@ function _effects_for_call(stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ss
     if f !== nothing
         nm = _callee_name_str(f)
         if cfg.assume_bang_mutates && endswith(nm, "!")
-            return EffectSummary(writes=[2])
+            return EffectSummary(; writes=[2])
         elseif cfg.assume_nonbang_readonly
             return EffectSummary()
         end
@@ -434,7 +467,7 @@ function _effects_for_call(stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ss
             h == 0 && continue
             push!(consumes, p)
         end
-        return EffectSummary(consumes=consumes)
+        return EffectSummary(; consumes=consumes)
     else
         return EffectSummary()
     end
@@ -446,7 +479,8 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
     try
         if mi isa Core.MethodInstance
             m = mi.def
-            if (m isa Method) && (m.module === Base || m.module === Core || m.module === Experimental)
+            if (m isa Method) &&
+                (m.module === Base || m.module === Core || m.module === Experimental)
                 return nothing
             end
         end
@@ -555,14 +589,22 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
         end
     end
 
-    return EffectSummary(writes=writes, consumes=consumes)
+    return EffectSummary(; writes=writes, consumes=consumes)
 end
 
 # -----------------------------------------------------------------------------
 # Alias-class construction
 # -----------------------------------------------------------------------------
 
-function _build_alias_classes!(uf::UnionFind, ir::CC.IRCode, cfg::Config, track_arg, track_ssa, nargs::Int; depth::Int=0)
+function _build_alias_classes!(
+    uf::UnionFind,
+    ir::CC.IRCode,
+    cfg::Config,
+    track_arg,
+    track_ssa,
+    nargs::Int;
+    depth::Int=0,
+)
     nstmts = length(ir.stmts)
     for i in 1:nstmts
         out_h = track_ssa[i] ? _ssa_handle(nargs, i) : 0
@@ -775,12 +817,28 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
             stmt = ir[Core.SSAValue(idx)][:stmt]
 
             # Uses *during* this statement include live-after plus immediate uses.
-            uses = (stmt isa Core.PhiNode || stmt isa Core.PhiCNode) ? BitSet() : _used_handles(stmt, nargs, track_arg, track_ssa)
+            uses = if (stmt isa Core.PhiNode || stmt isa Core.PhiCNode)
+                BitSet()
+            else
+                _used_handles(stmt, nargs, track_arg, track_ssa)
+            end
             live_during = BitSet(live)
             union!(live_during, uses)
 
             # Perform checks.
-            _check_stmt!(viols, ir, idx, stmt, uf, cfg, nargs, track_arg, track_ssa, live, live_during)
+            _check_stmt!(
+                viols,
+                ir,
+                idx,
+                stmt,
+                uf,
+                cfg,
+                nargs,
+                track_arg,
+                track_ssa,
+                live,
+                live_during,
+            )
 
             # Update liveness for previous statement.
             if 1 <= idx <= length(track_ssa) && track_ssa[idx]
@@ -793,10 +851,21 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     return viols
 end
 
-function _check_stmt!(viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, cfg::Config,
-                     nargs::Int, track_arg, track_ssa, live_after::BitSet, live_during::BitSet)
+function _check_stmt!(
+    viols,
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    uf::UnionFind,
+    cfg::Config,
+    nargs::Int,
+    track_arg,
+    track_ssa,
+    live_after::BitSet,
+    live_during::BitSet,
+)
     head, mi, raw_args = _call_parts(stmt)
-    raw_args === nothing && return
+    raw_args === nothing && return nothing
 
     eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs)
 
@@ -820,29 +889,52 @@ function _check_stmt!(viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, cfg::
     end
 end
 
-function _require_unique!(viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, hv::Int, live_during::BitSet; context::String)
+function _require_unique!(
+    viols,
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    uf::UnionFind,
+    hv::Int,
+    live_during::BitSet;
+    context::String,
+)
     rv = _uf_find(uf, hv)
     for h2 in live_during
         h2 == hv && continue
         if _uf_find(uf, h2) == rv
             li = _stmt_lineinfo(ir, idx)
-            push!(viols, BorrowViolation(idx,
-                "cannot perform $context: value is aliased by another live binding",
-                li, stmt))
-            return
+            push!(
+                viols,
+                BorrowViolation(
+                    idx,
+                    "cannot perform $context: value is aliased by another live binding",
+                    li,
+                    stmt,
+                ),
+            )
+            return nothing
         end
     end
 end
 
-function _require_not_used_later!(viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, hv::Int, live_after::BitSet)
+function _require_not_used_later!(
+    viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, hv::Int, live_after::BitSet
+)
     rv = _uf_find(uf, hv)
     for h2 in live_after
         if _uf_find(uf, h2) == rv
             li = _stmt_lineinfo(ir, idx)
-            push!(viols, BorrowViolation(idx,
-                "value escapes/consumed by unknown call; it (or an alias) is used later",
-                li, stmt))
-            return
+            push!(
+                viols,
+                BorrowViolation(
+                    idx,
+                    "value escapes/consumed by unknown call; it (or an alias) is used later",
+                    li,
+                    stmt,
+                ),
+            )
+            return nothing
         end
     end
 end
@@ -856,7 +948,9 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-function check_signature(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter())
+function check_signature(
+    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
+)
     codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
     viols = BorrowViolation[]
     for entry in codes
@@ -935,7 +1029,8 @@ end
 
 function _tt_expr_from_signature(sig)
     call = _sig_call(sig)
-    call isa Expr && call.head === :call || error("@borrow_checker currently supports standard function signatures")
+    call isa Expr && call.head === :call ||
+        error("@borrow_checker currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
     argrefs = Any[]
     for a in call.args[2:end]
@@ -957,7 +1052,10 @@ function _instrument_assignments(ex)
     ex isa Expr || return ex
 
     # Don't instrument inside nested function definitions or quoted code.
-    if ex.head === :function || ex.head === :(->) || ex.head === :quote || ex.head === :inert
+    if ex.head === :function ||
+        ex.head === :(->) ||
+        ex.head === :quote ||
+        ex.head === :inert
         return ex
     end
 

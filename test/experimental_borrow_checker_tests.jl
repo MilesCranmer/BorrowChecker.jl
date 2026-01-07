@@ -4,7 +4,7 @@ using BorrowChecker
 @testitem "Experimental @borrow_checker" begin
     if VERSION < v"1.14.0-"
         @test true
-        return
+        return nothing
     end
 
     using BorrowChecker.Experimental: BorrowCheckError
@@ -82,4 +82,3 @@ using BorrowChecker
     @test_throws BorrowCheckError _bc_bad_struct_of_struct()
     @test _bc_ok_struct_of_struct().a.x == 1
 end
-
