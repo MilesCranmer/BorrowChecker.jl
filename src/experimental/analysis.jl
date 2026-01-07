@@ -158,7 +158,7 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
     for i in 1:nstmts
         T = try
             inst = ir[Core.SSAValue(i)]
-            CC.widenconst(get(inst, :type, Any))
+            CC.widenconst(_inst_get(inst, :type, Any))
         catch
             Any
         end
@@ -402,7 +402,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     for i in 1:nstmts
         T = try
             inst = ir[Core.SSAValue(i)]
-            CC.widenconst(get(inst, :type, Any))
+            CC.widenconst(_inst_get(inst, :type, Any))
         catch
             Any
         end

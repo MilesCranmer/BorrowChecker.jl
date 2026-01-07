@@ -186,13 +186,200 @@ struct BorrowCheckError <: Exception
     violations::Vector{BorrowViolation}
 end
 
+const _srcfile_cache = Dict{String,Vector{String}}()
+
+@inline function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
+    try
+        return inst[sym]
+    catch
+    end
+    try
+        return getproperty(inst, sym)
+    catch
+    end
+    return default
+end
+
+function _normalize_lineinfo(ir::CC.IRCode, li)
+    li === nothing && return nothing
+    li isa Core.LineInfoNode && return li
+    li isa LineNumberNode && return li
+
+    if li isa Integer
+        lii = Int(li)
+        lii <= 0 && return nothing
+        lt = try
+            getproperty(ir, :linetable)
+        catch
+            nothing
+        end
+        if lt !== nothing && lii <= length(lt)
+            linfo = lt[lii]
+            return (linfo isa Core.LineInfoNode) ? linfo : nothing
+        end
+        return nothing
+    end
+
+    return nothing
+end
+
+@inline function _lineinfo_file_line(li::Core.LineInfoNode)
+    file = try
+        String(getproperty(li, :file))
+    catch
+        nothing
+    end
+    line = try
+        Int(getproperty(li, :line))
+    catch
+        nothing
+    end
+    return file, line
+end
+
+@inline function _lineinfo_file_line(li::LineNumberNode)
+    file = try
+        String(getproperty(li, :file))
+    catch
+        nothing
+    end
+    line = try
+        Int(getproperty(li, :line))
+    catch
+        nothing
+    end
+    return file, line
+end
+
+function _lineinfo_chain(li::Core.LineInfoNode)
+    chain = Core.LineInfoNode[]
+    cur = li
+    while cur isa Core.LineInfoNode
+        push!(chain, cur)
+        cur = try
+            getproperty(cur, :inlined_at)
+        catch
+            nothing
+        end
+    end
+    return chain
+end
+
+function _read_file_lines(file::String)
+    return get!(_srcfile_cache, file) do
+        try
+            readlines(file)
+        catch
+            String[]
+        end
+    end
+end
+
+function _recover_callee_from_tt(tt)
+    try
+        tt_u = Base.unwrap_unionall(tt)
+        tt_u isa DataType || return (nothing, nothing)
+        ps = tt_u.parameters
+        isempty(ps) && return (nothing, nothing)
+        fT = ps[1]
+        Base.issingletontype(fT) || return (nothing, nothing)
+        f = getfield(fT, :instance)
+        argT = Tuple{ps[2:end]...}
+        return (f, argT)
+    catch
+        return (nothing, nothing)
+    end
+end
+
+function _print_source_context(io::IO, tt, li; context::Int=0)
+    file, line = if li isa Core.LineInfoNode || li isa LineNumberNode
+        _lineinfo_file_line(li)
+    else
+        return nothing
+    end
+    (file === nothing || line === nothing) && return nothing
+
+    if li isa Core.LineInfoNode
+        chain = _lineinfo_chain(li)
+        for (k, c) in enumerate(chain)
+            f, l = _lineinfo_file_line(c)
+            (f === nothing || l === nothing) && continue
+            if k == 1
+                println(io, "      at ", f, ":", l)
+            else
+                println(io, "      inlined at ", f, ":", l)
+            end
+        end
+    else
+        println(io, "      at ", file, ":", line)
+    end
+
+    if isfile(file)
+        lines = _read_file_lines(file)
+        if 1 <= line <= length(lines)
+            lo = max(1, line - context)
+            hi = min(length(lines), line + context)
+            for ln in lo:hi
+                prefix = (ln == line) ? "      > " : "        "
+                println(io, prefix, rpad(string(ln), 5), " ", lines[ln])
+            end
+            return nothing
+        end
+    end
+
+    f, argT = _recover_callee_from_tt(tt)
+    (f === nothing || argT === nothing) && return nothing
+
+    cis = try
+        Base.code_lowered(f, argT)
+    catch
+        Any[]
+    end
+    isempty(cis) && return nothing
+
+    filesym = Symbol(file)
+    for ci in cis
+        ci isa Core.CodeInfo || continue
+        collecting = false
+        buf = Any[]
+        for st in ci.code
+            if st isa LineNumberNode
+                if collecting
+                    break
+                end
+                collecting = (st.file == filesym && st.line == line)
+                continue
+            end
+            collecting || continue
+            push!(buf, st)
+        end
+        isempty(buf) && continue
+        println(io, "      lowered:")
+        for ex in buf
+            s = try
+                sprint(show, ex)
+            catch
+                ""
+            end
+            isempty(s) || println(io, "        ", s)
+        end
+        break
+    end
+
+    return nothing
+end
+
 function Base.showerror(io::IO, e::BorrowCheckError)
     println(io, "BorrowCheckError for specialization ", e.tt)
     for (k, v) in enumerate(e.violations)
         println(io)
         println(io, "  [", k, "] stmt#", v.idx, ": ", v.msg)
         if v.lineinfo !== nothing
-            println(io, "      ", v.lineinfo)
+            try
+                _print_source_context(io, e.tt, v.lineinfo; context=0)
+            catch
+                println(io, "      ", v.lineinfo)
+            end
         end
         try
             s = sprint(show, v.stmt)
@@ -269,7 +456,8 @@ end
 function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
     try
         inst = ir[Core.SSAValue(idx)]
-        return get(inst, :line, nothing)
+        li = _inst_get(inst, :line, nothing)
+        return _normalize_lineinfo(ir, li)
     catch
         return nothing
     end
