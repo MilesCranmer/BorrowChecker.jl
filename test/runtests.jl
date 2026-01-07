@@ -10,6 +10,8 @@ include("complex_macros.jl")
 include("mutex_tests.jl")
 include("experimental_borrow_checker_tests.jl")
 include("experimental_printing_tests.jl")
+include("experimental_hygiene_integration_tests.jl")
+include("dynamic_expressions_integration_tests.jl")
 
 @static if VERSION < v"1.14.0-"
     @testitem "Aqua" begin
@@ -26,4 +28,15 @@ end
     end
 end
 
-@run_package_tests
+testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
+include_unstable = lowercase(get(ENV, "BORROWCHECKER_INCLUDE_UNSTABLE", "")) in ("1", "true", "yes")
+
+filter = if !isempty(testitem_name_filter)
+    ti -> ti.name == testitem_name_filter
+elseif !include_unstable
+    ti -> !(:unstable in ti.tags)
+else
+    nothing
+end
+
+@run_package_tests filter=filter

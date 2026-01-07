@@ -1,11 +1,9 @@
-using TestItems
-using BorrowChecker
+@testitem "Experimental @borrow_checker" tags=[:unstable] begin
+    using TestItems
+    using BorrowChecker
 
-@testitem "Experimental @borrow_checker" begin
-    @static if VERSION < v"1.14.0-"
-        @test true
-        return nothing
-    end
+    VERSION >= v"1.14.0-" ||
+        error("This test requires Julia >= 1.14.0- (BorrowChecker.Experimental).")
 
     using BorrowChecker.Experimental: BorrowCheckError
 
