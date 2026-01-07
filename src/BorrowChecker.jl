@@ -16,6 +16,7 @@ using DispatchDoctor: @stable
     include("overloads.jl")
     include("type_overloads.jl")
     include("disambiguations.jl")
+    include("experimental.jl")
 end
 
 #! format: off

@@ -8,11 +8,14 @@ include("feature_tests.jl")
 include("integration_tests.jl")
 include("complex_macros.jl")
 include("mutex_tests.jl")
+include("experimental_borrow_checker_tests.jl")
 
-@testitem "Aqua" begin
-    using Aqua
+@static if VERSION < v"1.14.0-"
+    @testitem "Aqua" begin
+        using Aqua
 
-    Aqua.test_all(BorrowChecker)
+        Aqua.test_all(BorrowChecker)
+    end
 end
 
 @testitem "JET tests" begin
