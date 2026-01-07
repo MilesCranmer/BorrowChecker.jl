@@ -9,6 +9,7 @@ include("integration_tests.jl")
 include("complex_macros.jl")
 include("mutex_tests.jl")
 include("experimental_borrow_checker_tests.jl")
+include("experimental_printing_tests.jl")
 
 @static if VERSION < v"1.14.0-"
     @testitem "Aqua" begin

@@ -2,7 +2,7 @@ using TestItems
 using BorrowChecker
 
 @testitem "Experimental @borrow_checker" begin
-    if VERSION < v"1.14.0-"
+    @static if VERSION < v"1.14.0-"
         @test true
         return nothing
     end

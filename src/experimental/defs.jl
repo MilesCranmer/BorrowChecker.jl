@@ -331,17 +331,23 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
     (f === nothing || argT === nothing) && return nothing
 
     cis = try
-        Base.code_lowered(f, argT)
+        Base.code_lowered(f, argT; debuginfo=:source)
     catch
-        Any[]
+        try
+            Base.code_lowered(f, argT)
+        catch
+            Any[]
+        end
     end
     isempty(cis) && return nothing
 
     filesym = Symbol(file)
     for ci in cis
         ci isa Core.CodeInfo || continue
-        collecting = false
         buf = Any[]
+
+        # Older representation: LineNumberNode markers embedded in `ci.code`.
+        collecting = false
         for st in ci.code
             if st isa LineNumberNode
                 if collecting
@@ -353,6 +359,50 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
             collecting || continue
             push!(buf, st)
         end
+
+        # Newer representation: locations via `codelocs` -> `linetable`.
+        if isempty(buf)
+            lt = try
+                getproperty(ci, :linetable)
+            catch
+                nothing
+            end
+            locs = try
+                getproperty(ci, :codelocs)
+            catch
+                nothing
+            end
+            if lt !== nothing && locs !== nothing
+                first_idx = 0
+                for i in 1:min(length(ci.code), length(locs))
+                    loc = locs[i]
+                    (loc isa Integer) || continue
+                    lii = Int(loc)
+                    (lii <= 0 || lii > length(lt)) && continue
+                    li = lt[lii]
+                    li isa Core.LineInfoNode || continue
+                    (
+                        String(getproperty(li, :file)) == file &&
+                        Int(getproperty(li, :line)) == line
+                    ) || continue
+                    first_idx = i
+                    break
+                end
+                if first_idx != 0
+                    li0 = lt[Int(locs[first_idx])]
+                    for j in first_idx:min(length(ci.code), length(locs))
+                        loc = locs[j]
+                        (loc isa Integer) || break
+                        lii = Int(loc)
+                        (lii <= 0 || lii > length(lt)) && break
+                        lij = lt[lii]
+                        lij == li0 || break
+                        push!(buf, ci.code[j])
+                    end
+                end
+            end
+        end
+
         isempty(buf) && continue
         println(io, "      lowered:")
         for ex in buf
