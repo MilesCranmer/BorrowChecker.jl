@@ -469,6 +469,8 @@ function is_tracked_type(@nospecialize T)::Bool
 
         dt = Base.unwrap_unionall(T)
         if dt isa DataType
+            Base.isconcretetype(dt) || return true
+
             # Mutable structs are tracked.
             Base.ismutabletype(dt) && return true
 

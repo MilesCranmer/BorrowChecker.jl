@@ -112,7 +112,8 @@ function _instrument_assignments(ex)
         end
         lhs2 = _instrument_assignments(lhs)
         rhs2 = _instrument_assignments(rhs)
-        return Expr(:(=), lhs2, :(BorrowChecker.Experimental.__bc_bind__($rhs2)))
+        bind_ref = GlobalRef(@__MODULE__, :__bc_bind__)
+        return Expr(:(=), lhs2, Expr(:call, bind_ref, rhs2))
     end
 
     # Recurse
@@ -121,7 +122,8 @@ end
 
 function _prepend_check_stmt(sig, body)
     tt_expr = _tt_expr_from_signature(sig)
-    check_stmt = :(BorrowChecker.Experimental.__bc_assert_safe__($tt_expr))
+    assert_ref = GlobalRef(@__MODULE__, :__bc_assert_safe__)
+    check_stmt = Expr(:call, assert_ref, tt_expr)
 
     body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
     new_body = Expr(:block, check_stmt, body_block.args...)
