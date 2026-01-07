@@ -269,41 +269,40 @@ struct LazyAccessor{T,P,S,O<:Union{AbstractOwned,AbstractBorrowed}} <: AbstractW
     property::S
     property_type::Type{T}
     target::O
+end
 
-    function LazyAccessor(
-        x::P, ::Val{property}
-    ) where {P<:Union{Owned,OwnedMut,Borrowed,BorrowedMut},property}
-        parent = unsafe_get_value(x)
-        property_type = typeof(getproperty(parent, property))
-        return new{property_type,typeof(parent),Val{property},P}(
-            parent, Val(property), property_type, x
-        )
-    end
-    function LazyAccessor(x::LazyAccessor, ::Val{subproperty}) where {subproperty}
-        target = getfield(x, :target)
-        parent = unsafe_access(x)
-        property_type = typeof(getproperty(parent, subproperty))
-        return new{property_type,typeof(parent),Val{subproperty},typeof(target)}(
-            parent, Val(subproperty), property_type, target
-        )
-    end
-    function LazyAccessor(
-        x::P, idx::Tuple
-    ) where {P<:Union{Owned,OwnedMut,Borrowed,BorrowedMut}}
-        parent = unsafe_get_value(x)
-        property_type = typeof(getindex(parent, idx...))
-        return new{property_type,typeof(parent),typeof(idx),P}(
-            parent, idx, property_type, x
-        )
-    end
-    function LazyAccessor(x::LazyAccessor, idx::Tuple)
-        target = getfield(x, :target)
-        parent = unsafe_access(x)
-        property_type = typeof(getindex(parent, idx...))
-        return new{property_type,typeof(parent),typeof(idx),typeof(target)}(
-            parent, idx, property_type, target
-        )
-    end
+function LazyAccessor(
+    x::O, ::Val{property}
+) where {O<:Union{Owned,OwnedMut,Borrowed,BorrowedMut},property}
+    parent = unsafe_get_value(x)
+    property_type = typeof(getproperty(parent, property))
+    return LazyAccessor{property_type,typeof(parent),Val{property},O}(
+        parent, Val(property), property_type, x
+    )
+end
+
+function LazyAccessor(x::LazyAccessor, ::Val{subproperty}) where {subproperty}
+    target = getfield(x, :target)
+    parent = unsafe_access(x)
+    property_type = typeof(getproperty(parent, subproperty))
+    return LazyAccessor{property_type,typeof(parent),Val{subproperty},typeof(target)}(
+        parent, Val(subproperty), property_type, target
+    )
+end
+
+function LazyAccessor(x::O, idx::Tuple) where {O<:Union{Owned,OwnedMut,Borrowed,BorrowedMut}}
+    parent = unsafe_get_value(x)
+    property_type = typeof(getindex(parent, idx...))
+    return LazyAccessor{property_type,typeof(parent),typeof(idx),O}(parent, idx, property_type, x)
+end
+
+function LazyAccessor(x::LazyAccessor, idx::Tuple)
+    target = getfield(x, :target)
+    parent = unsafe_access(x)
+    property_type = typeof(getindex(parent, idx...))
+    return LazyAccessor{property_type,typeof(parent),typeof(idx),typeof(target)}(
+        parent, idx, property_type, target
+    )
 end
 
 function BorrowedMut(lazy::LazyAccessor, lt::Lifetime, dest_symbol::Symbol=:anonymous)
