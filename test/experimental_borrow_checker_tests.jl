@@ -30,8 +30,9 @@
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_unknown_call(f)
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_unknown_call(vf)
         x = [1, 2, 3]
+        f = only(vf)
         f(x)
         x[1] = 0
         return x
@@ -106,7 +107,7 @@
 
     @test_throws BorrowCheckError _bc_bad_alias()
     @test _bc_ok_copy() == [1, 2, 3]
-    @test_throws BorrowCheckError _bc_bad_unknown_call(identity)
+    @test_throws BorrowCheckError _bc_bad_unknown_call(Any[identity])
 
     @test_throws BorrowCheckError _bc_bad_alias_mutable_struct()
     @test _bc_ok_copy_mutable_struct().x == 1

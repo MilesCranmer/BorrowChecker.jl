@@ -1,9 +1,6 @@
 @testitem "Experimental @borrow_checker hygiene and tracking" tags=[:unstable] begin
     using TestItems
-    using BorrowChecker
-
-    VERSION >= v"1.14.0-" ||
-        error("This test requires Julia >= 1.14.0- (BorrowChecker.Experimental).")
+    using BorrowChecker.Experimental: @borrow_checker
 
     @testset "macro hygiene: no BorrowChecker global" begin
         user_mod = Module(:_BCHygieneUser)
@@ -31,6 +28,19 @@
         end
 
         @test !has_borrowchecker_ref(expanded)
+    end
+
+    @testset "runtime hygiene: no `BorrowChecker` binding needed" begin
+        user_mod = Module(:_BCHygieneRuntimeUser)
+        Core.eval(user_mod, :(using BorrowChecker.Experimental: @borrow_checker))
+        Core.eval(
+            user_mod,
+            :(@borrow_checker function f(x)
+                y = x
+                return y
+            end),
+        )
+        @test Core.eval(user_mod, :(f([1, 2, 3]))) == [1, 2, 3]
     end
 
     @testset "is_tracked_type doesn't error on abstract" begin

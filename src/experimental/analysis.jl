@@ -577,13 +577,59 @@ end
 
 function _used_handles(stmt, nargs::Int, track_arg, track_ssa)
     s = BitSet()
-    for ur in CC.userefs(stmt)
-        x = ur[]
-        h = _handle_index(x, nargs, track_arg, track_ssa)
-        h == 0 && continue
-        push!(s, h)
-    end
+    _collect_used_handles!(s, stmt, nargs, track_arg, track_ssa)
     return s
+end
+
+function _collect_used_handles!(s::BitSet, x, nargs::Int, track_arg, track_ssa)
+    if x isa Core.Argument || x isa Core.SSAValue
+        h = _handle_index(x, nargs, track_arg, track_ssa)
+        h != 0 && push!(s, h)
+        return nothing
+    end
+    if x isa Core.ReturnNode
+        if isdefined(x, :val)
+            _collect_used_handles!(s, getfield(x, :val), nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa Core.PiNode
+        if isdefined(x, :val)
+            _collect_used_handles!(s, getfield(x, :val), nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa Core.UpsilonNode
+        if isdefined(x, :val)
+            _collect_used_handles!(s, getfield(x, :val), nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa Core.GotoIfNot
+        if isdefined(x, :cond)
+            _collect_used_handles!(s, getfield(x, :cond), nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa Expr
+        for a in x.args
+            _collect_used_handles!(s, a, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa Tuple
+        for a in x
+            _collect_used_handles!(s, a, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if x isa AbstractArray
+        for a in x
+            _collect_used_handles!(s, a, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    return nothing
 end
 
 function _canonical_ref(@nospecialize(x), ir::CC.IRCode)

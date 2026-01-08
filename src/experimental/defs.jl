@@ -1,14 +1,9 @@
 function _default_optimize_until()
     if isdefined(CC, :ALL_PASS_NAMES)
-        # Prefer a stage early enough that calls haven't been DCE'd away yet.
-        # This keeps higher-order call sites (`f(x)`) visible so we can apply
-        # `unknown_call_policy` conservatively.
-        for nm in CC.ALL_PASS_NAMES
-            s = lowercase(String(nm))
-            if occursin("slot2reg", s)
-                return nm
-            end
-        end
+        # Prefer a stage before inlining but after slot2reg.
+        # Keeping IR pre-inlining helps avoid optimizer rewrite artifacts
+        # (e.g. copy-prop/return rewriting) that are unrelated to source-level
+        # bindings, while still giving us a stable CFG.
         for nm in CC.ALL_PASS_NAMES
             s = lowercase(String(nm))
             if occursin("compact_1", s) ||
@@ -17,8 +12,19 @@ function _default_optimize_until()
                 return nm
             end
         end
+        for nm in CC.ALL_PASS_NAMES
+            s = lowercase(String(nm))
+            if occursin("slot2reg", s)
+                return nm
+            end
+        end
+        return nothing
     end
-    return nothing
+
+    # Julia < 1.13 does not expose `Core.Compiler.ALL_PASS_NAMES`, but
+    # `Base.code_ircode_by_type(...; optimize_until="compact 1")` is supported
+    # and stops right before inlining on the 1.12 series.
+    return "compact 1"
 end
 
 Base.@kwdef struct Config
@@ -36,7 +42,7 @@ Base.@kwdef struct Config
 
     """
     If true, attempt to infer effects for `:invoke` calls by recursively summarizing
-    the callee's `IRCode` (skipping Base/Core by default).
+    the callee's `IRCode` (with recursion bounded by `max_summary_depth`).
     """
     analyze_invokes::Bool = true
 
@@ -251,10 +257,14 @@ const _srcfile_cache = Dict{String,Vector{String}}()
     return default
 end
 
-function _normalize_lineinfo(ir::CC.IRCode, li)
+function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
     li === nothing && return nothing
     li isa Core.LineInfoNode && return li
     li isa LineNumberNode && return li
+
+    if li isa NTuple{3,<:Integer}
+        return _lineinfo_from_debuginfo(ir, pc)
+    end
 
     if li isa Integer
         lii = Int(li)
@@ -272,6 +282,36 @@ function _normalize_lineinfo(ir::CC.IRCode, li)
     end
 
     return nothing
+end
+
+function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
+    pc <= 0 && return nothing
+    isdefined(CC, :buildLineInfoNode) || return nothing
+    try
+        di = getproperty(ir, :debuginfo)
+        def = try
+            getproperty(di, :def)
+        catch
+            :var"unknown scope"
+        end
+        stack = CC.buildLineInfoNode(di, def, pc)
+        isempty(stack) && return nothing
+        node = stack[1]
+        file = try
+            getproperty(node, :file)
+        catch
+            nothing
+        end
+        line = try
+            getproperty(node, :line)
+        catch
+            nothing
+        end
+        (file isa Symbol && line isa Integer) || return nothing
+        return LineNumberNode(Int(line), file)
+    catch
+        return nothing
+    end
 end
 
 @inline function _lineinfo_file_line(li::Core.LineInfoNode)
@@ -579,7 +619,7 @@ function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
     try
         inst = ir[Core.SSAValue(idx)]
         li = _inst_get(inst, :line, nothing)
-        return _normalize_lineinfo(ir, li)
+        return _normalize_lineinfo(ir, li, idx)
     catch
         return nothing
     end
