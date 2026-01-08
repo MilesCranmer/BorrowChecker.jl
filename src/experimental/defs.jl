@@ -94,104 +94,135 @@ function register_return_alias!(f, style::Symbol)
     return f
 end
 
-# Populate minimal defaults.
-function __init__()
-    # Our own marker is pure and returns arg1 alias.
-    register_effects!(__bc_bind__)
-    register_return_alias!(__bc_bind__, :arg1)
+const _registry_init_lock = Base.Lockable(nothing)
+const _registry_inited = Base.Threads.Atomic{Bool}(false)
+
+function _populate_registry!()
+    if !haskey(_known_effects, __bc_bind__)
+        register_effects!(__bc_bind__)
+    end
+    if !haskey(_ret_alias, __bc_bind__)
+        register_return_alias!(__bc_bind__, :arg1)
+    end
+
     if isdefined(Experimental, :__bc_assert_safe__)
-        register_effects!(Experimental.__bc_assert_safe__)
-        register_return_alias!(Experimental.__bc_assert_safe__, :none)
+        f = Experimental.__bc_assert_safe__
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
 
     if isdefined(Base, :inferencebarrier)
-        register_effects!(Base.inferencebarrier)
-        register_return_alias!(Base.inferencebarrier, :arg1)
+        f = Base.inferencebarrier
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
-
-    # Avoid seeding effects for overloadable Base generics (e.g. `getproperty`,
-    # `getindex`, arithmetic). Those must be handled by inferring effects from the
-    # specific callee method's IR.
 
     if isdefined(Core, :tuple)
-        register_effects!(Core.tuple)
-        register_return_alias!(Core.tuple, :none)
+        f = Core.tuple
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :apply_type)
-        register_effects!(Core.apply_type)
-        register_return_alias!(Core.apply_type, :none)
+        f = Core.apply_type
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :typeof)
-        register_effects!(Core.typeof)
-        register_return_alias!(Core.typeof, :none)
+        f = Core.typeof
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :_typeof_captured_variable)
-        register_effects!(Core._typeof_captured_variable)
-        register_return_alias!(Core._typeof_captured_variable, :none)
+        f = Core._typeof_captured_variable
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :(===))
-        register_effects!(Core.:(===))
-        register_return_alias!(Core.:(===), :none)
+        f = Core.:(===)
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     else
-        register_effects!(===)
-        register_return_alias!(===, :none)
+        haskey(_known_effects, ===) || register_effects!(===)
+        haskey(_ret_alias, ===) || register_return_alias!(===, :none)
     end
     if isdefined(Core, :(!==))
-        register_effects!(Core.:(!==))
-        register_return_alias!(Core.:(!==), :none)
+        f = Core.:(!==)
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     else
-        register_effects!(!==)
-        register_return_alias!(!==, :none)
+        haskey(_known_effects, !==) || register_effects!(!==)
+        haskey(_ret_alias, !==) || register_return_alias!(!==, :none)
     end
     if isdefined(Core, :typeassert)
-        register_effects!(Core.typeassert)
-        register_return_alias!(Core.typeassert, :arg1)
+        f = Core.typeassert
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
     if isdefined(Core, :getfield)
-        register_effects!(Core.getfield)
-        register_return_alias!(Core.getfield, :arg1)
+        f = Core.getfield
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
 
     if isdefined(Core, :setfield!)
-        register_effects!(Core.setfield!; writes=[2])
-        register_return_alias!(Core.setfield!, :none)
+        f = Core.setfield!
+        haskey(_known_effects, f) || register_effects!(f; writes=[2])
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
 
     for nm in (:swapfield!, :modifyfield!, :replacefield!, :setfieldonce!)
         if isdefined(Core, nm)
             f = getfield(Core, nm)
-            register_effects!(f; writes=[2])
-            register_return_alias!(f, :none)
+            haskey(_known_effects, f) || register_effects!(f; writes=[2])
+            haskey(_ret_alias, f) || register_return_alias!(f, :none)
         end
     end
 
     if isdefined(Core, :memoryrefnew)
-        register_effects!(Core.memoryrefnew)
-        register_return_alias!(Core.memoryrefnew, :arg1)
+        f = Core.memoryrefnew
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
     if isdefined(Core, :memoryref)
-        register_effects!(Core.memoryref)
-        register_return_alias!(Core.memoryref, :arg1)
+        f = Core.memoryref
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
     if isdefined(Core, :memoryrefoffset)
-        register_effects!(Core.memoryrefoffset)
-        register_return_alias!(Core.memoryrefoffset, :arg1)
+        f = Core.memoryrefoffset
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
     end
     if isdefined(Core, :memoryrefget)
-        register_effects!(Core.memoryrefget)
-        register_return_alias!(Core.memoryrefget, :none)
+        f = Core.memoryrefget
+        haskey(_known_effects, f) || register_effects!(f)
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :memoryrefset!)
-        register_effects!(Core.memoryrefset!; writes=[2])
-        register_return_alias!(Core.memoryrefset!, :none)
+        f = Core.memoryrefset!
+        haskey(_known_effects, f) || register_effects!(f; writes=[2])
+        haskey(_ret_alias, f) || register_return_alias!(f, :none)
     end
     for nm in (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
         if isdefined(Core, nm)
             f = getfield(Core, nm)
-            register_effects!(f; writes=[2])
-            register_return_alias!(f, :none)
+            haskey(_known_effects, f) || register_effects!(f; writes=[2])
+            haskey(_ret_alias, f) || register_return_alias!(f, :none)
         end
     end
+
+    return nothing
+end
+
+function _ensure_registry_initialized()
+    _registry_inited[] && return nothing
+    Base.lock(_registry_init_lock) do _
+        _registry_inited[] && return nothing
+        _populate_registry!()
+        _registry_inited[] = true
+        return nothing
+    end
+    return nothing
 end
 
 struct BorrowViolation

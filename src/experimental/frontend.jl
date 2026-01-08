@@ -6,6 +6,7 @@ Returns `true` on success; throws `BorrowCheckError` on failure.
 function check_signature(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
+    _ensure_registry_initialized()
     codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
     viols = BorrowViolation[]
     for entry in codes
@@ -203,5 +204,3 @@ macro borrow_checker(ex)
     call = Expr(:call, fname)
     return esc(Expr(:block, fdef, call))
 end
-
-__precompile__(false)
