@@ -42,6 +42,17 @@ function _callee_name_str(@nospecialize(f))
     end
 end
 
+function _is_functor_instance(@nospecialize(f))
+    try
+        f isa DataType && return false
+        tf = typeof(f)
+        tf isa DataType || return false
+        return fieldcount(tf) > 0
+    catch
+        return false
+    end
+end
+
 function _effects_for_call(
     stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ssa, nargs::Int; depth::Int=0
 )::EffectSummary
@@ -72,18 +83,20 @@ function _effects_for_call(
 
     # Heuristic convention for known constant callees.
     if f !== nothing
+        if !_is_functor_instance(f)
         nm = _callee_name_str(f)
         if cfg.assume_bang_mutates && endswith(nm, "!")
             return EffectSummary(; writes=[2])
         elseif cfg.assume_nonbang_readonly
             return EffectSummary()
         end
+        end
     end
 
     # Unknown call policy.
     if cfg.unknown_call_policy === :consume
         consumes = Int[]
-        for p in 2:length(raw_args)
+        for p in 1:length(raw_args)
             h = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
             h == 0 && continue
             push!(consumes, p)
@@ -181,7 +194,6 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
 
         # Map actual argument positions back to formal arguments by alias class.
         for p in eff.writes
-            p < 2 && continue
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
             hv == 0 && continue
@@ -194,7 +206,6 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
             end
         end
         for p in eff.consumes
-            p < 2 && continue
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
             hv == 0 && continue
@@ -220,6 +231,8 @@ function _build_alias_classes!(
     nargs::Int;
     depth::Int=0,
 )
+    box_contents = Dict{Int,Int}()
+
     nstmts = length(ir.stmts)
     for i in 1:nstmts
         out_h = track_ssa[i] ? _ssa_handle(nargs, i) : 0
@@ -251,10 +264,52 @@ function _build_alias_classes!(
             continue
         end
 
+        if stmt isa Expr && (stmt.head === :new || stmt.head === :splatnew)
+            for j in 2:length(stmt.args)
+                in_h = _handle_index(stmt.args[j], nargs, track_arg, track_ssa)
+                _uf_union!(uf, out_h, in_h)
+            end
+            continue
+        end
+
         # Calls: determine whether return aliases args.
         if stmt isa Expr && (stmt.head === :call || stmt.head === :invoke)
             raw_args = (stmt.head === :invoke) ? stmt.args[2:end] : stmt.args
             f = _resolve_callee(stmt, ir)
+
+            if f === Core.setfield! && length(raw_args) >= 4
+                fld = raw_args[3]
+                fldsym = fld isa QuoteNode ? fld.value : fld
+                if fldsym === :contents
+                    box = _canonical_ref(raw_args[2], ir)
+                    key = if box isa Core.Argument
+                        box.n
+                    elseif box isa Core.SSAValue
+                        _ssa_handle(nargs, box.id)
+                    else
+                        0
+                    end
+                    v = raw_args[4]
+                    vh = _handle_index(v, nargs, track_arg, track_ssa)
+                    (key != 0 && vh != 0) && (box_contents[key] = vh)
+                end
+            elseif f === Core.getfield && length(raw_args) >= 3
+                fld = raw_args[3]
+                fldsym = fld isa QuoteNode ? fld.value : fld
+                if fldsym === :contents
+                    box = _canonical_ref(raw_args[2], ir)
+                    key = if box isa Core.Argument
+                        box.n
+                    elseif box isa Core.SSAValue
+                        _ssa_handle(nargs, box.id)
+                    else
+                        0
+                    end
+                    if key != 0 && haskey(box_contents, key)
+                        _uf_union!(uf, out_h, box_contents[key])
+                    end
+                end
+            end
 
             # Fresh return overrides.
             if f !== nothing && get(_fresh_return, f, false)
@@ -299,6 +354,26 @@ function _used_handles(stmt, nargs::Int, track_arg, track_ssa)
     return s
 end
 
+function _canonical_ref(@nospecialize(x), ir::CC.IRCode)
+    while x isa Core.SSAValue
+        stmt = try
+            ir[x][:stmt]
+        catch
+            break
+        end
+        if stmt isa Core.SSAValue
+            x = stmt
+            continue
+        end
+        if stmt isa Core.PiNode
+            x = stmt.val
+            continue
+        end
+        break
+    end
+    return x
+end
+
 function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, track_ssa)
     nstmts = length(ir.stmts)
     origins = collect(1:(nargs + nstmts))
@@ -309,6 +384,12 @@ function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, tra
         track_ssa[idx] || continue
         hdef = _ssa_handle(nargs, idx)
         stmt = ir[Core.SSAValue(idx)][:stmt]
+
+        if stmt isa Core.PiNode
+            hsrc = _handle_index(stmt.val, nargs, track_arg, track_ssa)
+            origins[hdef] = (hsrc == 0) ? hdef : origins[hsrc]
+            continue
+        end
 
         if stmt isa Core.SSAValue || stmt isa Core.Argument
             hsrc = _handle_index(stmt, nargs, track_arg, track_ssa)
@@ -338,6 +419,13 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     use = [BitSet() for _ in 1:nblocks]
     def = [BitSet() for _ in 1:nblocks]
 
+    inst2bb = zeros(Int, length(ir.stmts))
+    for b in 1:nblocks
+        for idx in blocks[b].stmts
+            inst2bb[idx] = b
+        end
+    end
+
     # Phi operands are used on edges from predecessor blocks.
     for b in 1:nblocks
         r = blocks[b].stmts
@@ -347,13 +435,18 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                 edges = getfield(stmt, :edges)
                 vals = getfield(stmt, :values)
                 for k in 1:length(edges)
-                    pred = edges[k]
+                    edge = edges[k]
                     v = vals[k]
                     h = _handle_index(v, nargs, track_arg, track_ssa)
                     h == 0 && continue
-                    if 1 <= pred <= nblocks
-                        push!(phi_edge_use[pred], h)
+                    pred_bb = 0
+                    if 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0
+                        pred_bb = inst2bb[edge]
+                    elseif 1 <= edge <= nblocks
+                        pred_bb = edge
                     end
+                    pred_bb == 0 && continue
+                    push!(phi_edge_use[pred_bb], h)
                 end
             else
                 break
@@ -509,9 +602,10 @@ function _check_stmt!(
 
     eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs)
 
+    out_h = (1 <= idx <= length(track_ssa) && track_ssa[idx]) ? _ssa_handle(nargs, idx) : 0
+
     # Writes require uniqueness (no other live alias).
     for p in eff.writes
-        p < 2 && continue
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
@@ -525,12 +619,12 @@ function _check_stmt!(
             hv,
             live_during;
             context="write",
+            ignore_h=out_h,
         )
     end
 
     # Consumes require uniqueness and no later use of any alias in the region.
     for p in eff.consumes
-        p < 2 && continue
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
@@ -559,11 +653,12 @@ function _require_unique!(
     hv::Int,
     live_during::BitSet;
     context::String,
+    ignore_h::Int=0,
 )
     rv = _uf_find(uf, hv)
     ohv = origins[hv]
     for h2 in live_during
-        h2 == hv && continue
+        (h2 == hv || h2 == ignore_h) && continue
         if _uf_find(uf, h2) == rv && origins[h2] != ohv
             li = _stmt_lineinfo(ir, idx)
             push!(

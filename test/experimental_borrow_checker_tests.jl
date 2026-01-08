@@ -134,4 +134,41 @@
     @test_throws BorrowCheckError _bc_bad_closure_body_with_arg([1, 2, 3])
     @test _bc_ok_closure_body_0arg() == [1, 2, 3]
     @test _bc_ok_closure_body_with_arg([1, 2, 3]) == [1, 2, 3]
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_ok_phi_ternary(cond::Bool)
+        x = [1, 2, 3]
+        y = cond ? x : x
+        push!(y, 1)
+        return y
+    end
+
+    @noinline _ret1(x) = x
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_ok_identity_call()
+        x = [1, 2, 3]
+        y = _ret1(x)
+        push!(y, 1)
+        return y
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_view_alias()
+        x = [1, 2, 3, 4]
+        y = view(x, 1:2)
+        push!(x, 9)
+        return collect(y)
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_capture()
+        x = [1, 2, 3]
+        y = x
+        f = () -> (push!(x, 9); nothing)
+        f()
+        return y
+    end
+
+    @test _bc_ok_phi_ternary(true) == [1, 2, 3, 1]
+    @test _bc_ok_phi_ternary(false) == [1, 2, 3, 1]
+    @test _bc_ok_identity_call() == [1, 2, 3, 1]
+    @test_throws BorrowCheckError _bc_bad_view_alias()
+    @test_throws BorrowCheckError _bc_bad_closure_capture()
 end

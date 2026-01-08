@@ -134,6 +134,11 @@ function __init__()
         register_return_alias!(Core.getfield, :arg1)
     end
 
+    if isdefined(Base, :view)
+        register_effects!(Base.view)
+        register_return_alias!(Base.view, :arg1)
+    end
+
     # Fresh-returning copy operations
     if isdefined(Base, :copy)
         register_effects!(Base.copy)
@@ -489,6 +494,9 @@ function is_tracked_type(@nospecialize T)::Bool
 
         dt = Base.unwrap_unionall(T)
         if dt isa DataType
+            if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
+                return false
+            end
             Base.isconcretetype(dt) || return true
 
             # Mutable structs are tracked.
