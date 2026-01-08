@@ -54,11 +54,30 @@ function _is_functor_instance(@nospecialize(f))
 end
 
 function _effects_for_call(
-    stmt, ir::CC.IRCode, cfg::Config, track_arg, track_ssa, nargs::Int; depth::Int=0
+    stmt,
+    ir::CC.IRCode,
+    cfg::Config,
+    track_arg,
+    track_ssa,
+    nargs::Int;
+    idx::Int=0,
+    depth::Int=0,
 )::EffectSummary
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return EffectSummary()
     f = _resolve_callee(stmt, ir)
+
+    if idx != 0
+        Tret = try
+            inst = ir[Core.SSAValue(idx)]
+            CC.widenconst(_inst_get(inst, :type, Any))
+        catch
+            Any
+        end
+        if Tret === Union{}
+            return EffectSummary()
+        end
+    end
 
     # Our own internal helpers are treated as pure.
     if f === __bc_bind__
@@ -223,7 +242,7 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
                         m = targ.name.module
                     end
                 end
-                if m === Base || m === Core || m === Experimental
+                if m === Core || m === Experimental
                     return nothing
                 end
             end
@@ -266,8 +285,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
     try
         if mi isa Core.MethodInstance
             m = mi.def
-            if (m isa Method) &&
-                (m.module === Base || m.module === Core || m.module === Experimental)
+            if (m isa Method) && (m.module === Core || m.module === Experimental)
                 return nothing
             end
         end
@@ -351,9 +369,23 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
     for i in 1:nstmts
         stmt = ir[Core.SSAValue(i)][:stmt]
         head, _mi, raw_args = _call_parts(stmt)
+        if stmt isa Expr && stmt.head === :foreigncall
+            uses = _used_handles(stmt, nargs, track_arg, track_ssa)
+            for hv in uses
+                rv = _uf_find(uf, hv)
+                for a in 1:nargs
+                    track_arg[a] || continue
+                    if _uf_find(uf, a) == rv
+                        push!(writes, a)
+                    end
+                end
+            end
+            continue
+        end
+
         raw_args === nothing && continue
 
-        eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; depth=depth)
+        eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=i, depth=depth)
 
         # Map actual argument positions back to formal arguments by alias class.
         for p in eff.writes
@@ -800,7 +832,16 @@ function _check_stmt!(
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return nothing
 
-    eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs)
+    if stmt isa Expr && stmt.head === :foreigncall
+        used = _used_handles(stmt, nargs, track_arg, track_ssa)
+        for hv in used
+            hv == 0 && continue
+            _require_unique!(viols, ir, idx, stmt, uf, hv, live_during; context="write")
+        end
+        return
+    end
+
+    eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx)
 
     out_h = (1 <= idx <= length(track_ssa) && track_ssa[idx]) ? _ssa_handle(nargs, idx) : 0
 

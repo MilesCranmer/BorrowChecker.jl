@@ -41,7 +41,7 @@ Base.@kwdef struct Config
     analyze_invokes::Bool = true
 
     "Max depth for recursive effect summarization."
-    max_summary_depth::Int = 6
+    max_summary_depth::Int = 8
 end
 
 const DEFAULT_CONFIG = Config()
@@ -109,14 +109,13 @@ function __init__()
         register_return_alias!(Base.inferencebarrier, :arg1)
     end
 
-    # Common aliasing utilities
-    if isdefined(Base, :identity)
-        register_effects!(Base.identity)
-        register_return_alias!(Base.identity, :arg1)
-    end
+    # Avoid seeding effects for overloadable Base generics (e.g. `getproperty`,
+    # `getindex`, arithmetic). Those must be handled by inferring effects from the
+    # specific callee method's IR.
+
     if isdefined(Core, :tuple)
         register_effects!(Core.tuple)
-        register_return_alias!(Core.tuple, :all)
+        register_return_alias!(Core.tuple, :none)
     end
     if isdefined(Core, :apply_type)
         register_effects!(Core.apply_type)
@@ -130,89 +129,67 @@ function __init__()
         register_effects!(Core._typeof_captured_variable)
         register_return_alias!(Core._typeof_captured_variable, :none)
     end
-    if isdefined(Base, :length)
-        register_effects!(Base.length)
-        register_return_alias!(Base.length, :none)
+    if isdefined(Core, :(===))
+        register_effects!(Core.:(===))
+        register_return_alias!(Core.:(===), :none)
+    else
+        register_effects!(===)
+        register_return_alias!(===, :none)
     end
-    if isdefined(Base, :iterate)
-        register_effects!(Base.iterate)
-        register_return_alias!(Base.iterate, :none)
+    if isdefined(Core, :(!==))
+        register_effects!(Core.:(!==))
+        register_return_alias!(Core.:(!==), :none)
+    else
+        register_effects!(!==)
+        register_return_alias!(!==, :none)
     end
-    if isdefined(Base, :getindex)
-        register_effects!(Base.getindex)
-        register_return_alias!(Base.getindex, :none)
-    end
-    if isdefined(Base, :+)
-        register_effects!(Base.:+)
-        register_return_alias!(Base.:+, :none)
-    end
-    register_effects!(===)
-    register_return_alias!(===, :none)
-    register_effects!(Colon())
-    register_return_alias!(Colon(), :none)
     if isdefined(Core, :typeassert)
         register_effects!(Core.typeassert)
         register_return_alias!(Core.typeassert, :arg1)
-    end
-    if isdefined(Base, :getproperty)
-        register_effects!(Base.getproperty)
-        register_return_alias!(Base.getproperty, :arg1)
     end
     if isdefined(Core, :getfield)
         register_effects!(Core.getfield)
         register_return_alias!(Core.getfield, :arg1)
     end
 
-    if isdefined(Base, :view)
-        register_effects!(Base.view)
-        register_return_alias!(Base.view, :arg1)
-    end
-
-    # Fresh-returning copy operations
-    if isdefined(Base, :copy)
-        register_effects!(Base.copy)
-        register_fresh_return!(Base.copy, true)
-        register_return_alias!(Base.copy, :none)
-    end
-    if isdefined(Base, :deepcopy)
-        register_effects!(Base.deepcopy)
-        register_fresh_return!(Base.deepcopy, true)
-        register_return_alias!(Base.deepcopy, :none)
-    end
-
-    # Core mutators (by convention write arg1)
-    if isdefined(Base, :setindex!)
-        register_effects!(Base.setindex!; writes=[2])
-        register_return_alias!(Base.setindex!, :arg1)
-    end
-    if isdefined(Base, :setproperty!)
-        register_effects!(Base.setproperty!; writes=[2])
-        register_return_alias!(Base.setproperty!, :arg1)
-    end
     if isdefined(Core, :setfield!)
         register_effects!(Core.setfield!; writes=[2])
-        register_return_alias!(Core.setfield!, :arg1)
+        register_return_alias!(Core.setfield!, :none)
     end
 
-    # A few common Base mutators
-    for nm in (
-        :push!,
-        :pushfirst!,
-        :pop!,
-        :popfirst!,
-        :append!,
-        :empty!,
-        :resize!,
-        :sizehint!,
-        :fill!,
-        :sort!,
-        :reverse!,
-        :copyto!,
-    )
-        if isdefined(Base, nm)
-            f = getfield(Base, nm)
+    for nm in (:swapfield!, :modifyfield!, :replacefield!, :setfieldonce!)
+        if isdefined(Core, nm)
+            f = getfield(Core, nm)
             register_effects!(f; writes=[2])
-            register_return_alias!(f, :arg1)
+            register_return_alias!(f, :none)
+        end
+    end
+
+    if isdefined(Core, :memoryrefnew)
+        register_effects!(Core.memoryrefnew)
+        register_return_alias!(Core.memoryrefnew, :arg1)
+    end
+    if isdefined(Core, :memoryref)
+        register_effects!(Core.memoryref)
+        register_return_alias!(Core.memoryref, :arg1)
+    end
+    if isdefined(Core, :memoryrefoffset)
+        register_effects!(Core.memoryrefoffset)
+        register_return_alias!(Core.memoryrefoffset, :arg1)
+    end
+    if isdefined(Core, :memoryrefget)
+        register_effects!(Core.memoryrefget)
+        register_return_alias!(Core.memoryrefget, :none)
+    end
+    if isdefined(Core, :memoryrefset!)
+        register_effects!(Core.memoryrefset!; writes=[2])
+        register_return_alias!(Core.memoryrefset!, :none)
+    end
+    for nm in (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
+        if isdefined(Core, nm)
+            f = getfield(Core, nm)
+            register_effects!(f; writes=[2])
+            register_return_alias!(f, :none)
         end
     end
 end
