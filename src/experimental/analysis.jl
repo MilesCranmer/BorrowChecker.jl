@@ -97,15 +97,16 @@ function _effects_for_call(
         end
     end
 
-    # Heuristic convention for known constant callees.
-    if f !== nothing
-        if !_is_functor_instance(f)
-        nm = _callee_name_str(f)
-        if cfg.assume_bang_mutates && endswith(nm, "!")
-            return EffectSummary(; writes=[2])
-        elseif cfg.assume_nonbang_readonly
-            return EffectSummary()
-        end
+    if head === :call &&
+        cfg.analyze_invokes &&
+        f !== nothing &&
+        depth < cfg.max_summary_depth
+        tt = _call_tt_from_raw_args(raw_args, ir)
+        if tt !== nothing
+            s = _summary_for_tt(tt, cfg; depth=depth + 1)
+            if s !== nothing
+                return s
+            end
         end
     end
 
@@ -150,7 +151,11 @@ function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
         return nothing
     end
     dt isa DataType || return nothing
-    Base.isabstracttype(dt) && return nothing
+    if Base.isabstracttype(dt)
+        if !(dt.name === Base.unwrap_unionall(Type).name && !isempty(dt.parameters))
+            return nothing
+        end
+    end
 
     try
         return Tuple{types...}
@@ -212,6 +217,12 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
             dt = Base.unwrap_unionall(fT)
             if dt isa DataType
                 m = dt.name.module
+                if dt.name === Base.unwrap_unionall(Type).name && !isempty(dt.parameters)
+                    targ = Base.unwrap_unionall(dt.parameters[1])
+                    if targ isa DataType
+                        m = targ.name.module
+                    end
+                end
                 if m === Base || m === Core || m === Experimental
                     return nothing
                 end
@@ -223,12 +234,21 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
     summ = nothing
     try
         codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        writes = BitSet()
+        consumes = BitSet()
+        ret_aliases = BitSet()
+        got = false
         for entry in codes
             ir = entry.first
             ir isa CC.IRCode || continue
-            summ = _summarize_ir_effects(ir, cfg; depth=depth)
-            break
+            got = true
+            s = _summarize_ir_effects(ir, cfg; depth=depth)
+            union!(writes, s.writes)
+            union!(consumes, s.consumes)
+            union!(ret_aliases, s.ret_aliases)
         end
+        got || return nothing
+        summ = EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     catch
         summ = nothing
     end
@@ -268,13 +288,21 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
         tt = mi.specTypes
         world = Base.get_world_counter()
         codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-        # Pick the first IRCode we get (should usually be 1).
+        writes = BitSet()
+        consumes = BitSet()
+        ret_aliases = BitSet()
+        got = false
         for entry in codes
             ir = entry.first
             ir isa CC.IRCode || continue
-            summ = _summarize_ir_effects(ir, cfg; depth=depth)
-            break
+            got = true
+            s = _summarize_ir_effects(ir, cfg; depth=depth)
+            union!(writes, s.writes)
+            union!(consumes, s.consumes)
+            union!(ret_aliases, s.ret_aliases)
         end
+        got || return nothing
+        summ = EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     catch
         summ = nothing
     end
@@ -318,6 +346,7 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
 
     writes = BitSet()
     consumes = BitSet()
+    ret_aliases = BitSet()
 
     for i in 1:nstmts
         stmt = ir[Core.SSAValue(i)][:stmt]
@@ -353,7 +382,27 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
         end
     end
 
-    return EffectSummary(; writes=writes, consumes=consumes)
+    for i in 1:nstmts
+        stmt = ir[Core.SSAValue(i)][:stmt]
+        rv = if stmt isa Core.ReturnNode
+            isdefined(stmt, :val) ? stmt.val : nothing
+        elseif stmt isa Expr && stmt.head === :return && !isempty(stmt.args)
+            stmt.args[1]
+        else
+            continue
+        end
+        hrv = _handle_index(rv, nargs, track_arg, track_ssa)
+        hrv == 0 && continue
+        rroot = _uf_find(uf, hrv)
+        for a in 1:nargs
+            track_arg[a] || continue
+            if _uf_find(uf, a) == rroot
+                push!(ret_aliases, a)
+            end
+        end
+    end
+
+    return EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
 end
 
 function _build_alias_classes!(
@@ -450,27 +499,44 @@ function _build_alias_classes!(
                 continue
             end
 
-            style = if f === nothing
-                :all
-            elseif haskey(_ret_alias, f)
-                _ret_alias[f]
-            else
-                nm = _callee_name_str(f)
-                (cfg.assume_bang_mutates && endswith(nm, "!")) ? :arg1 : :none
-            end
-            style === :none && continue
-
-            if style === :arg1
-                if length(raw_args) >= 2
-                    in_h = _handle_index(raw_args[2], nargs, track_arg, track_ssa)
-                    _uf_union!(uf, out_h, in_h)
+            alias_args = Int[]
+            if f !== nothing && haskey(_ret_alias, f)
+                style = _ret_alias[f]
+                if style === :arg1
+                    length(raw_args) >= 2 && push!(alias_args, 2)
+                elseif style === :all
+                    for p in 2:length(raw_args)
+                        push!(alias_args, p)
+                    end
+                end
+            elseif cfg.analyze_invokes && depth < cfg.max_summary_depth
+                s = nothing
+                if stmt.head === :invoke
+                    s = _summary_for_mi(stmt.args[1], cfg; depth=depth + 1)
+                else
+                    tt = _call_tt_from_raw_args(raw_args, ir)
+                    tt !== nothing && (s = _summary_for_tt(tt, cfg; depth=depth + 1))
+                end
+                if s !== nothing
+                    for p in s.ret_aliases
+                        push!(alias_args, p)
+                    end
+                else
+                    for p in 2:length(raw_args)
+                        push!(alias_args, p)
+                    end
                 end
             else
-                # Conservative default: return may alias any tracked arg.
                 for p in 2:length(raw_args)
-                    in_h = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
-                    _uf_union!(uf, out_h, in_h)
+                    push!(alias_args, p)
                 end
+            end
+
+            isempty(alias_args) && continue
+            for p in alias_args
+                (1 <= p <= length(raw_args)) || continue
+                in_h = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
+                _uf_union!(uf, out_h, in_h)
             end
         end
     end

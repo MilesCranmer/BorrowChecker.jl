@@ -67,9 +67,9 @@
         return c
     end
 
-    @testset "g!(y) should not require deleting x" begin
-        g!(x) = (push!(x, 1); nothing)
+    g!(x) = (push!(x, 1); nothing)
 
+    @testset "g!(y) should not require deleting x" begin
         BorrowChecker.Experimental.@borrow_checker function _bc_g_alias_ok()
             x = [1, 2, 3]
             y = x
@@ -78,6 +78,30 @@
         end
 
         @test _bc_g_alias_ok() == [1, 2, 3, 1]
+    end
+
+    @testset "effects inferred from IR (no naming heuristics)" begin
+        h(x) = (push!(x, 1); nothing)
+
+        BorrowChecker.Experimental.@borrow_checker function _bc_nonbang_mutator_bad()
+            x = [1, 2, 3]
+            y = x
+            h(x)
+            return y
+        end
+
+        mut_second!(a, b) = (push!(b, 1); nothing)
+
+        BorrowChecker.Experimental.@borrow_checker function _bc_bang_mutates_second_bad()
+            x = [1, 2, 3]
+            y = [4]
+            z = y
+            mut_second!(x, y)
+            return z
+        end
+
+        @test_throws BorrowCheckError _bc_nonbang_mutator_bad()
+        @test_throws BorrowCheckError _bc_bang_mutates_second_bad()
     end
 
     @test_throws BorrowCheckError _bc_bad_alias()

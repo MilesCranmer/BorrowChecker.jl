@@ -35,19 +35,6 @@ Base.@kwdef struct Config
     unknown_call_policy::Symbol = :consume
 
     """
-    If true, then for a *known constant callee* we assume the Julia naming convention:
-
-    * `f!` may mutate its first non-function argument (position 2 in the SSA call arglist).
-    """
-    assume_bang_mutates::Bool = true
-
-    """
-    If true, then for a *known constant callee* with a name that does NOT end in `!`,
-    we assume it does not mutate arguments.
-    """
-    assume_nonbang_readonly::Bool = true
-
-    """
     If true, attempt to infer effects for `:invoke` calls by recursively summarizing
     the callee's `IRCode` (skipping Base/Core by default).
     """
@@ -59,16 +46,18 @@ end
 
 const DEFAULT_CONFIG = Config()
 
-@inline __bc_bind__(x) = isdefined(Base, :inferencebarrier) ? Base.inferencebarrier(x) : x
+@inline __bc_bind__(x) =
+    isdefined(Base, :inferencebarrier) ? (Base.inferencebarrier(x)::typeof(x)) : x
 
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:
     # raw_args[1] is the function value, raw_args[2] is the first user argument, etc.
     writes::BitSet    # arguments that may be mutated during the call
     consumes::BitSet  # arguments that may escape/need to be treated as consumed
+    ret_aliases::BitSet  # arguments that the return value may alias
 end
-function EffectSummary(; writes=Int[], consumes=Int[])
-    return EffectSummary(BitSet(writes), BitSet(consumes))
+function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
+    return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
 const _known_effects = IdDict{Any,EffectSummary}()
@@ -110,6 +99,10 @@ function __init__()
     # Our own marker is pure and returns arg1 alias.
     register_effects!(__bc_bind__)
     register_return_alias!(__bc_bind__, :arg1)
+    if isdefined(Experimental, :__bc_assert_safe__)
+        register_effects!(Experimental.__bc_assert_safe__)
+        register_return_alias!(Experimental.__bc_assert_safe__, :none)
+    end
 
     if isdefined(Base, :inferencebarrier)
         register_effects!(Base.inferencebarrier)
@@ -121,6 +114,42 @@ function __init__()
         register_effects!(Base.identity)
         register_return_alias!(Base.identity, :arg1)
     end
+    if isdefined(Core, :tuple)
+        register_effects!(Core.tuple)
+        register_return_alias!(Core.tuple, :all)
+    end
+    if isdefined(Core, :apply_type)
+        register_effects!(Core.apply_type)
+        register_return_alias!(Core.apply_type, :none)
+    end
+    if isdefined(Core, :typeof)
+        register_effects!(Core.typeof)
+        register_return_alias!(Core.typeof, :none)
+    end
+    if isdefined(Core, :_typeof_captured_variable)
+        register_effects!(Core._typeof_captured_variable)
+        register_return_alias!(Core._typeof_captured_variable, :none)
+    end
+    if isdefined(Base, :length)
+        register_effects!(Base.length)
+        register_return_alias!(Base.length, :none)
+    end
+    if isdefined(Base, :iterate)
+        register_effects!(Base.iterate)
+        register_return_alias!(Base.iterate, :none)
+    end
+    if isdefined(Base, :getindex)
+        register_effects!(Base.getindex)
+        register_return_alias!(Base.getindex, :none)
+    end
+    if isdefined(Base, :+)
+        register_effects!(Base.:+)
+        register_return_alias!(Base.:+, :none)
+    end
+    register_effects!(===)
+    register_return_alias!(===, :none)
+    register_effects!(Colon())
+    register_return_alias!(Colon(), :none)
     if isdefined(Core, :typeassert)
         register_effects!(Core.typeassert)
         register_return_alias!(Core.typeassert, :arg1)
@@ -155,6 +184,10 @@ function __init__()
     if isdefined(Base, :setindex!)
         register_effects!(Base.setindex!; writes=[2])
         register_return_alias!(Base.setindex!, :arg1)
+    end
+    if isdefined(Base, :setproperty!)
+        register_effects!(Base.setproperty!; writes=[2])
+        register_return_alias!(Base.setproperty!, :arg1)
     end
     if isdefined(Core, :setfield!)
         register_effects!(Core.setfield!; writes=[2])
