@@ -224,4 +224,39 @@
     @test_throws BorrowCheckError _bc_bad_closure_capture()
     @test_throws BorrowCheckError _bc_bad_closure_capture_nested()
     @test _bc_ok_closure_capture_readonly() == [1, 2, 3]
+
+    @testset "summary cache determinism" begin
+        lock(BorrowChecker.Experimental._lock) do
+            empty!(BorrowChecker.Experimental._summary_cache)
+            empty!(BorrowChecker.Experimental._tt_summary_cache)
+        end
+
+        deep1(x) = x
+        deep2(x) = deep1(x)
+        deep3(x) = deep2(x)
+
+        cfg = BorrowChecker.Experimental.Config(; max_summary_depth=2)
+        tt = Tuple{typeof(deep3),Vector{Int}}
+
+        BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
+
+        function latest_entry()
+            lock(BorrowChecker.Experimental._lock) do
+                best_key = nothing
+                for k in keys(BorrowChecker.Experimental._tt_summary_cache)
+                    k[1] === tt || continue
+                    (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
+                end
+                best_key === nothing && error("missing cache entry")
+                return BorrowChecker.Experimental._tt_summary_cache[best_key]
+            end
+        end
+
+        entry1 = latest_entry()
+        @test entry1.over_budget == true
+
+        BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=0)
+        entry2 = latest_entry()
+        @test entry2.over_budget == false
+    end
 end

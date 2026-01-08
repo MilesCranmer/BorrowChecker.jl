@@ -53,6 +53,26 @@ function _is_functor_instance(@nospecialize(f))
     end
 end
 
+mutable struct BudgetTracker
+    hit::Bool
+end
+
+@inline function _mark_budget_hit!(@nospecialize(budget_state))
+    budget_state === nothing && return nothing
+    budget_state.hit = true
+    return nothing
+end
+
+@inline function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
+    if !old.over_budget
+        return old
+    end
+    if !new.over_budget
+        return new
+    end
+    return (new.depth < old.depth) ? new : old
+end
+
 function _effects_for_call(
     stmt,
     ir::CC.IRCode,
@@ -62,6 +82,7 @@ function _effects_for_call(
     nargs::Int;
     idx::Int=0,
     depth::Int=0,
+    budget_state=nothing,
 )::EffectSummary
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return EffectSummary()
@@ -90,41 +111,44 @@ function _effects_for_call(
     end
 
     # If we have a statically resolved method instance, we can optionally summarize it.
-    if head === :invoke &&
-        cfg.analyze_invokes &&
-        (mi !== nothing) &&
-        depth < cfg.max_summary_depth
-        s = _summary_for_mi(mi, cfg; depth=depth + 1)
-        if s !== nothing
-            return s
+    if head === :invoke && cfg.analyze_invokes && (mi !== nothing)
+        if depth < cfg.max_summary_depth
+            s = _summary_for_mi(mi, cfg; depth=depth + 1, budget_state=budget_state)
+            if s !== nothing
+                return s
+            end
+        else
+            _mark_budget_hit!(budget_state)
         end
     end
 
-    if head === :call &&
-        cfg.analyze_invokes &&
-        f === nothing &&
-        depth < cfg.max_summary_depth
+    if head === :call && cfg.analyze_invokes && f === nothing
         fexpr = raw_args[1]
         if fexpr isa Core.SSAValue
             tt = _call_tt_from_raw_args(raw_args, ir)
             if tt !== nothing
-                s = _summary_for_tt(tt, cfg; depth=depth + 1)
-                if s !== nothing
-                    return s
+                if depth < cfg.max_summary_depth
+                    s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
+                    if s !== nothing
+                        return s
+                    end
+                else
+                    _mark_budget_hit!(budget_state)
                 end
             end
         end
     end
 
-    if head === :call &&
-        cfg.analyze_invokes &&
-        f !== nothing &&
-        depth < cfg.max_summary_depth
+    if head === :call && cfg.analyze_invokes && f !== nothing
         tt = _call_tt_from_raw_args(raw_args, ir)
         if tt !== nothing
-            s = _summary_for_tt(tt, cfg; depth=depth + 1)
-            if s !== nothing
-                return s
+            if depth < cfg.max_summary_depth
+                s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
+                if s !== nothing
+                    return s
+                end
+            else
+                _mark_budget_hit!(budget_state)
             end
         end
     end
@@ -220,12 +244,17 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     return Any
 end
 
-function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
+function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing)
     world = Base.get_world_counter()
     key = (tt, UInt(world))
+    cached = nothing
     lock(_lock) do
-        if haskey(_tt_summary_cache, key)
-            return _tt_summary_cache[key]
+        cached = get(_tt_summary_cache, key, nothing)
+    end
+    if cached !== nothing
+        if !cached.over_budget || depth >= cached.depth
+            cached.over_budget && _mark_budget_hit!(budget_state)
+            return cached.summary
         end
     end
 
@@ -251,6 +280,7 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
     end
 
     summ = nothing
+    local_budget = BudgetTracker(false)
     try
         codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
         writes = BitSet()
@@ -261,7 +291,7 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
             ir = entry.first
             ir isa CC.IRCode || continue
             got = true
-            s = _summarize_ir_effects(ir, cfg; depth=depth)
+            s = _summarize_ir_effects(ir, cfg; depth=depth, budget_state=local_budget)
             union!(writes, s.writes)
             union!(consumes, s.consumes)
             union!(ret_aliases, s.ret_aliases)
@@ -273,14 +303,22 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
     end
 
     if summ !== nothing
+        new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
         lock(_lock) do
-            _tt_summary_cache[key] = summ
+            old = get(_tt_summary_cache, key, nothing)
+            _tt_summary_cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
         end
     end
-    return summ
+
+    cached2 = nothing
+    lock(_lock) do
+        cached2 = get(_tt_summary_cache, key, nothing)
+    end
+    cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
+    return cached2 === nothing ? summ : cached2.summary
 end
 
-function _summary_for_mi(mi, cfg::Config; depth::Int)
+function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     # Avoid summarizing Base/Core in this MVP: it's huge and unstable across versions.
     try
         if mi isa Core.MethodInstance
@@ -294,14 +332,20 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
         return nothing
     end
 
+    cached = nothing
     lock(_lock) do
-        if haskey(_summary_cache, mi)
-            return _summary_cache[mi]
+        cached = get(_summary_cache, mi, nothing)
+    end
+    if cached !== nothing
+        if !cached.over_budget || depth >= cached.depth
+            cached.over_budget && _mark_budget_hit!(budget_state)
+            return cached.summary
         end
     end
 
     # Compute summary without holding the lock (avoid deadlocks during reflection/inference).
     summ = nothing
+    local_budget = BudgetTracker(false)
     try
         tt = mi.specTypes
         world = Base.get_world_counter()
@@ -314,7 +358,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
             ir = entry.first
             ir isa CC.IRCode || continue
             got = true
-            s = _summarize_ir_effects(ir, cfg; depth=depth)
+            s = _summarize_ir_effects(ir, cfg; depth=depth, budget_state=local_budget)
             union!(writes, s.writes)
             union!(consumes, s.consumes)
             union!(ret_aliases, s.ret_aliases)
@@ -326,14 +370,22 @@ function _summary_for_mi(mi, cfg::Config; depth::Int)
     end
 
     if summ !== nothing
+        new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
         lock(_lock) do
-            _summary_cache[mi] = summ
+            old = get(_summary_cache, mi, nothing)
+            _summary_cache[mi] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
         end
     end
-    return summ
+
+    cached2 = nothing
+    lock(_lock) do
+        cached2 = get(_summary_cache, mi, nothing)
+    end
+    cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
+    return cached2 === nothing ? summ : cached2.summary
 end
 
-function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSummary
+function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int, budget_state=nothing)::EffectSummary
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)
 
@@ -360,7 +412,7 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
 
     # Alias union-find.
     uf = UnionFind(nargs + nstmts)
-    _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs; depth=depth)
+    _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs; depth=depth, budget_state=budget_state)
 
     writes = BitSet()
     consumes = BitSet()
@@ -385,7 +437,17 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int)::EffectSu
 
         raw_args === nothing && continue
 
-        eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=i, depth=depth)
+        eff = _effects_for_call(
+            stmt,
+            ir,
+            cfg,
+            track_arg,
+            track_ssa,
+            nargs;
+            idx=i,
+            depth=depth,
+            budget_state=budget_state,
+        )
 
         # Map actual argument positions back to formal arguments by alias class.
         for p in eff.writes
@@ -445,6 +507,7 @@ function _build_alias_classes!(
     track_ssa,
     nargs::Int;
     depth::Int=0,
+    budget_state=nothing,
 )
     box_contents = Dict{Int,Int}()
 
@@ -541,14 +604,24 @@ function _build_alias_classes!(
                         push!(alias_args, p)
                     end
                 end
-            elseif cfg.analyze_invokes && depth < cfg.max_summary_depth
+            elseif cfg.analyze_invokes
                 s = nothing
-                if stmt.head === :invoke
-                    s = _summary_for_mi(stmt.args[1], cfg; depth=depth + 1)
+                if depth < cfg.max_summary_depth
+                    if stmt.head === :invoke
+                        s = _summary_for_mi(stmt.args[1], cfg; depth=depth + 1, budget_state=budget_state)
+                    else
+                        tt = _call_tt_from_raw_args(raw_args, ir)
+                        tt !== nothing && (s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state))
+                    end
                 else
-                    tt = _call_tt_from_raw_args(raw_args, ir)
-                    tt !== nothing && (s = _summary_for_tt(tt, cfg; depth=depth + 1))
+                    if stmt.head === :invoke
+                        _mark_budget_hit!(budget_state)
+                    else
+                        tt = _call_tt_from_raw_args(raw_args, ir)
+                        tt === nothing || _mark_budget_hit!(budget_state)
+                    end
                 end
+
                 if s !== nothing
                     for p in s.ret_aliases
                         push!(alias_args, p)
