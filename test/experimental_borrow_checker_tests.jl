@@ -2,9 +2,6 @@
     using TestItems
     using BorrowChecker
 
-    VERSION >= v"1.14.0-" ||
-        error("This test requires Julia >= 1.14.0- (BorrowChecker.Experimental).")
-
     using BorrowChecker.Experimental: BorrowCheckError
 
     mutable struct Box
@@ -92,4 +89,49 @@
 
     @test_throws BorrowCheckError _bc_bad_struct_of_struct()
     @test _bc_ok_struct_of_struct().a.x == 1
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_body_0arg()
+        f = () -> begin
+            x = [1, 2, 3]
+            y = x
+            push!(x, 9)
+            return y
+        end
+        return f()
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_body_with_arg(z)
+        f = () -> begin
+            x = z
+            y = x
+            push!(x, 9)
+            return y
+        end
+        return f()
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_body_0arg()
+        f = () -> begin
+            x = [1, 2, 3]
+            y = copy(x)
+            push!(x, 9)
+            return y
+        end
+        return f()
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_body_with_arg(z)
+        f = () -> begin
+            x = copy(z)
+            y = copy(x)
+            push!(x, 9)
+            return y
+        end
+        return f()
+    end
+
+    @test_throws BorrowCheckError _bc_bad_closure_body_0arg()
+    @test_throws BorrowCheckError _bc_bad_closure_body_with_arg([1, 2, 3])
+    @test _bc_ok_closure_body_0arg() == [1, 2, 3]
+    @test _bc_ok_closure_body_with_arg([1, 2, 3]) == [1, 2, 3]
 end

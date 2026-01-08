@@ -365,7 +365,7 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
             push!(buf, st)
         end
 
-        # Newer representation: locations via `codelocs` -> `linetable`.
+        # Alternate representation: locations via `codelocs` -> `linetable`.
         if isempty(buf)
             lt = try
                 getproperty(ci, :linetable)
@@ -408,11 +408,26 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
             end
         end
 
-        isempty(buf) && continue
+        if !isempty(buf)
+            println(io, "      lowered:")
+            for ex in buf
+                s = try
+                    sprint(show, ex)
+                catch
+                    ""
+                end
+                isempty(s) || println(io, "        ", s)
+            end
+            break
+        end
+
+        # If we can't recover line locations on this Julia version, print a small
+        # best-effort snippet from the lowered code anyway.
         println(io, "      lowered:")
-        for ex in buf
+        n = min(6, length(ci.code))
+        for i in 1:n
             s = try
-                sprint(show, ex)
+                sprint(show, ci.code[i])
             catch
                 ""
             end

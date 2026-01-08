@@ -5,17 +5,7 @@
     # This integration test exercises the experimental IR borrow checker on a
     # real external package type (DynamicExpressions.Expression).
 
-    VERSION >= v"1.14.0-" ||
-        error("This test requires Julia >= 1.14.0- (BorrowChecker.Experimental).")
-
-    have_dynamic_expressions = true
-    try
-        @eval using DynamicExpressions
-    catch
-        have_dynamic_expressions = false
-    end
-    have_dynamic_expressions || (@test true; return)
-
+    using DynamicExpressions
     using BorrowChecker.Experimental: BorrowCheckError
 
     operators = OperatorEnum(1 => [exp], 2 => [+, -, *])

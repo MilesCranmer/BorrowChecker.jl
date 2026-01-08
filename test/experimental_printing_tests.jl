@@ -3,9 +3,6 @@
     using BorrowChecker
 
     # This test targets error printing helpers in the experimental borrow checker.
-    VERSION >= v"1.14.0-" ||
-        error("This test requires Julia >= 1.14.0- (BorrowChecker.Experimental).")
-
     using BorrowChecker.Experimental: BorrowCheckError, BorrowViolation
 
     @testset "file source line" begin

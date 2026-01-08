@@ -94,24 +94,72 @@ function _is_method_definition_lhs(lhs)
     return lhs.head === :call || lhs.head === :where || lhs.head === :(::)
 end
 
+function _lambda_arglist(args_expr)
+    if args_expr isa Expr && args_expr.head === :tuple
+        return Any[args_expr.args...]
+    elseif args_expr === nothing
+        return Any[]
+    else
+        return Any[args_expr]
+    end
+end
+
+function _instrument_lambda(ex::Expr)
+    @assert ex.head === :(->)
+    args_expr = ex.args[1]
+    body = ex.args[2]
+
+    fname = gensym(:__bc_lambda__)
+    arglist = _lambda_arglist(args_expr)
+    sig = Expr(:call, fname, arglist...)
+    inst_body = _prepend_check_stmt(sig, body)
+    fdef = Expr(:function, sig, inst_body)
+    return Expr(:block, fdef, fname)
+end
+
 function _instrument_assignments(ex)
     ex isa Expr || return ex
 
-    # Don't instrument inside nested function definitions or quoted code.
-    if ex.head === :function ||
-        ex.head === :(->) ||
-        ex.head === :quote ||
-        ex.head === :inert
+    if ex.head === :quote || ex.head === :inert
         return ex
+    end
+
+    if ex.head === :function
+        sig = ex.args[1]
+        body = ex.args[2]
+        inst_body = _prepend_check_stmt(sig, body)
+        return Expr(:function, sig, inst_body)
+    end
+
+    if ex.head === :(->)
+        return _instrument_lambda(ex)
     end
 
     if ex.head === :(=) && length(ex.args) == 2
         lhs, rhs = ex.args
         if _is_method_definition_lhs(lhs)
-            return ex
+            sig = lhs
+            body = rhs
+            inst_body = _prepend_check_stmt(sig, body)
+            return Expr(:function, sig, inst_body)
         end
         lhs2 = _instrument_assignments(lhs)
         rhs2 = _instrument_assignments(rhs)
+
+        # If the RHS is an instrumented lambda block, don't wrap it in `__bc_bind__`.
+        # Wrapping forces the value to `Any` and breaks call resolution, which makes
+        # `f(x)` look like an unknown call that consumes tracked arguments.
+        if rhs2 isa Expr && rhs2.head === :block && length(rhs2.args) >= 2
+            last = rhs2.args[end]
+            if last isa Symbol && any(
+                a -> (a isa Expr && a.head === :function && a.args[1] isa Expr &&
+                    a.args[1].head === :call && a.args[1].args[1] == last),
+                rhs2.args[1:end-1],
+            )
+                return Expr(:(=), lhs2, rhs2)
+            end
+        end
+
         bind_ref = GlobalRef(@__MODULE__, :__bc_bind__)
         return Expr(:(=), lhs2, Expr(:call, bind_ref, rhs2))
     end

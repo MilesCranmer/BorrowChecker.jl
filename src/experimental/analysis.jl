@@ -299,6 +299,37 @@ function _used_handles(stmt, nargs::Int, track_arg, track_ssa)
     return s
 end
 
+function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, track_ssa)
+    nstmts = length(ir.stmts)
+    origins = collect(1:(nargs + nstmts))
+
+    # SSA origins: treat plain SSA copies as the same "binding"; everything else
+    # gets its own binding id (including __bc_bind__ outputs).
+    for idx in 1:nstmts
+        track_ssa[idx] || continue
+        hdef = _ssa_handle(nargs, idx)
+        stmt = ir[Core.SSAValue(idx)][:stmt]
+
+        if stmt isa Core.SSAValue || stmt isa Core.Argument
+            hsrc = _handle_index(stmt, nargs, track_arg, track_ssa)
+            origins[hdef] = (hsrc == 0) ? hdef : origins[hsrc]
+            continue
+        end
+
+        if stmt isa Expr && (stmt.head === :call || stmt.head === :invoke)
+            f = _resolve_callee(stmt, ir)
+            if f === __bc_bind__ || (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
+                origins[hdef] = hdef
+                continue
+            end
+        end
+
+        origins[hdef] = hdef
+    end
+
+    return origins
+end
+
 function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     blocks = ir.cfg.blocks
     nblocks = length(blocks)
@@ -411,6 +442,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
 
     uf = UnionFind(nargs + nstmts)
     _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs)
+    origins = _binding_origins(ir, cfg, nargs, track_arg, track_ssa)
 
     live_in, live_out = _compute_liveness(ir, nargs, track_arg, track_ssa)
 
@@ -438,6 +470,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
                 idx,
                 stmt,
                 uf,
+                origins,
                 cfg,
                 nargs,
                 track_arg,
@@ -463,6 +496,7 @@ function _check_stmt!(
     idx::Int,
     stmt,
     uf::UnionFind,
+    origins::AbstractVector{Int},
     cfg::Config,
     nargs::Int,
     track_arg,
@@ -481,7 +515,17 @@ function _check_stmt!(
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
-        _require_unique!(viols, ir, idx, stmt, uf, hv, live_during; context="write")
+        _require_unique!(
+            viols,
+            ir,
+            idx,
+            stmt,
+            uf,
+            origins,
+            hv,
+            live_during;
+            context="write",
+        )
     end
 
     # Consumes require uniqueness and no later use of any alias in the region.
@@ -490,8 +534,18 @@ function _check_stmt!(
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
-        _require_unique!(viols, ir, idx, stmt, uf, hv, live_during; context="consume")
-        _require_not_used_later!(viols, ir, idx, stmt, uf, hv, live_after)
+        _require_unique!(
+            viols,
+            ir,
+            idx,
+            stmt,
+            uf,
+            origins,
+            hv,
+            live_during;
+            context="consume",
+        )
+        _require_not_used_later!(viols, ir, idx, stmt, uf, origins, hv, live_after)
     end
 end
 
@@ -501,14 +555,16 @@ function _require_unique!(
     idx::Int,
     stmt,
     uf::UnionFind,
+    origins::AbstractVector{Int},
     hv::Int,
     live_during::BitSet;
     context::String,
 )
     rv = _uf_find(uf, hv)
+    ohv = origins[hv]
     for h2 in live_during
         h2 == hv && continue
-        if _uf_find(uf, h2) == rv
+        if _uf_find(uf, h2) == rv && origins[h2] != ohv
             li = _stmt_lineinfo(ir, idx)
             push!(
                 viols,
@@ -525,7 +581,14 @@ function _require_unique!(
 end
 
 function _require_not_used_later!(
-    viols, ir::CC.IRCode, idx::Int, stmt, uf::UnionFind, hv::Int, live_after::BitSet
+    viols,
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    uf::UnionFind,
+    origins::AbstractVector{Int},
+    hv::Int,
+    live_after::BitSet,
 )
     rv = _uf_find(uf, hv)
     for h2 in live_after
