@@ -70,6 +70,19 @@
         return c
     end
 
+    @testset "g!(y) should not require deleting x" begin
+        g!(x) = (push!(x, 1); nothing)
+
+        BorrowChecker.Experimental.@borrow_checker function _bc_g_alias_ok()
+            x = [1, 2, 3]
+            y = x
+            g!(y)
+            return y
+        end
+
+        @test _bc_g_alias_ok() == [1, 2, 3, 1]
+    end
+
     @test_throws BorrowCheckError _bc_bad_alias()
     @test _bc_ok_copy() == [1, 2, 3]
     @test_throws BorrowCheckError _bc_bad_unknown_call(identity)

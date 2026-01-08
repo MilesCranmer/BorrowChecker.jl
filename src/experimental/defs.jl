@@ -59,7 +59,7 @@ end
 
 const DEFAULT_CONFIG = Config()
 
-@inline __bc_bind__(x) = x
+@inline __bc_bind__(x) = isdefined(Base, :inferencebarrier) ? Base.inferencebarrier(x) : x
 
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:
@@ -110,6 +110,11 @@ function __init__()
     # Our own marker is pure and returns arg1 alias.
     register_effects!(__bc_bind__)
     register_return_alias!(__bc_bind__, :arg1)
+
+    if isdefined(Base, :inferencebarrier)
+        register_effects!(Base.inferencebarrier)
+        register_return_alias!(Base.inferencebarrier, :arg1)
+    end
 
     # Common aliasing utilities
     if isdefined(Base, :identity)
