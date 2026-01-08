@@ -81,6 +81,22 @@ function _effects_for_call(
         end
     end
 
+    if head === :call &&
+        cfg.analyze_invokes &&
+        f === nothing &&
+        depth < cfg.max_summary_depth
+        fexpr = raw_args[1]
+        if fexpr isa Core.SSAValue
+            tt = _call_tt_from_raw_args(raw_args, ir)
+            if tt !== nothing
+                s = _summary_for_tt(tt, cfg; depth=depth + 1)
+                if s !== nothing
+                    return s
+                end
+            end
+        end
+    end
+
     # Heuristic convention for known constant callees.
     if f !== nothing
         if !_is_functor_instance(f)
@@ -105,6 +121,124 @@ function _effects_for_call(
     else
         return EffectSummary()
     end
+end
+
+function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
+    types = Any[]
+    for a in raw_args
+        t = Any
+        try
+            t = CC.widenconst(CC.argextype(a, ir))
+        catch
+            t = Any
+        end
+        if t === Any && a isa Core.SSAValue
+            t = _maybe_box_contents_type(a, ir)
+        end
+        (t isa Type) || (t = Any)
+        push!(types, t)
+    end
+    isempty(types) && return nothing
+
+    fT = types[1]
+    if fT === Any || fT isa Union
+        return nothing
+    end
+    dt = try
+        Base.unwrap_unionall(fT)
+    catch
+        return nothing
+    end
+    dt isa DataType || return nothing
+    Base.isabstracttype(dt) && return nothing
+
+    try
+        return Tuple{types...}
+    catch
+        return nothing
+    end
+end
+
+function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
+    x = _canonical_ref(x, ir)
+    stmt = try
+        ir[x][:stmt]
+    catch
+        return Any
+    end
+    stmt isa Expr && stmt.head === :call || return Any
+    (stmt.args[1] === Core.getfield || stmt.args[1] == GlobalRef(Core, :getfield)) || return Any
+    length(stmt.args) >= 3 || return Any
+    fld = stmt.args[3]
+    fldsym = fld isa QuoteNode ? fld.value : fld
+    fldsym === :contents || return Any
+    box = _canonical_ref(stmt.args[2], ir)
+
+    for i in 1:length(ir.stmts)
+        st = ir[Core.SSAValue(i)][:stmt]
+        st isa Expr && st.head === :call || continue
+        (st.args[1] === Core.setfield! || st.args[1] == GlobalRef(Core, :setfield!)) || continue
+        length(st.args) >= 4 || continue
+        f = st.args[3]
+        fsym = f isa QuoteNode ? f.value : f
+        fsym === :contents || continue
+        box2 = _canonical_ref(st.args[2], ir)
+        box2 == box || continue
+        v = st.args[4]
+        t = try
+            CC.widenconst(CC.argextype(v, ir))
+        catch
+            Any
+        end
+        return (t isa Type) ? t : Any
+    end
+
+    return Any
+end
+
+function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int)
+    world = Base.get_world_counter()
+    key = (tt, UInt(world))
+    lock(_lock) do
+        if haskey(_tt_summary_cache, key)
+            return _tt_summary_cache[key]
+        end
+    end
+
+    try
+        tt_u = Base.unwrap_unionall(tt)
+        if tt_u isa DataType && !isempty(tt_u.parameters)
+            fT = tt_u.parameters[1]
+            dt = Base.unwrap_unionall(fT)
+            if dt isa DataType
+                m = dt.name.module
+                if m === Base || m === Core || m === Experimental
+                    return nothing
+                end
+            end
+        end
+    catch
+    end
+
+    summ = nothing
+    try
+        codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        for entry in codes
+            ir = entry.first
+            ir isa CC.IRCode || continue
+            summ = _summarize_ir_effects(ir, cfg; depth=depth)
+            break
+        end
+    catch
+        summ = nothing
+    end
+
+    if summ !== nothing
+        lock(_lock) do
+            _tt_summary_cache[key] = summ
+        end
+    end
+    return summ
 end
 
 function _summary_for_mi(mi, cfg::Config; depth::Int)

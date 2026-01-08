@@ -470,6 +470,7 @@ end
 
 const _checked_cache = IdDict{Any,UInt}()            # Type{Tuple...} => world
 const _summary_cache = IdDict{Any,EffectSummary}()  # MethodInstance => summary
+const _tt_summary_cache = Dict{Tuple{Any,UInt},EffectSummary}()  # (tt, world) => summary
 const _lock = ReentrantLock()
 
 "Is `T` considered a \"tracked\" mutable reference for borrow checking?"

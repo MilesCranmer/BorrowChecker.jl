@@ -166,9 +166,37 @@
         return y
     end
 
+    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_capture_nested()
+        x = [1, 2, 3]
+        y = x
+        f = () -> begin
+            g = () -> (push!(x, 9); nothing)
+            g()
+            return nothing
+        end
+        f()
+        return y
+    end
+
+    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_capture_readonly()
+        x = [1, 2, 3]
+        y = x
+        f = () -> begin
+            s = 0
+            for i in 1:length(y)
+                s += y[i]
+            end
+            return s
+        end
+        f()
+        return x
+    end
+
     @test _bc_ok_phi_ternary(true) == [1, 2, 3, 1]
     @test _bc_ok_phi_ternary(false) == [1, 2, 3, 1]
     @test _bc_ok_identity_call() == [1, 2, 3, 1]
     @test_throws BorrowCheckError _bc_bad_view_alias()
     @test_throws BorrowCheckError _bc_bad_closure_capture()
+    @test_throws BorrowCheckError _bc_bad_closure_capture_nested()
+    @test _bc_ok_closure_capture_readonly() == [1, 2, 3]
 end
