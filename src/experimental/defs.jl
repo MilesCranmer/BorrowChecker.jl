@@ -67,10 +67,10 @@ function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
     return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
-const _known_effects = IdDict{Any,EffectSummary}()
+const _known_effects = Base.Lockable(IdDict{Any,EffectSummary}())
 
 "Whether a call's return value is known to be fresh (non-aliasing) wrt arguments."
-const _fresh_return = IdDict{Any,Bool}()
+const _fresh_return = Base.Lockable(IdDict{Any,Bool}())
 
 """
 Return-aliasing style for calls that return a *tracked* value.
@@ -79,142 +79,169 @@ Return-aliasing style for calls that return a *tracked* value.
 * `:arg1`  -> return aliases the first user argument (raw_args[2])
 * `:all`   -> return may alias any tracked argument (conservative default)
 """
-const _ret_alias = IdDict{Any,Symbol}()
+const _ret_alias = Base.Lockable(IdDict{Any,Symbol}())
+
+@inline function _known_effects_get(f)
+    return Base.@lock _known_effects get(_known_effects[], f, nothing)
+end
+
+@inline function _known_effects_has(f)::Bool
+    return Base.@lock _known_effects haskey(_known_effects[], f)
+end
+
+@inline function _ret_alias_get(f)
+    return Base.@lock _ret_alias get(_ret_alias[], f, nothing)
+end
+
+@inline function _ret_alias_has(f)::Bool
+    return Base.@lock _ret_alias haskey(_ret_alias[], f)
+end
+
+@inline function _fresh_return_get(f)::Bool
+    return Base.@lock _fresh_return get(_fresh_return[], f, false)
+end
 
 function register_effects!(
     f; writes::AbstractVector{<:Integer}=Int[], consumes::AbstractVector{<:Integer}=Int[]
 )
-    _known_effects[f] = EffectSummary(;
-        writes=collect(Int, writes), consumes=collect(Int, consumes)
-    )
+    Base.@lock _known_effects begin
+        _known_effects[][f] = EffectSummary(;
+            writes=collect(Int, writes), consumes=collect(Int, consumes)
+        )
+    end
     return f
 end
 
 function register_fresh_return!(f, fresh::Bool=true)
-    _fresh_return[f] = fresh
+    Base.@lock _fresh_return begin
+        _fresh_return[][f] = fresh
+    end
     return f
 end
 
 function register_return_alias!(f, style::Symbol)
     @assert style in (:none, :arg1, :all)
-    _ret_alias[f] = style
+    Base.@lock _ret_alias begin
+        _ret_alias[][f] = style
+    end
     return f
 end
 
-const _registry_init_lock = Base.Lockable(nothing)
-const _registry_inited = Base.Threads.Atomic{Bool}(false)
+const _registry_inited = Base.Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
-    if !haskey(_known_effects, __bc_bind__)
+    if !_known_effects_has(__bc_bind__)
         register_effects!(__bc_bind__)
     end
-    if !haskey(_ret_alias, __bc_bind__)
+    if !_ret_alias_has(__bc_bind__)
         register_return_alias!(__bc_bind__, :arg1)
     end
 
     if isdefined(Experimental, :__bc_assert_safe__)
         f = Experimental.__bc_assert_safe__
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
 
     if isdefined(Base, :inferencebarrier)
         f = Base.inferencebarrier
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :arg1)
     end
 
     if isdefined(Core, :tuple)
         f = Core.tuple
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :apply_type)
         f = Core.apply_type
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :typeof)
         f = Core.typeof
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :_typeof_captured_variable)
         f = Core._typeof_captured_variable
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
     if isdefined(Core, :(===))
         f = Core.:(===)
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     else
-        haskey(_known_effects, ===) || register_effects!(===)
-        haskey(_ret_alias, ===) || register_return_alias!(===, :none)
+        _known_effects_has(===) || register_effects!(===)
+        _ret_alias_has(===) || register_return_alias!(===, :none)
     end
     if isdefined(Core, :(!==))
         f = Core.:(!==)
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     else
-        haskey(_known_effects, !==) || register_effects!(!==)
-        haskey(_ret_alias, !==) || register_return_alias!(!==, :none)
+        _known_effects_has(!==) || register_effects!(!==)
+        _ret_alias_has(!==) || register_return_alias!(!==, :none)
     end
     if isdefined(Core, :typeassert)
         f = Core.typeassert
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :arg1)
     end
     if isdefined(Core, :getfield)
         f = Core.getfield
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
+        _known_effects_has(f) || register_effects!(f)
+        _ret_alias_has(f) || register_return_alias!(f, :arg1)
     end
 
     if isdefined(Core, :setfield!)
         f = Core.setfield!
-        haskey(_known_effects, f) || register_effects!(f; writes=[2])
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
+        _known_effects_has(f) || register_effects!(f; writes=[2])
+        _ret_alias_has(f) || register_return_alias!(f, :none)
     end
 
     for nm in (:swapfield!, :modifyfield!, :replacefield!, :setfieldonce!)
         if isdefined(Core, nm)
             f = getfield(Core, nm)
-            haskey(_known_effects, f) || register_effects!(f; writes=[2])
-            haskey(_ret_alias, f) || register_return_alias!(f, :none)
+            _known_effects_has(f) || register_effects!(f; writes=[2])
+            _ret_alias_has(f) || register_return_alias!(f, :none)
         end
     end
 
-    if isdefined(Core, :memoryrefnew)
-        f = Core.memoryrefnew
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
-    end
-    if isdefined(Core, :memoryref)
-        f = Core.memoryref
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
-    end
-    if isdefined(Core, :memoryrefoffset)
-        f = Core.memoryrefoffset
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :arg1)
-    end
-    if isdefined(Core, :memoryrefget)
-        f = Core.memoryrefget
-        haskey(_known_effects, f) || register_effects!(f)
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
-    end
-    if isdefined(Core, :memoryrefset!)
-        f = Core.memoryrefset!
-        haskey(_known_effects, f) || register_effects!(f; writes=[2])
-        haskey(_ret_alias, f) || register_return_alias!(f, :none)
-    end
-    for nm in (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
-        if isdefined(Core, nm)
-            f = getfield(Core, nm)
-            haskey(_known_effects, f) || register_effects!(f; writes=[2])
-            haskey(_ret_alias, f) || register_return_alias!(f, :none)
+    for mod in (Core, Base)
+        if isdefined(mod, :memoryrefnew)
+            f = getfield(mod, :memoryrefnew)
+            _known_effects_has(f) || register_effects!(f)
+            _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        end
+        if isdefined(mod, :memoryref)
+            f = getfield(mod, :memoryref)
+            _known_effects_has(f) || register_effects!(f)
+            _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        end
+        if isdefined(mod, :memoryrefoffset)
+            f = getfield(mod, :memoryrefoffset)
+            _known_effects_has(f) || register_effects!(f)
+            _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        end
+        if isdefined(mod, :memoryrefget)
+            f = getfield(mod, :memoryrefget)
+            _known_effects_has(f) || register_effects!(f)
+            _ret_alias_has(f) || register_return_alias!(f, :none)
+        end
+        if isdefined(mod, :memoryrefset!)
+            f = getfield(mod, :memoryrefset!)
+            _known_effects_has(f) || register_effects!(f; writes=[2])
+            _ret_alias_has(f) || register_return_alias!(f, :none)
+        end
+        for nm in (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
+            if isdefined(mod, nm)
+                f = getfield(mod, nm)
+                _known_effects_has(f) || register_effects!(f; writes=[2])
+                _ret_alias_has(f) || register_return_alias!(f, :none)
+            end
         end
     end
 
@@ -222,12 +249,12 @@ function _populate_registry!()
 end
 
 function _ensure_registry_initialized()
-    _registry_inited[] && return nothing
-    Base.lock(_registry_init_lock) do _
-        _registry_inited[] && return nothing
-        _populate_registry!()
-        _registry_inited[] = true
-        return nothing
+    Base.@lock _registry_inited begin
+        r = _registry_inited[]
+        if !r[]
+            _populate_registry!()
+            r[] = true
+        end
     end
     return nothing
 end
@@ -244,7 +271,7 @@ struct BorrowCheckError <: Exception
     violations::Vector{BorrowViolation}
 end
 
-const _srcfile_cache = Dict{String,Vector{String}}()
+const _srcfile_cache = Base.Lockable(Dict{String,Vector{String}}())
 
 @inline function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
     try
@@ -358,13 +385,17 @@ function _lineinfo_chain(li::Core.LineInfoNode)
 end
 
 function _read_file_lines(file::String)
-    return get!(_srcfile_cache, file) do
-        try
-            readlines(file)
-        catch
-            String[]
+    lines = String[]
+    Base.@lock _srcfile_cache begin
+        lines = get!(_srcfile_cache[], file) do
+            try
+                readlines(file)
+            catch
+                String[]
+            end
         end
     end
+    return lines
 end
 
 function _recover_callee_from_tt(tt)
@@ -550,18 +581,21 @@ function Base.showerror(io::IO, e::BorrowCheckError)
     end
 end
 
-const _checked_cache = IdDict{Any,UInt}()            # Type{Tuple...} => world
+const _checked_cache = Base.Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
 struct SummaryCacheEntry
     summary::EffectSummary
     depth::Int
     over_budget::Bool
 end
 
-const _summary_cache = IdDict{Any,SummaryCacheEntry}()  # MethodInstance => entry
-const _tt_summary_cache = Dict{Tuple{Any,UInt},SummaryCacheEntry}()  # (tt, world) => entry
-const _summary_inprogress = Base.IdSet{Any}()  # MethodInstance in-progress markers
-const _tt_summary_inprogress = Set{Tuple{Any,UInt}}()  # (tt, world) in-progress markers
-const _lock = ReentrantLock()
+Base.@kwdef struct SummaryState
+    summary_cache::IdDict{Any,SummaryCacheEntry} = IdDict{Any,SummaryCacheEntry}()
+    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{Tuple{Any,UInt},SummaryCacheEntry}()
+    summary_inprogress::Base.IdSet{Any} = Base.IdSet{Any}()
+    tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
+end
+
+const _summary_state = Base.Lockable(SummaryState())
 
 Base.@kwdef struct TypeTracker
     seen::Base.IdSet{Any} = Base.IdSet{Any}()
@@ -580,6 +614,15 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
         return true
     end
     if isdefined(Base, :RefValue) && (T <: Base.RefValue)
+        return true
+    end
+    if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
+        return true
+    end
+    if isdefined(Core, :GenericMemoryRef) && (T <: Core.GenericMemoryRef)
+        return true
+    end
+    if isdefined(Core, :GenericMemory) && (T <: Core.GenericMemory)
         return true
     end
 

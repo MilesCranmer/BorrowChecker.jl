@@ -237,9 +237,9 @@
     end
 
     @testset "summary cache determinism" begin
-        lock(BorrowChecker.Experimental._lock) do
-            empty!(BorrowChecker.Experimental._summary_cache)
-            empty!(BorrowChecker.Experimental._tt_summary_cache)
+        Base.@lock BorrowChecker.Experimental._summary_state begin
+            empty!(BorrowChecker.Experimental._summary_state[].summary_cache)
+            empty!(BorrowChecker.Experimental._summary_state[].tt_summary_cache)
         end
 
         deep1(x) = x
@@ -252,14 +252,14 @@
         BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
 
         function latest_entry()
-            lock(BorrowChecker.Experimental._lock) do
+            Base.@lock BorrowChecker.Experimental._summary_state begin
                 best_key = nothing
-                for k in keys(BorrowChecker.Experimental._tt_summary_cache)
+                for k in keys(BorrowChecker.Experimental._summary_state[].tt_summary_cache)
                     k[1] === tt || continue
                     (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
                 end
                 best_key === nothing && error("missing cache entry")
-                return BorrowChecker.Experimental._tt_summary_cache[best_key]
+                return BorrowChecker.Experimental._summary_state[].tt_summary_cache[best_key]
             end
         end
 

@@ -106,8 +106,9 @@ function _effects_for_call(
     end
 
     # Table overrides.
-    if f !== nothing && haskey(_known_effects, f)
-        return _known_effects[f]
+    if f !== nothing
+        s = _known_effects_get(f)
+        s === nothing || return s
     end
 
     # If we have a statically resolved method instance, we can optionally summarize it.
@@ -248,8 +249,8 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
     world = Base.get_world_counter()
     key = (tt, UInt(world))
     cached = nothing
-    lock(_lock) do
-        cached = get(_tt_summary_cache, key, nothing)
+    Base.@lock _summary_state begin
+        cached = get(_summary_state[].tt_summary_cache, key, nothing)
     end
     if cached !== nothing
         if !cached.over_budget || depth >= cached.depth
@@ -283,12 +284,14 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
     # can produce cyclic call graphs (including self-cycles) in the IR summarization pass.
     # If we re-enter summarization for the same `(tt, world)` while it's still being
     # computed, return `nothing` and let the caller fall back to `unknown_call_policy`.
-    lock(_lock) do
-        if key in _tt_summary_inprogress
-            _mark_budget_hit!(budget_state)
-            return nothing
-        end
-        push!(_tt_summary_inprogress, key)
+    reentered = false
+    Base.@lock _summary_state begin
+        reentered = (key in _summary_state[].tt_summary_inprogress)
+        reentered || push!(_summary_state[].tt_summary_inprogress, key)
+    end
+    if reentered
+        _mark_budget_hit!(budget_state)
+        return nothing
     end
 
     summ = nothing
@@ -313,22 +316,23 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
     catch
         summ = nothing
     finally
-        lock(_lock) do
-            delete!(_tt_summary_inprogress, key)
+        Base.@lock _summary_state begin
+            delete!(_summary_state[].tt_summary_inprogress, key)
         end
     end
 
     if summ !== nothing
         new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
-        lock(_lock) do
-            old = get(_tt_summary_cache, key, nothing)
-            _tt_summary_cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
+        Base.@lock _summary_state begin
+            old = get(_summary_state[].tt_summary_cache, key, nothing)
+            _summary_state[].tt_summary_cache[key] =
+                (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
         end
     end
 
     cached2 = nothing
-    lock(_lock) do
-        cached2 = get(_tt_summary_cache, key, nothing)
+    Base.@lock _summary_state begin
+        cached2 = get(_summary_state[].tt_summary_cache, key, nothing)
     end
     cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
     return cached2 === nothing ? summ : cached2.summary
@@ -349,8 +353,8 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     end
 
     cached = nothing
-    lock(_lock) do
-        cached = get(_summary_cache, mi, nothing)
+    Base.@lock _summary_state begin
+        cached = get(_summary_state[].summary_cache, mi, nothing)
     end
     if cached !== nothing
         if !cached.over_budget || depth >= cached.depth
@@ -359,12 +363,14 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         end
     end
 
-    lock(_lock) do
-        if mi in _summary_inprogress
-            _mark_budget_hit!(budget_state)
-            return nothing
-        end
-        push!(_summary_inprogress, mi)
+    reentered = false
+    Base.@lock _summary_state begin
+        reentered = (mi in _summary_state[].summary_inprogress)
+        reentered || push!(_summary_state[].summary_inprogress, mi)
+    end
+    if reentered
+        _mark_budget_hit!(budget_state)
+        return nothing
     end
 
     # Compute summary without holding the lock (avoid deadlocks during reflection/inference).
@@ -392,22 +398,23 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     catch
         summ = nothing
     finally
-        lock(_lock) do
-            delete!(_summary_inprogress, mi)
+        Base.@lock _summary_state begin
+            delete!(_summary_state[].summary_inprogress, mi)
         end
     end
 
     if summ !== nothing
         new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
-        lock(_lock) do
-            old = get(_summary_cache, mi, nothing)
-            _summary_cache[mi] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
+        Base.@lock _summary_state begin
+            old = get(_summary_state[].summary_cache, mi, nothing)
+            _summary_state[].summary_cache[mi] =
+                (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
         end
     end
 
     cached2 = nothing
-    lock(_lock) do
-        cached2 = get(_summary_cache, mi, nothing)
+    Base.@lock _summary_state begin
+        cached2 = get(_summary_state[].summary_cache, mi, nothing)
     end
     cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
     return cached2 === nothing ? summ : cached2.summary
@@ -618,13 +625,13 @@ function _build_alias_classes!(
             end
 
             # Fresh return overrides.
-            if f !== nothing && get(_fresh_return, f, false)
+            if f !== nothing && _fresh_return_get(f)
                 continue
             end
 
             alias_args = Int[]
-            if f !== nothing && haskey(_ret_alias, f)
-                style = _ret_alias[f]
+            if f !== nothing && _ret_alias_has(f)
+                style = _ret_alias_get(f)
                 if style === :arg1
                     length(raw_args) >= 2 && push!(alias_args, 2)
                 elseif style === :all

@@ -22,11 +22,14 @@ Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAUL
     @nospecialize tt
     world = Base.get_world_counter()
     cached = false
-    lock(_lock) do
-        cached = (get(_checked_cache, tt, UInt(0)) == world)
+    Base.@lock _checked_cache begin
+        cached = (get(_checked_cache[], tt, UInt(0)) == world)
     end
     cached && return nothing
     check_signature(tt; cfg=cfg, world=world)
+    Base.@lock _checked_cache begin
+        _checked_cache[][tt] = world
+    end
     return nothing
 end
 
