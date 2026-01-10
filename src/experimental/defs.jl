@@ -67,10 +67,10 @@ function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
     return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
-const _known_effects = Base.Lockable(IdDict{Any,EffectSummary}())
+const _known_effects = Lockable(IdDict{Any,EffectSummary}())
 
 "Whether a call's return value is known to be fresh (non-aliasing) wrt arguments."
-const _fresh_return = Base.Lockable(IdDict{Any,Bool}())
+const _fresh_return = Lockable(IdDict{Any,Bool}())
 
 """
 Return-aliasing style for calls that return a *tracked* value.
@@ -79,32 +79,32 @@ Return-aliasing style for calls that return a *tracked* value.
 * `:arg1`  -> return aliases the first user argument (raw_args[2])
 * `:all`   -> return may alias any tracked argument (conservative default)
 """
-const _ret_alias = Base.Lockable(IdDict{Any,Symbol}())
+const _ret_alias = Lockable(IdDict{Any,Symbol}())
 
 @inline function _known_effects_get(f)
-    return Base.@lock _known_effects get(_known_effects[], f, nothing)
+    return @lock _known_effects get(_known_effects[], f, nothing)
 end
 
 @inline function _known_effects_has(f)::Bool
-    return Base.@lock _known_effects haskey(_known_effects[], f)
+    return @lock _known_effects haskey(_known_effects[], f)
 end
 
 @inline function _ret_alias_get(f)
-    return Base.@lock _ret_alias get(_ret_alias[], f, nothing)
+    return @lock _ret_alias get(_ret_alias[], f, nothing)
 end
 
 @inline function _ret_alias_has(f)::Bool
-    return Base.@lock _ret_alias haskey(_ret_alias[], f)
+    return @lock _ret_alias haskey(_ret_alias[], f)
 end
 
 @inline function _fresh_return_get(f)::Bool
-    return Base.@lock _fresh_return get(_fresh_return[], f, false)
+    return @lock _fresh_return get(_fresh_return[], f, false)
 end
 
 function register_effects!(
     f; writes::AbstractVector{<:Integer}=Int[], consumes::AbstractVector{<:Integer}=Int[]
 )
-    Base.@lock _known_effects begin
+    @lock _known_effects begin
         _known_effects[][f] = EffectSummary(;
             writes=collect(Int, writes), consumes=collect(Int, consumes)
         )
@@ -113,7 +113,7 @@ function register_effects!(
 end
 
 function register_fresh_return!(f, fresh::Bool=true)
-    Base.@lock _fresh_return begin
+    @lock _fresh_return begin
         _fresh_return[][f] = fresh
     end
     return f
@@ -121,13 +121,13 @@ end
 
 function register_return_alias!(f, style::Symbol)
     @assert style in (:none, :arg1, :all)
-    Base.@lock _ret_alias begin
+    @lock _ret_alias begin
         _ret_alias[][f] = style
     end
     return f
 end
 
-const _registry_inited = Base.Lockable(Ref{Bool}(false))
+const _registry_inited = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
     if !_known_effects_has(__bc_bind__)
@@ -249,7 +249,7 @@ function _populate_registry!()
 end
 
 function _ensure_registry_initialized()
-    Base.@lock _registry_inited begin
+    @lock _registry_inited begin
         r = _registry_inited[]
         if !r[]
             _populate_registry!()
@@ -271,7 +271,7 @@ struct BorrowCheckError <: Exception
     violations::Vector{BorrowViolation}
 end
 
-const _srcfile_cache = Base.Lockable(Dict{String,Vector{String}}())
+const _srcfile_cache = Lockable(Dict{String,Vector{String}}())
 
 @inline function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
     try
@@ -386,7 +386,7 @@ end
 
 function _read_file_lines(file::String)
     lines = String[]
-    Base.@lock _srcfile_cache begin
+    @lock _srcfile_cache begin
         lines = get!(_srcfile_cache[], file) do
             try
                 readlines(file)
@@ -581,7 +581,7 @@ function Base.showerror(io::IO, e::BorrowCheckError)
     end
 end
 
-const _checked_cache = Base.Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
+const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
 struct SummaryCacheEntry
     summary::EffectSummary
     depth::Int
@@ -595,7 +595,7 @@ Base.@kwdef struct SummaryState
     tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
 end
 
-const _summary_state = Base.Lockable(SummaryState())
+const _summary_state = Lockable(SummaryState())
 
 Base.@kwdef struct TypeTracker
     seen::Base.IdSet{Any} = Base.IdSet{Any}()
