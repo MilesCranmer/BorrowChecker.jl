@@ -560,49 +560,50 @@ const _summary_cache = IdDict{Any,SummaryCacheEntry}()  # MethodInstance => entr
 const _tt_summary_cache = Dict{Tuple{Any,UInt},SummaryCacheEntry}()  # (tt, world) => entry
 const _lock = ReentrantLock()
 
-"Is `T` considered a \"tracked\" mutable reference for borrow checking?"
-function is_tracked_type(@nospecialize T)::Bool
-    seen = Base.IdSet{Any}()
+Base.@kwdef struct TypeTracker
+    seen::Base.IdSet{Any} = Base.IdSet{Any}()
+end
 
-    function inner(@nospecialize(T))::Bool
-        T === Union{} && return false
-        T === Any && return true  # conservative
-        if T isa Union
-            return any(inner, Base.uniontypes(T))
-        end
-        T isa Type || return true  # conservative for non-Type lattice elements
+function (tt::TypeTracker)(@nospecialize(T))::Bool
+    T === Union{} && return false
+    T === Any && return true  # conservative
+    if T isa Union
+        return any(tt, Base.uniontypes(T))
+    end
+    T isa Type || return true  # conservative for non-Type lattice elements
 
-        # Arrays and common reference carriers
-        if T <: AbstractArray
-            return true
-        end
-        if isdefined(Base, :RefValue) && (T <: Base.RefValue)
-            return true
-        end
-
-        dt = Base.unwrap_unionall(T)
-        if dt isa DataType
-            if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
-                return false
-            end
-            Base.isconcretetype(dt) || return true
-
-            # Mutable structs are tracked.
-            Base.ismutabletype(dt) && return true
-
-            # Immutable structs are tracked if they *carry* tracked values (like `struct B; a::A; end`).
-            Base.isbitstype(dt) && return false
-            if dt in seen
-                return true
-            end
-            push!(seen, dt)
-            return any(inner, fieldtypes(dt))
-        end
+    # Arrays and common reference carriers
+    if T <: AbstractArray
+        return true
+    end
+    if isdefined(Base, :RefValue) && (T <: Base.RefValue)
         return true
     end
 
-    return inner(T)
+    dt = Base.unwrap_unionall(T)
+    if dt isa DataType
+        if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
+            return false
+        end
+        Base.isconcretetype(dt) || return true
+
+        # Mutable structs are tracked.
+        Base.ismutabletype(dt) && return true
+
+        # Immutable structs are tracked if they *carry* tracked values (like `struct B; a::A; end`).
+        Base.isbitstype(dt) && return false
+        if dt in tt.seen
+            return true
+        end
+        push!(tt.seen, dt)
+        return any(tt, fieldtypes(dt))
+    end
+    return true
 end
+
+
+"Is `T` considered a \"tracked\" mutable reference for borrow checking?"
+is_tracked_type(@nospecialize T)::Bool = TypeTracker()(T)
 
 @inline _ssa_handle(nargs::Int, id::Int) = nargs + id
 @inline _arg_handle(id::Int) = id
