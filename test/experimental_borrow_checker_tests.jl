@@ -225,6 +225,17 @@
     @test_throws BorrowCheckError _bc_bad_closure_capture_nested()
     @test _bc_ok_closure_capture_readonly() == [1, 2, 3]
 
+    @testset "__bc_assert_safe__ short-circuits on cache hit" begin
+        local_f(x) = x
+        tt = Tuple{typeof(local_f),Int}
+
+        BorrowChecker.Experimental.__bc_assert_safe__(tt)
+        GC.gc()
+
+        alloc = @allocated BorrowChecker.Experimental.__bc_assert_safe__(tt)
+        @test alloc < 200_000
+    end
+
     @testset "summary cache determinism" begin
         lock(BorrowChecker.Experimental._lock) do
             empty!(BorrowChecker.Experimental._summary_cache)

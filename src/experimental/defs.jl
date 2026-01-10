@@ -48,6 +48,7 @@ Base.@kwdef struct Config
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 8
+
 end
 
 const DEFAULT_CONFIG = Config()
@@ -558,6 +559,8 @@ end
 
 const _summary_cache = IdDict{Any,SummaryCacheEntry}()  # MethodInstance => entry
 const _tt_summary_cache = Dict{Tuple{Any,UInt},SummaryCacheEntry}()  # (tt, world) => entry
+const _summary_inprogress = Base.IdSet{Any}()  # MethodInstance in-progress markers
+const _tt_summary_inprogress = Set{Tuple{Any,UInt}}()  # (tt, world) in-progress markers
 const _lock = ReentrantLock()
 
 Base.@kwdef struct TypeTracker

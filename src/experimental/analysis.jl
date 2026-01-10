@@ -279,6 +279,18 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
     catch
     end
 
+    # Reentrancy guard: keyword-argument lowering and other compiler-generated machinery
+    # can produce cyclic call graphs (including self-cycles) in the IR summarization pass.
+    # If we re-enter summarization for the same `(tt, world)` while it's still being
+    # computed, return `nothing` and let the caller fall back to `unknown_call_policy`.
+    lock(_lock) do
+        if key in _tt_summary_inprogress
+            _mark_budget_hit!(budget_state)
+            return nothing
+        end
+        push!(_tt_summary_inprogress, key)
+    end
+
     summ = nothing
     local_budget = BudgetTracker(false)
     try
@@ -300,6 +312,10 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
         summ = EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     catch
         summ = nothing
+    finally
+        lock(_lock) do
+            delete!(_tt_summary_inprogress, key)
+        end
     end
 
     if summ !== nothing
@@ -343,6 +359,14 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         end
     end
 
+    lock(_lock) do
+        if mi in _summary_inprogress
+            _mark_budget_hit!(budget_state)
+            return nothing
+        end
+        push!(_summary_inprogress, mi)
+    end
+
     # Compute summary without holding the lock (avoid deadlocks during reflection/inference).
     summ = nothing
     local_budget = BudgetTracker(false)
@@ -367,6 +391,10 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         summ = EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     catch
         summ = nothing
+    finally
+        lock(_lock) do
+            delete!(_summary_inprogress, mi)
+        end
     end
 
     if summ !== nothing
@@ -934,6 +962,40 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     return viols
 end
 
+@inline function _call_safe_under_unknown_consume(
+    raw_args,
+    nargs,
+    track_arg,
+    track_ssa,
+    uf,
+    origins,
+    live_during::BitSet,
+    live_after::BitSet,
+)
+    for arg in raw_args
+        hv = _handle_index(arg, nargs, track_arg, track_ssa)
+        hv == 0 && continue
+
+        rv = _uf_find(uf, hv)
+        ohv = origins[hv]
+
+        for h2 in live_during
+            h2 == hv && continue
+            if _uf_find(uf, h2) == rv && origins[h2] != ohv
+                return false
+            end
+        end
+
+        for h2 in live_after
+            if _uf_find(uf, h2) == rv
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
 function _check_stmt!(
     viols,
     ir::CC.IRCode,
@@ -955,8 +1017,32 @@ function _check_stmt!(
         used = _used_handles(stmt, nargs, track_arg, track_ssa)
         for hv in used
             hv == 0 && continue
-            _require_unique!(viols, ir, idx, stmt, uf, hv, live_during; context="write")
+            _require_unique!(
+                viols,
+                ir,
+                idx,
+                stmt,
+                uf,
+                origins,
+                hv,
+                live_during;
+                context="write",
+            )
         end
+        return
+    end
+
+    if cfg.unknown_call_policy === :consume &&
+        _call_safe_under_unknown_consume(
+            raw_args,
+            nargs,
+            track_arg,
+            track_ssa,
+            uf,
+            origins,
+            live_during,
+            live_after,
+        )
         return
     end
 

@@ -18,18 +18,15 @@ function check_signature(
     return true
 end
 
-function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
+Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
+    @nospecialize tt
     world = Base.get_world_counter()
+    cached = false
     lock(_lock) do
-        w = get(_checked_cache, tt, UInt(0))
-        if w == world
-            return nothing
-        end
+        cached = (get(_checked_cache, tt, UInt(0)) == world)
     end
+    cached && return nothing
     check_signature(tt; cfg=cfg, world=world)
-    lock(_lock) do
-        _checked_cache[tt] = world
-    end
     return nothing
 end
 
