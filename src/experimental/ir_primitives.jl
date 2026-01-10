@@ -303,4 +303,3 @@ end
 @inline function stmt(ctx::IRContext, i::Int)
     return ctx.ir[Core.SSAValue(i)][:stmt]
 end
-

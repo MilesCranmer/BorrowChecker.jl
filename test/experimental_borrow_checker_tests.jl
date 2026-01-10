@@ -249,14 +249,7 @@
 
     @test _bc_ok_kwcall() == 12
     @test _bc_ok_kwcall_mut() == 14
-    @test begin
-        try
-            _bc_bad_kwcall_alias_should_error()
-            false
-        catch e
-            e isa BorrowCheckError
-        end
-    end broken = true
+    @test_throws BorrowCheckError _bc_bad_kwcall_alias_should_error()
 
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
         local_f(x) = x

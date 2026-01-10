@@ -86,7 +86,11 @@ function _maybe_tuple_elements(@nospecialize(tup), ir::CC.IRCode)
     tup isa Core.SSAValue || return nothing
     sid = tup.id
     1 <= sid <= length(ir.stmts) || return nothing
-    def = ir.stmts[sid]
+    def = try
+        ir[Core.SSAValue(sid)][:stmt]
+    catch
+        return nothing
+    end
     def isa Expr || return nothing
     if def.head === :call
         f = _resolve_callee(def, ir)
@@ -97,6 +101,54 @@ function _maybe_tuple_elements(@nospecialize(tup), ir::CC.IRCode)
         return def.args
     end
     return nothing
+end
+
+function _maybe_namedtuple_value_exprs(@nospecialize(nt), ir::CC.IRCode)
+    nt = _canonical_ref(nt, ir)
+    nt isa Core.SSAValue || return nothing
+
+    sid = nt.id
+    1 <= sid <= length(ir.stmts) || return nothing
+    def = try
+        ir[Core.SSAValue(sid)][:stmt]
+    catch
+        return nothing
+    end
+    def isa Expr || return nothing
+
+    raw_args = if def.head === :invoke
+        def.args[2:end]
+    elseif def.head === :call
+        def.args
+    else
+        return nothing
+    end
+    isempty(raw_args) && return nothing
+
+    f = raw_args[1]
+    if !_is_namedtuple_ctor(f)
+        f2 = _resolve_callee(def, ir)
+        (f2 !== nothing && _is_namedtuple_ctor(f2)) || return nothing
+    end
+
+    if length(raw_args) == 2
+        return _maybe_tuple_elements(raw_args[2], ir)
+    end
+
+    return raw_args[2:end]
+end
+
+@inline function _kwcall_value_handles(raw_args, ir::CC.IRCode, nargs, track_arg, track_ssa)
+    length(raw_args) >= 2 || return Int[]
+    vals = _maybe_namedtuple_value_exprs(raw_args[2], ir)
+    vals === nothing && return Int[]
+
+    hs = Int[]
+    for v in vals
+        h = _handle_index(v, nargs, track_arg, track_ssa)
+        h != 0 && push!(hs, h)
+    end
+    return hs
 end
 
 function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
@@ -138,7 +190,8 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
         return Any
     end
     stmt isa Expr && stmt.head === :call || return Any
-    (stmt.args[1] === Core.getfield || stmt.args[1] == GlobalRef(Core, :getfield)) || return Any
+    (stmt.args[1] === Core.getfield || stmt.args[1] == GlobalRef(Core, :getfield)) ||
+        return Any
     length(stmt.args) >= 3 || return Any
     fld = stmt.args[3]
     fldsym = fld isa QuoteNode ? fld.value : fld
@@ -148,7 +201,8 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     for i in 1:length(ir.stmts)
         st = ir[Core.SSAValue(i)][:stmt]
         st isa Expr && st.head === :call || continue
-        (st.args[1] === Core.setfield! || st.args[1] == GlobalRef(Core, :setfield!)) || continue
+        (st.args[1] === Core.setfield! || st.args[1] == GlobalRef(Core, :setfield!)) ||
+            continue
         length(st.args) >= 4 || continue
         f = st.args[3]
         fsym = f isa QuoteNode ? f.value : f
@@ -206,4 +260,3 @@ function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
         return nothing
     end
 end
-

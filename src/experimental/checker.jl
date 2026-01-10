@@ -52,6 +52,8 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
 end
 
 @inline function _call_safe_under_unknown_consume(
+    stmt,
+    ir::CC.IRCode,
     raw_args,
     nargs,
     track_arg,
@@ -61,6 +63,17 @@ end
     live_during::BitSet,
     live_after::BitSet,
 )
+    live_during2 = live_during
+    kw_value_hs = Int[]
+    f = _resolve_callee(stmt, ir)
+    if f === Core.kwcall
+        kw_value_hs = _kwcall_value_handles(raw_args, ir, nargs, track_arg, track_ssa)
+        if !isempty(kw_value_hs)
+            live_during2 = BitSet(live_during)
+            union!(live_during2, kw_value_hs)
+        end
+    end
+
     for arg in raw_args
         hv = _handle_index(arg, nargs, track_arg, track_ssa)
         hv == 0 && continue
@@ -68,7 +81,25 @@ end
         rv = _uf_find(uf, hv)
         ohv = origins[hv]
 
-        for h2 in live_during
+        for h2 in live_during2
+            h2 == hv && continue
+            if _uf_find(uf, h2) == rv && origins[h2] != ohv
+                return false
+            end
+        end
+
+        for h2 in live_after
+            if _uf_find(uf, h2) == rv
+                return false
+            end
+        end
+    end
+
+    for hv in kw_value_hs
+        rv = _uf_find(uf, hv)
+        ohv = origins[hv]
+
+        for h2 in live_during2
             h2 == hv && continue
             if _uf_find(uf, h2) == rv && origins[h2] != ohv
                 return false
@@ -114,7 +145,16 @@ function _check_stmt!(
     end
 
     if cfg.unknown_call_policy === :consume && _call_safe_under_unknown_consume(
-        raw_args, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
+        stmt,
+        ir,
+        raw_args,
+        nargs,
+        track_arg,
+        track_ssa,
+        uf,
+        origins,
+        live_during,
+        live_after,
     )
         return nothing
     end
@@ -123,7 +163,34 @@ function _check_stmt!(
 
     out_h = (1 <= idx <= length(track_ssa) && track_ssa[idx]) ? _ssa_handle(nargs, idx) : 0
 
+    f = _resolve_callee(stmt, ir)
+    kw_value_hs = if (f === Core.kwcall)
+        _kwcall_value_handles(raw_args, ir, nargs, track_arg, track_ssa)
+    else
+        Int[]
+    end
+    live_during_kw =
+        isempty(kw_value_hs) ? live_during : union!(BitSet(live_during), kw_value_hs)
+
     for p in eff.writes
+        if f === Core.kwcall && p == 2
+            for hv in kw_value_hs
+                _require_unique!(
+                    viols,
+                    ir,
+                    idx,
+                    stmt,
+                    uf,
+                    origins,
+                    hv,
+                    live_during_kw;
+                    context="write",
+                    ignore_h=out_h,
+                )
+            end
+            continue
+        end
+
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
@@ -142,6 +209,16 @@ function _check_stmt!(
     end
 
     for p in eff.consumes
+        if f === Core.kwcall && p == 2
+            for hv in kw_value_hs
+                _require_unique!(
+                    viols, ir, idx, stmt, uf, origins, hv, live_during_kw; context="consume"
+                )
+                _require_not_used_later!(viols, ir, idx, stmt, uf, origins, hv, live_after)
+            end
+            continue
+        end
+
         v = raw_args[p]
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
@@ -211,4 +288,3 @@ function _require_not_used_later!(
         end
     end
 end
-

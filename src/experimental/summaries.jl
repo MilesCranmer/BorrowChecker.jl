@@ -36,12 +36,7 @@ end
 end
 
 function _summary_cached_tt(
-    compute::Function,
-    key,
-    cfg::Config;
-    depth::Int,
-    budget_state=nothing,
-    allow_core::Bool,
+    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool
 )
     cached = nothing
     Base.@lock _summary_state begin
@@ -94,11 +89,7 @@ function _summary_cached_tt(
 end
 
 function _summary_cached_mi(
-    compute::Function,
-    key,
-    cfg::Config;
-    depth::Int,
-    budget_state=nothing,
+    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing
 )
     cached = nothing
     Base.@lock _summary_state begin
@@ -151,11 +142,7 @@ function _summary_cached_mi(
 end
 
 function _summary_for_tt(
-    tt::Type{<:Tuple},
-    cfg::Config;
-    depth::Int,
-    budget_state=nothing,
-    allow_core::Bool=false,
+    tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool=false
 )
     world = Base.get_world_counter()
     key = (tt, UInt(world))
@@ -182,11 +169,7 @@ function _summary_for_tt(
     end
 
     return _summary_cached_tt(
-        key,
-        cfg;
-        depth=depth,
-        budget_state=budget_state,
-        allow_core=allow_core,
+        key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
         codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
         writes = BitSet()
@@ -219,7 +202,9 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         return nothing
     end
 
-    return _summary_cached_mi(mi, cfg; depth=depth, budget_state=budget_state) do local_budget
+    return _summary_cached_mi(
+        mi, cfg; depth=depth, budget_state=budget_state
+    ) do local_budget
         tt = mi.specTypes
         world = Base.get_world_counter()
         codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
@@ -353,10 +338,7 @@ function _effects_for_call(
 end
 
 function _summarize_ir_effects(
-    ir::CC.IRCode,
-    cfg::Config;
-    depth::Int,
-    budget_state=nothing,
+    ir::CC.IRCode, cfg::Config; depth::Int, budget_state=nothing
 )::EffectSummary
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)

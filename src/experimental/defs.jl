@@ -126,9 +126,7 @@ end
 
 const _registry_inited = Lockable(Ref{Bool}(false))
 
-@inline function _maybe_register_effects!(
-    @nospecialize(f); writes=(), consumes=()
-)
+@inline function _maybe_register_effects!(@nospecialize(f); writes=(), consumes=())
     _known_effects_has(f) || register_effects!(f; writes=writes, consumes=consumes)
     return nothing
 end
@@ -139,10 +137,7 @@ end
 end
 
 @inline function _maybe_register_effects_and_alias!(
-    @nospecialize(f),
-    ret_alias::Symbol;
-    writes=(),
-    consumes=(),
+    @nospecialize(f), ret_alias::Symbol; writes=(), consumes=()
 )
     _maybe_register_effects!(f; writes=writes, consumes=consumes)
     _maybe_register_ret_alias!(f, ret_alias)
@@ -198,7 +193,13 @@ function _populate_registry!()
 
     memref_ret_arg1 = (:memoryrefnew, :memoryref, :memoryrefoffset)
     memref_ret_none = (:memoryrefget,)
-    memref_ret_none_writes = (:memoryrefset!, :memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
+    memref_ret_none_writes = (
+        :memoryrefset!,
+        :memoryrefswap!,
+        :memoryrefmodify!,
+        :memoryrefreplace!,
+        :memoryrefsetonce!,
+    )
 
     for mod in (Core, Base)
         for nm in memref_ret_arg1

@@ -204,4 +204,3 @@ function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, tra
 
     return origins
 end
-
