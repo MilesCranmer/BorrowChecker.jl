@@ -278,9 +278,8 @@ const _srcfile_cache = Lockable(Dict{String,Vector{String}}())
         return inst[sym]
     catch
     end
-    try
+    if Base.hasproperty(inst, sym)
         return getproperty(inst, sym)
-    catch
     end
     return default
 end
@@ -291,20 +290,20 @@ function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
     li isa LineNumberNode && return li
 
     if li isa NTuple{3,<:Integer}
-        return _lineinfo_from_debuginfo(ir, pc)
+        # On 1.12+ the instruction carries a compact location triple; the first entry is
+        # a program-counter-like index into `ir.debuginfo` used by `buildLineInfoNode`.
+        return _lineinfo_from_debuginfo(ir, Int(li[1]))
     end
 
     if li isa Integer
         lii = Int(li)
         lii <= 0 && return nothing
-        lt = try
-            getproperty(ir, :linetable)
-        catch
-            nothing
-        end
-        if lt !== nothing && lii <= length(lt)
-            linfo = lt[lii]
-            return (linfo isa Core.LineInfoNode) ? linfo : nothing
+        if Base.hasproperty(ir, :linetable)
+            lt = getproperty(ir, :linetable)
+            if lii <= length(lt)
+                linfo = lt[lii]
+                return (linfo isa Core.LineInfoNode) ? linfo : nothing
+            end
         end
         return nothing
     end
