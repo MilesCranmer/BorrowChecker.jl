@@ -80,29 +80,27 @@ Return-aliasing style for calls that return a *tracked* value.
 """
 const _ret_alias = Lockable(IdDict{Any,Symbol}())
 
-@inline function _known_effects_get(f)
+@inline function _known_effects_get(@nospecialize(f))
     return @lock _known_effects get(_known_effects[], f, nothing)
 end
 
-@inline function _known_effects_has(f)::Bool
+@inline function _known_effects_has(@nospecialize(f))::Bool
     return @lock _known_effects haskey(_known_effects[], f)
 end
 
-@inline function _ret_alias_get(f)
+@inline function _ret_alias_get(@nospecialize(f))
     return @lock _ret_alias get(_ret_alias[], f, nothing)
 end
 
-@inline function _ret_alias_has(f)::Bool
+@inline function _ret_alias_has(@nospecialize(f))::Bool
     return @lock _ret_alias haskey(_ret_alias[], f)
 end
 
-@inline function _fresh_return_get(f)::Bool
+@inline function _fresh_return_get(@nospecialize(f))::Bool
     return @lock _fresh_return get(_fresh_return[], f, false)
 end
 
-function register_effects!(
-    f; writes::AbstractVector{<:Integer}=Int[], consumes::AbstractVector{<:Integer}=Int[]
-)
+function register_effects!(@nospecialize(f); writes=(), consumes=())
     @lock _known_effects begin
         _known_effects[][f] = EffectSummary(;
             writes=collect(Int, writes), consumes=collect(Int, consumes)
@@ -111,14 +109,14 @@ function register_effects!(
     return f
 end
 
-function register_fresh_return!(f, fresh::Bool=true)
+function register_fresh_return!(@nospecialize(f), fresh::Bool=true)
     @lock _fresh_return begin
         _fresh_return[][f] = fresh
     end
     return f
 end
 
-function register_return_alias!(f, style::Symbol)
+function register_return_alias!(@nospecialize(f), style::Symbol)
     @assert style in (:none, :arg1, :all)
     @lock _ret_alias begin
         _ret_alias[][f] = style
@@ -128,120 +126,95 @@ end
 
 const _registry_inited = Lockable(Ref{Bool}(false))
 
+@inline function _maybe_register_effects!(
+    @nospecialize(f); writes=(), consumes=()
+)
+    _known_effects_has(f) || register_effects!(f; writes=writes, consumes=consumes)
+    return nothing
+end
+
+@inline function _maybe_register_ret_alias!(@nospecialize(f), ret_alias::Symbol)
+    _ret_alias_has(f) || register_return_alias!(f, ret_alias)
+    return nothing
+end
+
+@inline function _maybe_register_effects_and_alias!(
+    @nospecialize(f),
+    ret_alias::Symbol;
+    writes=(),
+    consumes=(),
+)
+    _maybe_register_effects!(f; writes=writes, consumes=consumes)
+    _maybe_register_ret_alias!(f, ret_alias)
+    return nothing
+end
+
 function _populate_registry!()
-    if !_known_effects_has(__bc_bind__)
-        register_effects!(__bc_bind__)
-    end
-    if !_ret_alias_has(__bc_bind__)
-        register_return_alias!(__bc_bind__, :arg1)
-    end
+    _maybe_register_effects_and_alias!(__bc_bind__, :arg1)
 
     if isdefined(Experimental, :__bc_assert_safe__)
         f = Experimental.__bc_assert_safe__
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
+        _maybe_register_effects_and_alias!(f, :none)
     end
 
     if isdefined(Base, :inferencebarrier)
         f = Base.inferencebarrier
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        _maybe_register_effects_and_alias!(f, :arg1)
     end
 
-    if isdefined(Core, :tuple)
-        f = Core.tuple
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
+    specs = [
+        (Core, :tuple, :none, (), ()),
+        (Core, :apply_type, :none, (), ()),
+        (Core, :typeof, :none, (), ()),
+        (Core, :_typeof_captured_variable, :none, (), ()),
+        (Core, :typeassert, :arg1, (), ()),
+        (Core, :getfield, :arg1, (), ()),
+        (Core, :setfield!, :none, (2,), ()),
+    ]
+
+    for (mod, nm, ret_alias, writes, consumes) in specs
+        isdefined(mod, nm) || continue
+        f = getfield(mod, nm)
+        _maybe_register_effects_and_alias!(f, ret_alias; writes=writes, consumes=consumes)
     end
-    if isdefined(Core, :apply_type)
-        f = Core.apply_type
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
-    end
-    if isdefined(Core, :typeof)
-        f = Core.typeof
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
-    end
-    if isdefined(Core, :_typeof_captured_variable)
-        f = Core._typeof_captured_variable
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
-    end
+
     if isdefined(Core, :(===))
-        f = Core.:(===)
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
+        _maybe_register_effects_and_alias!(Core.:(===), :none)
     else
-        _known_effects_has(===) || register_effects!(===)
-        _ret_alias_has(===) || register_return_alias!(===, :none)
+        _maybe_register_effects_and_alias!(===, :none)
     end
     if isdefined(Core, :(!==))
-        f = Core.:(!==)
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :none)
+        _maybe_register_effects_and_alias!(Core.:(!==), :none)
     else
-        _known_effects_has(!==) || register_effects!(!==)
-        _ret_alias_has(!==) || register_return_alias!(!==, :none)
-    end
-    if isdefined(Core, :typeassert)
-        f = Core.typeassert
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :arg1)
-    end
-    if isdefined(Core, :getfield)
-        f = Core.getfield
-        _known_effects_has(f) || register_effects!(f)
-        _ret_alias_has(f) || register_return_alias!(f, :arg1)
-    end
-
-    if isdefined(Core, :setfield!)
-        f = Core.setfield!
-        _known_effects_has(f) || register_effects!(f; writes=[2])
-        _ret_alias_has(f) || register_return_alias!(f, :none)
+        _maybe_register_effects_and_alias!(!==, :none)
     end
 
     for nm in (:swapfield!, :modifyfield!, :replacefield!, :setfieldonce!)
         if isdefined(Core, nm)
             f = getfield(Core, nm)
-            _known_effects_has(f) || register_effects!(f; writes=[2])
-            _ret_alias_has(f) || register_return_alias!(f, :none)
+            _maybe_register_effects_and_alias!(f, :none; writes=(2,))
         end
     end
 
+    memref_ret_arg1 = (:memoryrefnew, :memoryref, :memoryrefoffset)
+    memref_ret_none = (:memoryrefget,)
+    memref_ret_none_writes = (:memoryrefset!, :memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
+
     for mod in (Core, Base)
-        if isdefined(mod, :memoryrefnew)
-            f = getfield(mod, :memoryrefnew)
-            _known_effects_has(f) || register_effects!(f)
-            _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        for nm in memref_ret_arg1
+            isdefined(mod, nm) || continue
+            f = getfield(mod, nm)
+            _maybe_register_effects_and_alias!(f, :arg1)
         end
-        if isdefined(mod, :memoryref)
-            f = getfield(mod, :memoryref)
-            _known_effects_has(f) || register_effects!(f)
-            _ret_alias_has(f) || register_return_alias!(f, :arg1)
+        for nm in memref_ret_none
+            isdefined(mod, nm) || continue
+            f = getfield(mod, nm)
+            _maybe_register_effects_and_alias!(f, :none)
         end
-        if isdefined(mod, :memoryrefoffset)
-            f = getfield(mod, :memoryrefoffset)
-            _known_effects_has(f) || register_effects!(f)
-            _ret_alias_has(f) || register_return_alias!(f, :arg1)
-        end
-        if isdefined(mod, :memoryrefget)
-            f = getfield(mod, :memoryrefget)
-            _known_effects_has(f) || register_effects!(f)
-            _ret_alias_has(f) || register_return_alias!(f, :none)
-        end
-        if isdefined(mod, :memoryrefset!)
-            f = getfield(mod, :memoryrefset!)
-            _known_effects_has(f) || register_effects!(f; writes=[2])
-            _ret_alias_has(f) || register_return_alias!(f, :none)
-        end
-        for nm in
-            (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
-            if isdefined(mod, nm)
-                f = getfield(mod, nm)
-                _known_effects_has(f) || register_effects!(f; writes=[2])
-                _ret_alias_has(f) || register_return_alias!(f, :none)
-            end
+        for nm in memref_ret_none_writes
+            isdefined(mod, nm) || continue
+            f = getfield(mod, nm)
+            _maybe_register_effects_and_alias!(f, :none; writes=(2,))
         end
     end
 
@@ -255,462 +228,6 @@ function _ensure_registry_initialized()
             _populate_registry!()
             r[] = true
         end
-    end
-    return nothing
-end
-
-struct BorrowViolation
-    idx::Int
-    msg::String
-    lineinfo::Union{Nothing,Any}
-    stmt::Any
-end
-
-struct BorrowCheckError <: Exception
-    tt::Any
-    violations::Vector{BorrowViolation}
-end
-
-const _srcfile_cache = Lockable(Dict{String,Vector{String}}())
-
-@inline function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
-    try
-        return inst[sym]
-    catch
-    end
-    if Base.hasproperty(inst, sym)
-        return getproperty(inst, sym)
-    end
-    return default
-end
-
-function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
-    li === nothing && return nothing
-    li isa Core.LineInfoNode && return li
-    li isa LineNumberNode && return li
-
-    if li isa NTuple{3,<:Integer}
-        # On 1.12+ the instruction carries a compact location triple; the first entry is
-        # a program-counter-like index into `ir.debuginfo` used by `buildLineInfoNode`.
-        return _lineinfo_from_debuginfo(ir, Int(li[1]))
-    end
-
-    if li isa Integer
-        lii = Int(li)
-        lii <= 0 && return nothing
-        if Base.hasproperty(ir, :linetable)
-            lt = getproperty(ir, :linetable)
-            if lii <= length(lt)
-                linfo = lt[lii]
-                return (linfo isa Core.LineInfoNode) ? linfo : nothing
-            end
-        end
-        return nothing
-    end
-
-    return nothing
-end
-
-function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
-    pc <= 0 && return nothing
-    isdefined(CC, :buildLineInfoNode) || return nothing
-    try
-        di = getproperty(ir, :debuginfo)
-        def = try
-            getproperty(di, :def)
-        catch
-            :var"unknown scope"
-        end
-        stack = CC.buildLineInfoNode(di, def, pc)
-        isempty(stack) && return nothing
-        node = stack[1]
-        file = try
-            getproperty(node, :file)
-        catch
-            nothing
-        end
-        line = try
-            getproperty(node, :line)
-        catch
-            nothing
-        end
-        (file isa Symbol && line isa Integer) || return nothing
-        return LineNumberNode(Int(line), file)
-    catch
-        return nothing
-    end
-end
-
-@inline function _lineinfo_file_line(li::Core.LineInfoNode)
-    file = try
-        String(getproperty(li, :file))
-    catch
-        nothing
-    end
-    line = try
-        Int(getproperty(li, :line))
-    catch
-        nothing
-    end
-    return file, line
-end
-
-@inline function _lineinfo_file_line(li::LineNumberNode)
-    file = try
-        String(getproperty(li, :file))
-    catch
-        nothing
-    end
-    line = try
-        Int(getproperty(li, :line))
-    catch
-        nothing
-    end
-    return file, line
-end
-
-function _lineinfo_chain(li::Core.LineInfoNode)
-    chain = Core.LineInfoNode[]
-    cur = li
-    while cur isa Core.LineInfoNode
-        push!(chain, cur)
-        cur = try
-            getproperty(cur, :inlined_at)
-        catch
-            nothing
-        end
-    end
-    return chain
-end
-
-function _read_file_lines(file::String)
-    lines = String[]
-    @lock _srcfile_cache begin
-        lines = get!(_srcfile_cache[], file) do
-            try
-                readlines(file)
-            catch
-                String[]
-            end
-        end
-    end
-    return lines
-end
-
-function _recover_callee_from_tt(tt)
-    try
-        tt_u = Base.unwrap_unionall(tt)
-        tt_u isa DataType || return (nothing, nothing)
-        ps = tt_u.parameters
-        isempty(ps) && return (nothing, nothing)
-        fT = ps[1]
-        Base.issingletontype(fT) || return (nothing, nothing)
-        f = getfield(fT, :instance)
-        argT = Tuple{ps[2:end]...}
-        return (f, argT)
-    catch
-        return (nothing, nothing)
-    end
-end
-
-function _print_source_context(io::IO, tt, li; context::Int=0)
-    file, line = if li isa Core.LineInfoNode || li isa LineNumberNode
-        _lineinfo_file_line(li)
-    else
-        return nothing
-    end
-    (file === nothing || line === nothing) && return nothing
-
-    if li isa Core.LineInfoNode
-        chain = _lineinfo_chain(li)
-        for (k, c) in enumerate(chain)
-            f, l = _lineinfo_file_line(c)
-            (f === nothing || l === nothing) && continue
-            if k == 1
-                println(io, "      at ", f, ":", l)
-            else
-                println(io, "      inlined at ", f, ":", l)
-            end
-        end
-    else
-        println(io, "      at ", file, ":", line)
-    end
-
-    if isfile(file)
-        lines = _read_file_lines(file)
-        if 1 <= line <= length(lines)
-            lo = max(1, line - context)
-            hi = min(length(lines), line + context)
-            for ln in lo:hi
-                prefix = (ln == line) ? "      > " : "        "
-                println(io, prefix, rpad(string(ln), 5), " ", lines[ln])
-            end
-            return nothing
-        end
-    end
-
-    f, argT = _recover_callee_from_tt(tt)
-    (f === nothing || argT === nothing) && return nothing
-
-    cis = try
-        Base.code_lowered(f, argT; debuginfo=:source)
-    catch
-        try
-            Base.code_lowered(f, argT)
-        catch
-            Any[]
-        end
-    end
-    isempty(cis) && return nothing
-
-    filesym = Symbol(file)
-    for ci in cis
-        ci isa Core.CodeInfo || continue
-        buf = Any[]
-
-        # Older representation: LineNumberNode markers embedded in `ci.code`.
-        collecting = false
-        for st in ci.code
-            if st isa LineNumberNode
-                if collecting
-                    break
-                end
-                collecting = (st.file == filesym && st.line == line)
-                continue
-            end
-            collecting || continue
-            push!(buf, st)
-        end
-
-        # Alternate representation: locations via `codelocs` -> `linetable`.
-        if isempty(buf)
-            lt = try
-                getproperty(ci, :linetable)
-            catch
-                nothing
-            end
-            locs = try
-                getproperty(ci, :codelocs)
-            catch
-                nothing
-            end
-            if lt !== nothing && locs !== nothing
-                first_idx = 0
-                for i in 1:min(length(ci.code), length(locs))
-                    loc = locs[i]
-                    (loc isa Integer) || continue
-                    lii = Int(loc)
-                    (lii <= 0 || lii > length(lt)) && continue
-                    li = lt[lii]
-                    li isa Core.LineInfoNode || continue
-                    (
-                        String(getproperty(li, :file)) == file &&
-                        Int(getproperty(li, :line)) == line
-                    ) || continue
-                    first_idx = i
-                    break
-                end
-                if first_idx != 0
-                    li0 = lt[Int(locs[first_idx])]
-                    for j in first_idx:min(length(ci.code), length(locs))
-                        loc = locs[j]
-                        (loc isa Integer) || break
-                        lii = Int(loc)
-                        (lii <= 0 || lii > length(lt)) && break
-                        lij = lt[lii]
-                        lij == li0 || break
-                        push!(buf, ci.code[j])
-                    end
-                end
-            end
-        end
-
-        if !isempty(buf)
-            println(io, "      lowered:")
-            for ex in buf
-                s = try
-                    sprint(show, ex)
-                catch
-                    ""
-                end
-                isempty(s) || println(io, "        ", s)
-            end
-            break
-        end
-
-        # If we can't recover line locations on this Julia version, print a small
-        # best-effort snippet from the lowered code anyway.
-        println(io, "      lowered:")
-        n = min(6, length(ci.code))
-        for i in 1:n
-            s = try
-                sprint(show, ci.code[i])
-            catch
-                ""
-            end
-            isempty(s) || println(io, "        ", s)
-        end
-        break
-    end
-
-    return nothing
-end
-
-function Base.showerror(io::IO, e::BorrowCheckError)
-    println(io, "BorrowCheckError for specialization ", e.tt)
-    for (k, v) in enumerate(e.violations)
-        println(io)
-        println(io, "  [", k, "] stmt#", v.idx, ": ", v.msg)
-        if v.lineinfo !== nothing
-            try
-                _print_source_context(io, e.tt, v.lineinfo; context=0)
-            catch
-                println(io, "      ", v.lineinfo)
-            end
-        end
-        try
-            s = sprint(show, v.stmt)
-            if length(s) > 240
-                s = s[1:240] * "…"
-            end
-            println(io, "      stmt: ", s)
-        catch
-            # ignore printing failures
-        end
-    end
-end
-
-const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
-struct SummaryCacheEntry
-    summary::EffectSummary
-    depth::Int
-    over_budget::Bool
-end
-
-Base.@kwdef struct SummaryState
-    summary_cache::IdDict{Any,SummaryCacheEntry} = IdDict{Any,SummaryCacheEntry}()
-    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{
-        Tuple{Any,UInt},SummaryCacheEntry
-    }()
-    summary_inprogress::Base.IdSet{Any} = Base.IdSet{Any}()
-    tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
-end
-
-const _summary_state = Lockable(SummaryState())
-
-Base.@kwdef struct TypeTracker
-    seen::Base.IdSet{Any} = Base.IdSet{Any}()
-end
-
-function (tt::TypeTracker)(@nospecialize(T))::Bool
-    T === Union{} && return false
-    T === Any && return true  # conservative
-    if T isa Union
-        return any(tt, Base.uniontypes(T))
-    end
-    T isa Type || return true  # conservative for non-Type lattice elements
-
-    # Arrays and common reference carriers
-    if T <: AbstractArray
-        return true
-    end
-    if isdefined(Base, :RefValue) && (T <: Base.RefValue)
-        return true
-    end
-    if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
-        return true
-    end
-    if isdefined(Core, :GenericMemoryRef) && (T <: Core.GenericMemoryRef)
-        return true
-    end
-    if isdefined(Core, :GenericMemory) && (T <: Core.GenericMemory)
-        return true
-    end
-
-    dt = Base.unwrap_unionall(T)
-    if dt isa DataType
-        if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
-            return false
-        end
-        Base.isconcretetype(dt) || return true
-
-        # Mutable structs are tracked.
-        Base.ismutabletype(dt) && return true
-
-        # Immutable structs are tracked if they *carry* tracked values (like `struct B; a::A; end`).
-        Base.isbitstype(dt) && return false
-        if dt in tt.seen
-            return true
-        end
-        push!(tt.seen, dt)
-        return any(tt, fieldtypes(dt))
-    end
-    return true
-end
-
-"Is `T` considered a \"tracked\" mutable reference for borrow checking?"
-is_tracked_type(@nospecialize T)::Bool = TypeTracker()(T)
-
-@inline _ssa_handle(nargs::Int, id::Int) = nargs + id
-@inline _arg_handle(id::Int) = id
-
-@inline function _handle_index(
-    x, nargs::Int, track_arg::AbstractVector{Bool}, track_ssa::AbstractVector{Bool}
-)
-    if x isa Core.Argument
-        n = x.n
-        return (1 <= n <= length(track_arg) && track_arg[n]) ? _arg_handle(n) : 0
-    elseif x isa Core.SSAValue
-        i = x.id
-        return (1 <= i <= length(track_ssa) && track_ssa[i]) ? _ssa_handle(nargs, i) : 0
-    else
-        return 0
-    end
-end
-
-function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
-    try
-        inst = ir[Core.SSAValue(idx)]
-        li = _inst_get(inst, :line, nothing)
-        return _normalize_lineinfo(ir, li, idx)
-    catch
-        return nothing
-    end
-end
-
-mutable struct UnionFind
-    parent::Vector{Int}
-    rank::Vector{UInt8}
-end
-
-function UnionFind(n::Int)
-    parent = collect(1:n)
-    rank = fill(UInt8(0), n)
-    return UnionFind(parent, rank)
-end
-
-@inline function _uf_find(uf::UnionFind, x::Int)
-    p = uf.parent[x]
-    if p == x
-        return x
-    end
-    r = _uf_find(uf, p)
-    uf.parent[x] = r
-    return r
-end
-
-@inline function _uf_union!(uf::UnionFind, a::Int, b::Int)
-    ((a == 0) || (b == 0) || (a == b)) && return nothing
-    ra = _uf_find(uf, a)
-    rb = _uf_find(uf, b)
-    ra == rb && return nothing
-    if uf.rank[ra] < uf.rank[rb]
-        uf.parent[ra] = rb
-    elseif uf.rank[ra] > uf.rank[rb]
-        uf.parent[rb] = ra
-    else
-        uf.parent[rb] = ra
-        uf.rank[ra] += 1
     end
     return nothing
 end

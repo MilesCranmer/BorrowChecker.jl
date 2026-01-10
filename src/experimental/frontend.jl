@@ -3,6 +3,8 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
+const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
+
 function check_signature(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
