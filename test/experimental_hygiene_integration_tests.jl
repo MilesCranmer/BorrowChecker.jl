@@ -1,4 +1,4 @@
-@testitem "Experimental @borrow_checker hygiene and tracking" tags=[:unstable] begin
+@testitem "Experimental @borrow_checker hygiene and tracking" tags = [:unstable] begin
     using TestItems
     using BorrowChecker.Experimental: @borrow_checker
 
@@ -33,13 +33,10 @@
     @testset "runtime hygiene: no `BorrowChecker` binding needed" begin
         user_mod = Module(:_BCHygieneRuntimeUser)
         Core.eval(user_mod, :(using BorrowChecker.Experimental: @borrow_checker))
-        Core.eval(
-            user_mod,
-            :(@borrow_checker function f(x)
-                y = x
-                return y
-            end),
-        )
+        Core.eval(user_mod, :(@borrow_checker function f(x)
+            y = x
+            return y
+        end))
         @test Core.eval(user_mod, :(f([1, 2, 3]))) == [1, 2, 3]
     end
 

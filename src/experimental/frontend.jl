@@ -153,9 +153,14 @@ function _instrument_assignments(ex)
         if rhs2 isa Expr && rhs2.head === :block && length(rhs2.args) >= 2
             last = rhs2.args[end]
             if last isa Symbol && any(
-                a -> (a isa Expr && a.head === :function && a.args[1] isa Expr &&
-                    a.args[1].head === :call && a.args[1].args[1] == last),
-                rhs2.args[1:end-1],
+                a -> (
+                    a isa Expr &&
+                    a.head === :function &&
+                    a.args[1] isa Expr &&
+                    a.args[1].head === :call &&
+                    a.args[1].args[1] == last
+                ),
+                rhs2.args[1:(end - 1)],
             )
                 return Expr(:(=), lhs2, rhs2)
             end

@@ -29,7 +29,8 @@ end
 end
 
 testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
-include_unstable = lowercase(get(ENV, "BORROWCHECKER_INCLUDE_UNSTABLE", "")) in ("1", "true", "yes")
+include_unstable =
+    lowercase(get(ENV, "BORROWCHECKER_INCLUDE_UNSTABLE", "")) in ("1", "true", "yes")
 
 filter = if !isempty(testitem_name_filter)
     ti -> ti.name == testitem_name_filter
@@ -39,4 +40,4 @@ else
     nothing
 end
 
-@run_package_tests filter=filter
+@run_package_tests filter = filter

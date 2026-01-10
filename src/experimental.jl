@@ -13,7 +13,9 @@ else
     """
     macro borrow_checker(ex)
         is_borrow_checker_enabled(__module__) || return esc(ex)
-        return error("BorrowChecker.Experimental.@borrow_checker requires Base.code_ircode_by_type")
+        return error(
+            "BorrowChecker.Experimental.@borrow_checker requires Base.code_ircode_by_type"
+        )
     end
 end
 

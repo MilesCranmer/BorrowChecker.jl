@@ -1,4 +1,4 @@
-@testitem "DynamicExpressions integration" tags=[:unstable] begin
+@testitem "DynamicExpressions integration" tags = [:unstable] begin
     using TestItems
     using BorrowChecker
 
@@ -9,8 +9,8 @@
     using BorrowChecker.Experimental: BorrowCheckError
 
     operators = OperatorEnum(1 => [exp], 2 => [+, -, *])
-    x1 = Expression(Node{Float64}(feature=1); operators)
-    x2 = Expression(Node{Float64}(feature=2); operators)
+    x1 = Expression(Node{Float64}(; feature=1); operators)
+    x2 = Expression(Node{Float64}(; feature=2); operators)
 
     BorrowChecker.Experimental.@borrow_checker bat(ex) = begin
         (c1, r1) = get_scalar_constants(ex)

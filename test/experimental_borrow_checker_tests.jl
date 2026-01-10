@@ -1,8 +1,8 @@
-@testitem "Experimental @borrow_checker" tags=[:unstable] begin
+@testitem "Experimental @borrow_checker" tags = [:unstable] begin
     using TestItems
     using BorrowChecker
 
-    using BorrowChecker.Experimental: BorrowCheckError
+    using BorrowChecker.Experimental: BorrowCheckError, @borrow_checker
 
     mutable struct Box
         x::Int
@@ -224,6 +224,39 @@
     @test_throws BorrowCheckError _bc_bad_closure_capture()
     @test_throws BorrowCheckError _bc_bad_closure_capture_nested()
     @test _bc_ok_closure_capture_readonly() == [1, 2, 3]
+
+    f_kwcall_ok(; x, y) = x .+ y
+    f_kwcall_ok_mut(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
+    f_kwcall_alias_bad(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
+
+    @borrow_checker function _bc_ok_kwcall()
+        x = [1, 2, 3]
+        y = copy(x)
+        return sum(f_kwcall_ok(; x=x, y=y))
+    end
+
+    @borrow_checker function _bc_ok_kwcall_mut()
+        x = [1, 2, 3]
+        y = copy(x)
+        return sum(f_kwcall_ok_mut(; x=x, y=y))
+    end
+
+    @borrow_checker function _bc_bad_kwcall_alias_should_error()
+        x = [1, 2, 3]
+        y = x
+        return sum(f_kwcall_alias_bad(; x=x, y=y))
+    end
+
+    @test _bc_ok_kwcall() == 12
+    @test _bc_ok_kwcall_mut() == 14
+    @test begin
+        try
+            _bc_bad_kwcall_alias_should_error()
+            false
+        catch e
+            e isa BorrowCheckError
+        end
+    end broken = true
 
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
         local_f(x) = x

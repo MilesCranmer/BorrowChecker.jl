@@ -53,6 +53,69 @@ function _is_functor_instance(@nospecialize(f))
     end
 end
 
+@inline function _unwrap_unionall_datatype(@nospecialize(x))
+    try
+        dt = Base.unwrap_unionall(x)
+        return dt isa DataType ? dt : nothing
+    catch
+        return nothing
+    end
+end
+
+@inline function _is_namedtuple_ctor(@nospecialize(f))::Bool
+    dt = _unwrap_unionall_datatype(f)
+    dt === nothing && return false
+    return dt.name === Base.unwrap_unionall(NamedTuple).name
+end
+
+function _maybe_tuple_elements(@nospecialize(tup), ir::CC.IRCode)
+    tup isa Core.SSAValue || return nothing
+    sid = tup.id
+    1 <= sid <= length(ir.stmts) || return nothing
+    def = ir.stmts[sid]
+    def isa Expr || return nothing
+    if def.head === :call
+        f = _resolve_callee(def, ir)
+        if f === Core.tuple
+            return def.args[2:end]
+        end
+    elseif def.head === :tuple
+        return def.args
+    end
+    return nothing
+end
+
+function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
+    length(raw_args) >= 3 || return nothing
+
+    fexpr = raw_args[3]
+    ft = try
+        CC.argextype(fexpr, ir)
+    catch
+        return nothing
+    end
+
+    fobj = CC.singleton_type(ft)
+    fobj === nothing && return nothing
+
+    kwf = try
+        Core.kwfunc(fobj)
+    catch
+        return nothing
+    end
+
+    argtypes = Any[typeof(kwf)]
+    for i in 2:length(raw_args)
+        ti = try
+            CC.widenconst(CC.argextype(raw_args[i], ir))
+        catch
+            Any
+        end
+        push!(argtypes, ti)
+    end
+    return Core.apply_type(Tuple, argtypes...)
+end
+
 mutable struct BudgetTracker
     hit::Bool
 end
@@ -109,6 +172,26 @@ function _effects_for_call(
     if f !== nothing
         s = _known_effects_get(f)
         s === nothing || return s
+    end
+
+    if f !== nothing && _is_namedtuple_ctor(f)
+        return EffectSummary()
+    end
+
+    if f === Core.kwcall && cfg.analyze_invokes
+        tt_kw = _kwcall_tt_from_raw_args(raw_args, ir)
+        if tt_kw !== nothing
+            if depth < cfg.max_summary_depth
+                s = _summary_for_tt(
+                    tt_kw, cfg; depth=depth + 1, budget_state=budget_state, allow_core=true
+                )
+                if s !== nothing
+                    return s
+                end
+            else
+                _mark_budget_hit!(budget_state)
+            end
+        end
     end
 
     # If we have a statically resolved method instance, we can optionally summarize it.
@@ -216,7 +299,8 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
         return Any
     end
     stmt isa Expr && stmt.head === :call || return Any
-    (stmt.args[1] === Core.getfield || stmt.args[1] == GlobalRef(Core, :getfield)) || return Any
+    (stmt.args[1] === Core.getfield || stmt.args[1] == GlobalRef(Core, :getfield)) ||
+        return Any
     length(stmt.args) >= 3 || return Any
     fld = stmt.args[3]
     fldsym = fld isa QuoteNode ? fld.value : fld
@@ -226,7 +310,8 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     for i in 1:length(ir.stmts)
         st = ir[Core.SSAValue(i)][:stmt]
         st isa Expr && st.head === :call || continue
-        (st.args[1] === Core.setfield! || st.args[1] == GlobalRef(Core, :setfield!)) || continue
+        (st.args[1] === Core.setfield! || st.args[1] == GlobalRef(Core, :setfield!)) ||
+            continue
         length(st.args) >= 4 || continue
         f = st.args[3]
         fsym = f isa QuoteNode ? f.value : f
@@ -245,7 +330,9 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     return Any
 end
 
-function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing)
+function _summary_for_tt(
+    tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool=false
+)
     world = Base.get_world_counter()
     key = (tt, UInt(world))
     cached = nothing
@@ -272,7 +359,7 @@ function _summary_for_tt(tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_stat
                         m = targ.name.module
                     end
                 end
-                if m === Core || m === Experimental
+                if m === Experimental || (!allow_core && m === Core)
                     return nothing
                 end
             end
@@ -420,7 +507,9 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     return cached2 === nothing ? summ : cached2.summary
 end
 
-function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int, budget_state=nothing)::EffectSummary
+function _summarize_ir_effects(
+    ir::CC.IRCode, cfg::Config; depth::Int, budget_state=nothing
+)::EffectSummary
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)
 
@@ -447,7 +536,9 @@ function _summarize_ir_effects(ir::CC.IRCode, cfg::Config; depth::Int, budget_st
 
     # Alias union-find.
     uf = UnionFind(nargs + nstmts)
-    _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs; depth=depth, budget_state=budget_state)
+    _build_alias_classes!(
+        uf, ir, cfg, track_arg, track_ssa, nargs; depth=depth, budget_state=budget_state
+    )
 
     writes = BitSet()
     consumes = BitSet()
@@ -590,6 +681,10 @@ function _build_alias_classes!(
             raw_args = (stmt.head === :invoke) ? stmt.args[2:end] : stmt.args
             f = _resolve_callee(stmt, ir)
 
+            if f !== nothing && _is_namedtuple_ctor(f)
+                continue
+            end
+
             if f === Core.setfield! && length(raw_args) >= 4
                 fld = raw_args[3]
                 fldsym = fld isa QuoteNode ? fld.value : fld
@@ -643,16 +738,39 @@ function _build_alias_classes!(
                 s = nothing
                 if depth < cfg.max_summary_depth
                     if stmt.head === :invoke
-                        s = _summary_for_mi(stmt.args[1], cfg; depth=depth + 1, budget_state=budget_state)
+                        s = _summary_for_mi(
+                            stmt.args[1], cfg; depth=depth + 1, budget_state=budget_state
+                        )
                     else
-                        tt = _call_tt_from_raw_args(raw_args, ir)
-                        tt !== nothing && (s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state))
+                        if f === Core.kwcall
+                            tt = _kwcall_tt_from_raw_args(raw_args, ir)
+                            tt !== nothing && (
+                                s = _summary_for_tt(
+                                    tt,
+                                    cfg;
+                                    depth=depth + 1,
+                                    budget_state=budget_state,
+                                    allow_core=true,
+                                )
+                            )
+                        else
+                            tt = _call_tt_from_raw_args(raw_args, ir)
+                            tt !== nothing && (
+                                s = _summary_for_tt(
+                                    tt, cfg; depth=depth + 1, budget_state=budget_state
+                                )
+                            )
+                        end
                     end
                 else
                     if stmt.head === :invoke
                         _mark_budget_hit!(budget_state)
                     else
-                        tt = _call_tt_from_raw_args(raw_args, ir)
+                        tt = if (f === Core.kwcall)
+                            _kwcall_tt_from_raw_args(raw_args, ir)
+                        else
+                            _call_tt_from_raw_args(raw_args, ir)
+                        end
                         tt === nothing || _mark_budget_hit!(budget_state)
                     end
                 end
@@ -785,7 +903,8 @@ function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, tra
 
         if stmt isa Expr && (stmt.head === :call || stmt.head === :invoke)
             f = _resolve_callee(stmt, ir)
-            if f === __bc_bind__ || (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
+            if f === __bc_bind__ ||
+                (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
                 origins[hdef] = hdef
                 continue
             end
@@ -1025,32 +1144,16 @@ function _check_stmt!(
         for hv in used
             hv == 0 && continue
             _require_unique!(
-                viols,
-                ir,
-                idx,
-                stmt,
-                uf,
-                origins,
-                hv,
-                live_during;
-                context="write",
+                viols, ir, idx, stmt, uf, origins, hv, live_during; context="write"
             )
         end
-        return
+        return nothing
     end
 
-    if cfg.unknown_call_policy === :consume &&
-        _call_safe_under_unknown_consume(
-            raw_args,
-            nargs,
-            track_arg,
-            track_ssa,
-            uf,
-            origins,
-            live_during,
-            live_after,
-        )
-        return
+    if cfg.unknown_call_policy === :consume && _call_safe_under_unknown_consume(
+        raw_args, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
+    )
+        return nothing
     end
 
     eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx)
@@ -1082,15 +1185,7 @@ function _check_stmt!(
         hv = _handle_index(v, nargs, track_arg, track_ssa)
         hv == 0 && continue
         _require_unique!(
-            viols,
-            ir,
-            idx,
-            stmt,
-            uf,
-            origins,
-            hv,
-            live_during;
-            context="consume",
+            viols, ir, idx, stmt, uf, origins, hv, live_during; context="consume"
         )
         _require_not_used_later!(viols, ir, idx, stmt, uf, origins, hv, live_after)
     end

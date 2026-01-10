@@ -48,7 +48,6 @@ Base.@kwdef struct Config
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 8
-
 end
 
 const DEFAULT_CONFIG = Config()
@@ -236,7 +235,8 @@ function _populate_registry!()
             _known_effects_has(f) || register_effects!(f; writes=[2])
             _ret_alias_has(f) || register_return_alias!(f, :none)
         end
-        for nm in (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
+        for nm in
+            (:memoryrefswap!, :memoryrefmodify!, :memoryrefreplace!, :memoryrefsetonce!)
             if isdefined(mod, nm)
                 f = getfield(mod, nm)
                 _known_effects_has(f) || register_effects!(f; writes=[2])
@@ -589,7 +589,9 @@ end
 
 Base.@kwdef struct SummaryState
     summary_cache::IdDict{Any,SummaryCacheEntry} = IdDict{Any,SummaryCacheEntry}()
-    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{Tuple{Any,UInt},SummaryCacheEntry}()
+    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{
+        Tuple{Any,UInt},SummaryCacheEntry
+    }()
     summary_inprogress::Base.IdSet{Any} = Base.IdSet{Any}()
     tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
 end
@@ -645,7 +647,6 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     end
     return true
 end
-
 
 "Is `T` considered a \"tracked\" mutable reference for borrow checking?"
 is_tracked_type(@nospecialize T)::Bool = TypeTracker()(T)

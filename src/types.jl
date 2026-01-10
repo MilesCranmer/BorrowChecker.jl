@@ -290,10 +290,14 @@ function LazyAccessor(x::LazyAccessor, ::Val{subproperty}) where {subproperty}
     )
 end
 
-function LazyAccessor(x::O, idx::Tuple) where {O<:Union{Owned,OwnedMut,Borrowed,BorrowedMut}}
+function LazyAccessor(
+    x::O, idx::Tuple
+) where {O<:Union{Owned,OwnedMut,Borrowed,BorrowedMut}}
     parent = unsafe_get_value(x)
     property_type = typeof(getindex(parent, idx...))
-    return LazyAccessor{property_type,typeof(parent),typeof(idx),O}(parent, idx, property_type, x)
+    return LazyAccessor{property_type,typeof(parent),typeof(idx),O}(
+        parent, idx, property_type, x
+    )
 end
 
 function LazyAccessor(x::LazyAccessor, idx::Tuple)
