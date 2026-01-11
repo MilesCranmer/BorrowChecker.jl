@@ -60,9 +60,6 @@ end
 
 const _known_effects = Lockable(IdDict{Any,EffectSummary}())
 
-"Whether a call's return value is known to be fresh (non-aliasing) wrt arguments."
-const _fresh_return = Lockable(IdDict{Any,Bool}())
-
 """
 Return-aliasing style for calls that return a *tracked* value.
 
@@ -88,22 +85,11 @@ end
     return @lock _ret_alias haskey(_ret_alias[], f)
 end
 
-@inline function _fresh_return_get(@nospecialize(f))::Bool
-    return @lock _fresh_return get(_fresh_return[], f, false)
-end
-
 function register_effects!(@nospecialize(f); writes=(), consumes=())
     @lock _known_effects begin
         _known_effects[][f] = EffectSummary(;
             writes=collect(Int, writes), consumes=collect(Int, consumes)
         )
-    end
-    return f
-end
-
-function register_fresh_return!(@nospecialize(f), fresh::Bool=true)
-    @lock _fresh_return begin
-        _fresh_return[][f] = fresh
     end
     return f
 end

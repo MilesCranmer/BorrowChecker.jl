@@ -88,10 +88,6 @@ function _build_alias_classes!(
                 end
             end
 
-            if f !== nothing && _fresh_return_get(f)
-                continue
-            end
-
             alias_args = Int[]
             if f !== nothing && _ret_alias_has(f)
                 style = _ret_alias_get(f)
