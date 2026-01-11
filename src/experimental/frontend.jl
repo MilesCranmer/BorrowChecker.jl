@@ -9,15 +9,17 @@ function check_signature(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
     _ensure_registry_initialized()
-    codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-    viols = BorrowViolation[]
-    for entry in codes
-        ir = entry.first
-        ir isa CC.IRCode || continue
-        append!(viols, check_ir(ir, cfg))
+    return _with_reflection_ctx(world) do
+        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        viols = BorrowViolation[]
+        for entry in codes
+            ir = entry.first
+            ir isa CC.IRCode || continue
+            append!(viols, check_ir(ir, cfg))
+        end
+        isempty(viols) || throw(BorrowCheckError(tt, viols))
+        return true
     end
-    isempty(viols) || throw(BorrowCheckError(tt, viols))
-    return true
 end
 
 Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)

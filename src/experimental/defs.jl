@@ -39,7 +39,7 @@ Base.@kwdef struct Config
     analyze_invokes::Bool = true
 
     "Max depth for recursive effect summarization."
-    max_summary_depth::Int = 8
+    max_summary_depth::Int = 12
 end
 
 const DEFAULT_CONFIG = Config()

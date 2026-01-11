@@ -15,6 +15,42 @@ end
 
 const _summary_state = Lockable(SummaryState())
 
+const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerExperimental__reflection_ctx
+
+@inline function _reflection_ctx()
+    return get(Base.task_local_storage(), _TLS_REFLECTION_CTX_KEY, nothing)
+end
+
+@inline function _reflection_world(default::UInt=Base.get_world_counter())
+    ctx = _reflection_ctx()
+    return (ctx === nothing) ? default : ctx.world
+end
+
+@inline function _reflection_interp()
+    ctx = _reflection_ctx()
+    return (ctx === nothing) ? nothing : ctx.interp
+end
+
+function _with_reflection_ctx(f::Function, world::UInt)
+    tls = Base.task_local_storage()
+    old = get(tls, _TLS_REFLECTION_CTX_KEY, nothing)
+    tls[_TLS_REFLECTION_CTX_KEY] = (; world=world, interp=CC.NativeInterpreter(world))
+    try
+        return f()
+    finally
+        old === nothing ? pop!(tls, _TLS_REFLECTION_CTX_KEY, nothing) :
+        (tls[_TLS_REFLECTION_CTX_KEY] = old)
+    end
+end
+
+function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
+    interp = _reflection_interp()
+    if interp === nothing
+        return Base.code_ircode_by_type(tt; optimize_until=optimize_until, world=world)
+    end
+    return Base.code_ircode_by_type(tt; optimize_until=optimize_until, world=world, interp=interp)
+end
+
 mutable struct BudgetTracker
     hit::Bool
 end
@@ -47,6 +83,10 @@ function _summary_cached_tt(
             cached.over_budget && _mark_budget_hit!(budget_state)
             return cached.summary
         end
+    end
+
+    if budget_state !== nothing
+        budget_state.hit && return nothing
     end
 
     reentered = false
@@ -102,6 +142,10 @@ function _summary_cached_mi(
         end
     end
 
+    if budget_state !== nothing
+        budget_state.hit && return nothing
+    end
+
     reentered = false
     Base.@lock _summary_state begin
         reentered = (key in _summary_state[].summary_inprogress)
@@ -144,7 +188,7 @@ end
 function _summary_for_tt(
     tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool=false
 )
-    world = Base.get_world_counter()
+    world = _reflection_world()
     key = (tt, UInt(world))
 
     try
@@ -171,7 +215,7 @@ function _summary_for_tt(
     return _summary_cached_tt(
         key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
-        codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
         writes = BitSet()
         consumes = BitSet()
         ret_aliases = BitSet()
@@ -206,8 +250,8 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         mi, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
         tt = mi.specTypes
-        world = Base.get_world_counter()
-        codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        world = _reflection_world()
+        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
         writes = BitSet()
         consumes = BitSet()
         ret_aliases = BitSet()
