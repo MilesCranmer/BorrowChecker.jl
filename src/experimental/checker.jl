@@ -6,7 +6,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
 
     uf = UnionFind(nargs + nstmts)
     _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs)
-    origins = _binding_origins(ir, cfg, nargs, track_arg, track_ssa)
+    origins = _binding_origins(ir, nargs, track_arg, track_ssa)
 
     live_in, live_out = _compute_liveness(ir, nargs, track_arg, track_ssa)
 

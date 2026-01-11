@@ -77,15 +77,17 @@ end
 
 function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
     pc <= 0 && return nothing
-    isdefined(CC, :buildLineInfoNode) || return nothing
+    builder = if isdefined(CC, :IRShow) && isdefined(CC.IRShow, :buildLineInfoNode)
+        CC.IRShow.buildLineInfoNode
+    elseif isdefined(CC, :buildLineInfoNode)
+        CC.buildLineInfoNode
+    else
+        nothing
+    end
+    builder === nothing && return nothing
     try
         di = getproperty(ir, :debuginfo)
-        def = try
-            getproperty(di, :def)
-        catch
-            :var"unknown scope"
-        end
-        stack = CC.buildLineInfoNode(di, def, pc)
+        stack = builder(di, nothing, pc)
         isempty(stack) && return nothing
         node = stack[1]
         file = try
@@ -106,25 +108,27 @@ function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
 end
 
 function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
-    li === nothing && return nothing
     li isa Core.LineInfoNode && return li
     li isa LineNumberNode && return li
 
-    if li isa NTuple{3,<:Integer}
-        return _lineinfo_from_debuginfo(ir, Int(li[1]))
+    if pc > 0
+        tmp = _lineinfo_from_debuginfo(ir, pc)
+        tmp !== nothing && return tmp
     end
 
     if li isa Integer
         lii = Int(li)
         lii <= 0 && return nothing
         if Base.hasproperty(ir, :linetable)
-            lt = getproperty(ir, :linetable)
-            if lii <= length(lt)
-                linfo = lt[lii]
+            linetable = getproperty(ir, :linetable)
+            if lii <= length(linetable)
+                linfo = linetable[lii]
                 return (linfo isa Core.LineInfoNode) ? linfo : nothing
             end
         end
-        return nothing
+        return LineNumberNode(lii, Symbol("unknown"))
+    elseif li isa NTuple{3,<:Integer}
+        return _lineinfo_from_debuginfo(ir, Int(li[1]))
     end
 
     return nothing

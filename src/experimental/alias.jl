@@ -169,7 +169,7 @@ function _build_alias_classes!(
     return uf
 end
 
-function _binding_origins(ir::CC.IRCode, cfg::Config, nargs::Int, track_arg, track_ssa)
+function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     nstmts = length(ir.stmts)
     origins = collect(1:(nargs + nstmts))
 

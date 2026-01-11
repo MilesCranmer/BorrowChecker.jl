@@ -224,24 +224,28 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
 end
 
 function Base.showerror(io::IO, e::BorrowCheckError)
-    println(io, "BorrowCheckError for specialization ", e.tt)
-    for (k, v) in enumerate(e.violations)
+    print(io, "BorrowCheckError for specialization ", e.tt)
+
+    try
+        (f, argT) = _recover_callee_from_tt(e.tt)
+        m = which(f, argT)
+        (file, line) = Base.functionloc(m)
+        print(io, "\n\n  method: ", m, " at ", file, ":", line)
+    catch
+    end
+
+    for (i, v) in enumerate(e.violations)
         println(io)
-        println(io, "  [", k, "] stmt#", v.idx, ": ", v.msg)
+        println(io)
+        print(io, "  [", i, "] stmt#", v.idx, ": ", v.msg)
         if v.lineinfo !== nothing
             try
-                _print_source_context(io, e.tt, v.lineinfo; context=0)
+                _print_source_context(io, e.tt, v.lineinfo; context=2)
             catch
                 println(io, "      ", v.lineinfo)
             end
         end
-        try
-            s = sprint(show, v.stmt)
-            if length(s) > 240
-                s = s[1:240] * "…"
-            end
-            println(io, "      stmt: ", s)
-        catch
-        end
+        println(io)
+        print(io, "      stmt: ", v.stmt)
     end
 end

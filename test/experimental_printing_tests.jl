@@ -36,4 +36,34 @@
         @test occursin("lowered:", s)
         @test occursin("foo!", s)
     end
+
+    @testset "BorrowCheckError includes REPL context (real checker)" begin
+        mod = Module(:_BCPrintRealMod)
+        Core.eval(mod, :(using BorrowChecker.Experimental: @borrow_checker))
+        Base.include_string(
+            mod,
+            """
+            @borrow_checker function foo()
+                x = [1, 2, 3]
+                y = x
+                push!(x, 9)
+                return y
+            end
+            """,
+            "REPL[999]",
+        )
+
+        err = try
+            getfield(mod, :foo)()
+            nothing
+        catch e
+            e
+        end
+
+        @test err isa BorrowCheckError
+        s = sprint(showerror, err)
+        @test occursin("REPL[999]", s)
+        @test occursin("lowered:", s)
+        @test occursin("push!", s)
+    end
 end
