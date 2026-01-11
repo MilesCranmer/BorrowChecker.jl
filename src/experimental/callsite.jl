@@ -138,17 +138,29 @@ function _maybe_namedtuple_value_exprs(@nospecialize(nt), ir::CC.IRCode)
     return raw_args[2:end]
 end
 
-@inline function _kwcall_value_handles(raw_args, ir::CC.IRCode, nargs, track_arg, track_ssa)
-    length(raw_args) >= 2 || return Int[]
-    vals = _maybe_namedtuple_value_exprs(raw_args[2], ir)
-    vals === nothing && return Int[]
+function _kwcall_value_exprs(@nospecialize(stmt), ir::CC.IRCode)
+    head, _mi, raw_args = _call_parts(stmt)
+    raw_args === nothing && return nothing
 
-    hs = Int[]
-    for v in vals
-        h = _handle_index(v, nargs, track_arg, track_ssa)
-        h != 0 && push!(hs, h)
+    f = _resolve_callee(stmt, ir)
+    f === Core.kwcall || return nothing
+
+    length(raw_args) >= 2 || return nothing
+    return _maybe_namedtuple_value_exprs(raw_args[2], ir)
+end
+
+function _used_handles(stmt, ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+    s = BitSet()
+    _collect_used_handles!(s, stmt, nargs, track_arg, track_ssa)
+
+    vals = _kwcall_value_exprs(stmt, ir)
+    if vals !== nothing
+        for v in vals
+            _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+        end
     end
-    return hs
+
+    return s
 end
 
 function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)

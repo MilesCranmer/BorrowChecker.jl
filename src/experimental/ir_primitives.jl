@@ -177,12 +177,6 @@ end
     return nothing
 end
 
-function _used_handles(stmt, nargs::Int, track_arg, track_ssa)
-    s = BitSet()
-    _collect_used_handles!(s, stmt, nargs, track_arg, track_ssa)
-    return s
-end
-
 function _collect_used_handles!(s::BitSet, x, nargs::Int, track_arg, track_ssa)
     if x isa Core.Argument || x isa Core.SSAValue
         h = _handle_index(x, nargs, track_arg, track_ssa)

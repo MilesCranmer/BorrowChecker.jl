@@ -357,7 +357,7 @@ function _summarize_ir_effects(
         stmt = ir[Core.SSAValue(i)][:stmt]
         head, _mi, raw_args = _call_parts(stmt)
         if stmt isa Expr && stmt.head === :foreigncall
-            uses = _used_handles(stmt, nargs, track_arg, track_ssa)
+            uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
             for hv in uses
                 rv = _uf_find(uf, hv)
                 for a in 1:nargs
@@ -384,7 +384,25 @@ function _summarize_ir_effects(
             budget_state=budget_state,
         )
 
+        kw_vals = _kwcall_value_exprs(stmt, ir)
+        (kw_vals === nothing || isempty(kw_vals)) && (kw_vals = nothing)
+
         for p in eff.writes
+            if kw_vals !== nothing && p == 2
+                for vkw in kw_vals
+                    hv = _handle_index(vkw, nargs, track_arg, track_ssa)
+                    hv == 0 && continue
+                    rv = _uf_find(uf, hv)
+                    for a in 1:nargs
+                        track_arg[a] || continue
+                        if _uf_find(uf, a) == rv
+                            push!(writes, a)
+                        end
+                    end
+                end
+                continue
+            end
+
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
             hv == 0 && continue
@@ -397,6 +415,21 @@ function _summarize_ir_effects(
             end
         end
         for p in eff.consumes
+            if kw_vals !== nothing && p == 2
+                for vkw in kw_vals
+                    hv = _handle_index(vkw, nargs, track_arg, track_ssa)
+                    hv == 0 && continue
+                    rv = _uf_find(uf, hv)
+                    for a in 1:nargs
+                        track_arg[a] || continue
+                        if _uf_find(uf, a) == rv
+                            push!(consumes, a)
+                        end
+                    end
+                end
+                continue
+            end
+
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
             hv == 0 && continue

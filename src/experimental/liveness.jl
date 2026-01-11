@@ -52,7 +52,7 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
             if stmt isa Core.PhiNode || stmt isa Core.PhiCNode
                 continue
             end
-            uses = _used_handles(stmt, nargs, track_arg, track_ssa)
+            uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
             for u in uses
                 if !(u in seen_defs)
                     push!(use[b], u)
