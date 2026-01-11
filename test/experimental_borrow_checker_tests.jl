@@ -82,6 +82,7 @@
 
     const _BC_ESCAPE_CACHE = Any[]
     _bc_consumes(x) = (push!(_BC_ESCAPE_CACHE, x); nothing)
+    const D = Dict{Any,Any}()
 
     @testset "g!(y) should not require deleting x" begin
         BorrowChecker.Experimental.@borrow_checker function _bc_g_alias_ok()
@@ -354,6 +355,28 @@
         end
 
         @test _bc_escape_symbol_ok() == :a
+    end
+
+    @testset "Dict setindex! key escapes" begin
+        empty!(D)
+
+        @borrow_checker function _bc_dict_key_escape_should_error()
+            x = [1, 2, 3]
+            D[x] = 4
+            return x
+        end
+
+        @test_throws BorrowCheckError _bc_dict_key_escape_should_error()
+
+        empty!(D)
+
+        @borrow_checker function _bc_dict_key_copy_ok()
+            x = [1, 2, 3]
+            D[copy(x)] = 4
+            return x
+        end
+
+        @test _bc_dict_key_copy_ok() == [1, 2, 3]
     end
 
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin

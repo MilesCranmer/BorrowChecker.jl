@@ -38,8 +38,11 @@ function _with_reflection_ctx(f::Function, world::UInt)
     try
         return f()
     finally
-        old === nothing ? pop!(tls, _TLS_REFLECTION_CTX_KEY, nothing) :
-        (tls[_TLS_REFLECTION_CTX_KEY] = old)
+        if old === nothing
+            pop!(tls, _TLS_REFLECTION_CTX_KEY, nothing)
+        else
+            (tls[_TLS_REFLECTION_CTX_KEY] = old)
+        end
     end
 end
 
@@ -48,7 +51,9 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     if interp === nothing
         return Base.code_ircode_by_type(tt; optimize_until=optimize_until, world=world)
     end
-    return Base.code_ircode_by_type(tt; optimize_until=optimize_until, world=world, interp=interp)
+    return Base.code_ircode_by_type(
+        tt; optimize_until=optimize_until, world=world, interp=interp
+    )
 end
 
 mutable struct BudgetTracker
@@ -332,7 +337,9 @@ function _filter_consumes_for_call(
     end
 
     consumes == eff.consumes && return eff
-    return EffectSummary(; writes=eff.writes, consumes=consumes, ret_aliases=eff.ret_aliases)
+    return EffectSummary(;
+        writes=eff.writes, consumes=consumes, ret_aliases=eff.ret_aliases
+    )
 end
 
 function _effects_for_call(

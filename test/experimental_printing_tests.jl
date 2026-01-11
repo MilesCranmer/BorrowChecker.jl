@@ -82,13 +82,13 @@
         input = Pipe()
         output = Pipe()
         err = Pipe()
-        Base.link_pipe!(input, reader_supports_async=true, writer_supports_async=true)
-        Base.link_pipe!(output, reader_supports_async=true, writer_supports_async=true)
-        Base.link_pipe!(err, reader_supports_async=true, writer_supports_async=true)
+        Base.link_pipe!(input; reader_supports_async=true, writer_supports_async=true)
+        Base.link_pipe!(output; reader_supports_async=true, writer_supports_async=true)
+        Base.link_pipe!(err; reader_supports_async=true, writer_supports_async=true)
 
         term = REPL.Terminals.TTYTerminal("dumb", input.out, output.in, err.in)
         repl = REPL.LineEditREPL(term, false)
-        repl.options = REPL.Options(confirm_exit=false)
+        repl.options = REPL.Options(; confirm_exit=false)
         repl.history_file = false
         Base.active_repl = repl
 
