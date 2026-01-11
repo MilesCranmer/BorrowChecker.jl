@@ -89,18 +89,31 @@ function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
         di = getproperty(ir, :debuginfo)
         stack = builder(di, nothing, pc)
         isempty(stack) && return nothing
-        node = stack[1]
-        file = try
-            getproperty(node, :file)
-        catch
-            nothing
+        chosen = nothing
+        for node in stack
+            file = try
+                getproperty(node, :file)
+            catch
+                nothing
+            end
+            line = try
+                getproperty(node, :line)
+            catch
+                nothing
+            end
+            if file isa Symbol &&
+                line isa Integer &&
+                line > 0 &&
+                file !== Symbol("none") &&
+                file !== Symbol("unknown")
+                chosen = node
+                break
+            end
         end
-        line = try
-            getproperty(node, :line)
-        catch
-            nothing
-        end
-        (file isa Symbol && line isa Integer) || return nothing
+
+        chosen === nothing && return nothing
+        file = getproperty(chosen, :file)::Symbol
+        line = getproperty(chosen, :line)::Integer
         return LineNumberNode(Int(line), file)
     catch
         return nothing
@@ -108,8 +121,25 @@ function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)
 end
 
 function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
-    li isa Core.LineInfoNode && return li
-    li isa LineNumberNode && return li
+    if li isa Core.LineInfoNode
+        file = try
+            String(getproperty(li, :file))
+        catch
+            ""
+        end
+        line = try
+            Int(getproperty(li, :line))
+        catch
+            0
+        end
+        if !isempty(file) && file != "none" && file != "unknown" && line > 0
+            return li
+        end
+    elseif li isa LineNumberNode
+        if li.line > 0 && li.file !== Symbol("none") && li.file !== Symbol("unknown")
+            return li
+        end
+    end
 
     if pc > 0
         tmp = _lineinfo_from_debuginfo(ir, pc)

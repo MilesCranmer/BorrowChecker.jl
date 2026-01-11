@@ -40,6 +40,87 @@ end
     return file, line
 end
 
+const _REPL_FILE_RE = r"^REPL\[(\d+)\]$"
+
+function _try_repl_source(file::AbstractString)
+    m = match(_REPL_FILE_RE, file)
+    m === nothing && return nothing
+
+    isdefined(Base, :active_repl) || return nothing
+    repl = Base.active_repl
+    repl === nothing && return nothing
+
+    hp = nothing
+    try
+        iface = getproperty(repl, :interface)
+        modes = getproperty(iface, :modes)
+        if modes isa AbstractVector
+            for mode in modes
+                hasproperty(mode, :hist) || continue
+                cand = getproperty(mode, :hist)
+                cand === nothing && continue
+                hasproperty(cand, :history) || continue
+                hp = cand
+                break
+            end
+        end
+    catch
+        hp = nothing
+    end
+    hp === nothing && return nothing
+
+    n = try
+        parse(Int, m.captures[1])
+    catch
+        return nothing
+    end
+    n <= 0 && return nothing
+
+    hist = try
+        getproperty(hp, :history)
+    catch
+        return nothing
+    end
+
+    hist isa AbstractVector || return nothing
+    isempty(hist) && return nothing
+
+    try
+        if hasproperty(hp, :start_idx)
+            # Julia's `REPL[n]` filename is based on the number of history entries
+            # added since startup: `n ≈ length(hist.history) - hp.start_idx`.
+            #
+            # So the input that produced `REPL[n]` is typically at index
+            # `hp.start_idx + n` in the history vector (with an off-by-one fallback).
+            start_idx = getproperty(hp, :start_idx)
+            start_idx isa Integer || return nothing
+            for idx in (Int(start_idx) + n, Int(start_idx) + n - 1)
+                (1 <= idx <= length(hist)) || continue
+                return hist[idx]
+            end
+        else
+            # Older / mocked history providers: fall back to direct indexing.
+            for idx in (n, n - 1)
+                (1 <= idx <= length(hist)) || continue
+                return hist[idx]
+            end
+        end
+    catch
+        return nothing
+    end
+
+    return nothing
+end
+
+function _try_source_lines(file::AbstractString)
+    if isfile(file)
+        return _read_file_lines(String(file))
+    end
+    src = _try_repl_source(file)
+    src === nothing && return nothing
+    return split(String(src), '\n'; keepempty=true)
+end
+
 function _lineinfo_chain(li::Core.LineInfoNode)
     chain = Core.LineInfoNode[]
     cur = li
@@ -107,17 +188,15 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
         println(io, "      at ", file, ":", line)
     end
 
-    if isfile(file)
-        lines = _read_file_lines(file)
-        if 1 <= line <= length(lines)
-            lo = max(1, line - context)
-            hi = min(length(lines), line + context)
-            for ln in lo:hi
-                prefix = (ln == line) ? "      > " : "        "
-                println(io, prefix, rpad(string(ln), 5), " ", lines[ln])
-            end
-            return nothing
+    lines = _try_source_lines(file)
+    if lines !== nothing && 1 <= line <= length(lines)
+        lo = max(1, line - context)
+        hi = min(length(lines), line + context)
+        for ln in lo:hi
+            prefix = (ln == line) ? "      > " : "        "
+            println(io, prefix, rpad(string(ln), 5), " ", lines[ln])
         end
+        return nothing
     end
 
     f, argT = _recover_callee_from_tt(tt)
@@ -229,8 +308,7 @@ function Base.showerror(io::IO, e::BorrowCheckError)
     try
         (f, argT) = _recover_callee_from_tt(e.tt)
         m = which(f, argT)
-        (file, line) = Base.functionloc(m)
-        print(io, "\n\n  method: ", m, " at ", file, ":", line)
+        print(io, "\n\n  method: ", m)
     catch
     end
 
