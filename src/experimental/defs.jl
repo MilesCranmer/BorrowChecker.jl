@@ -38,25 +38,6 @@ Base.@kwdef struct Config
     """
     analyze_invokes::Bool = true
 
-    """
-    Roots/policy for recursive callee checking.
-
-    Supported values:
-
-    * `:none`         -> only check the annotated specialization (no recursion)
-    * `:same_package` -> check callees in the same root module tree as the entry specialization
-    * `:all`          -> check callees from any non-Base/Core/Experimental module
-    * `roots::Vector{Module}` -> check callees whose defining method's root module is in `roots`
-
-    For the `Vector{Module}` form, a callee is eligible for recursive checking if its
-    defining method lives in one of those root module trees (i.e. the root itself,
-    or any submodule of the root).
-    """
-    callee_check_roots::Union{Vector{Module},Symbol} = :same_package
-
-    "Max recursion depth for callee checking."
-    max_callee_depth::Int = 1
-
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 8
 end

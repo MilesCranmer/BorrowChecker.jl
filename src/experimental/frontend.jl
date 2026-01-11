@@ -3,251 +3,35 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-# Type{Tuple...} => (world, cfg_key)
-const _checked_cache = Lockable(IdDict{Any,Tuple{UInt,UInt}}())
-const _checking_inprogress = Lockable(Base.IdSet{Any}())
+const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
 
-@inline function _cfg_cache_key(cfg::Config)::UInt
-    callee_roots_key = if cfg.callee_check_roots isa Symbol
-        cfg.callee_check_roots
-    else
-        Tuple(cfg.callee_check_roots)
-    end
-    return UInt(
-        hash((
-            cfg.optimize_until,
-            cfg.unknown_call_policy,
-            cfg.analyze_invokes,
-            cfg.max_summary_depth,
-            callee_roots_key,
-            cfg.max_callee_depth,
-        )),
-    )
-end
-
-const _DEFAULT_CFG_KEY = _cfg_cache_key(DEFAULT_CONFIG)
-
-@inline function _method_module(tt::Type{<:Tuple}, world::UInt)::Union{Module,Nothing}
-    mm = try
-        Base._which(tt; world=world, raise=false)
-    catch
-        nothing
-    end
-    mm === nothing && return nothing
-    return mm.method.module
-end
-
-@inline function _method_match(tt::Type{<:Tuple}, world::UInt)
-    mm = try
-        Base._which(tt; world=world, raise=false)
-    catch
-        nothing
-    end
-    return mm
-end
-
-function _package_root_module(m::Module)::Module
-    cur = m
-    while true
-        parent = parentmodule(cur)
-        parent === cur && return cur
-        (parent === Main || parent === Base || parent === Core) && return cur
-        cur = parent
-    end
-end
-
-@inline function _callee_check_mode(cfg::Config, root_pkg::Module)
-    roots = Module[]
-    check_all = false
-
-    spec = cfg.callee_check_roots
-    if spec isa Symbol
-        if spec === :none
-            return roots, false
-        elseif spec === :same_package
-            push!(roots, root_pkg)
-            return roots, false
-        elseif spec === :all
-            return roots, true
-        else
-            return roots, false
-        end
-    else
-        append!(roots, spec)
-        return roots, false
-    end
-end
-
-@inline function _should_check_callee_module(callee_roots::Vector{Module}, check_all::Bool, mod::Module)::Bool
-    (mod === Core || mod === Base || mod === Experimental) && return false
-    check_all && return true
-    isempty(callee_roots) && return false
-    return _package_root_module(mod) in callee_roots
-end
-
-function _collect_callee_tts(ir::CC.IRCode)
-    callees = Base.IdSet{Any}()
-    nstmts = length(ir.stmts)
-
-    for idx in 1:nstmts
-        stmt = try
-            ir[Core.SSAValue(idx)][:stmt]
-        catch
-            continue
-        end
-        head, mi, raw_args = _call_parts(stmt)
-        raw_args === nothing && continue
-
-        # Avoid recursively checking keyword-call plumbing. These methods are compiler-generated
-        # and tend to be noisy/fragile under borrow checking (the call-site check already
-        # handles aliasing through keyword values).
-        f = _resolve_callee(stmt, ir)
-        f === Core.kwcall && continue
-
-        # Only recurse on 0-argument calls. This is the main unsoundness hole: if a call site has
-        # no tracked values crossing the boundary, caller-side checks can't say anything.
-        # (Checking every untracked call is too expensive.)
-        length(raw_args) == 1 || continue
-        callee_expr = raw_args[1]
-        callee_expr isa Core.Argument && continue
-
-        if head === :invoke && (mi isa Core.MethodInstance)
-            push!(callees, mi.specTypes)
-        elseif head === :call
-            # If the callee isn't constant, skip; checking arbitrary function-typed SSA values
-            # explodes quickly and doesn't address the "0-arg unknown call" hole we care about.
-            f === nothing && continue
-            tt = try
-                _call_tt_from_raw_args(raw_args, ir)
-            catch
-                nothing
-            end
-            tt !== nothing && push!(callees, tt)
-        end
-    end
-
-    return callees
-end
-
-function check_signature(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter())
-    @nospecialize tt
-
-    cfg_key = (cfg === DEFAULT_CONFIG) ? _DEFAULT_CFG_KEY : _cfg_cache_key(cfg)
-
-    cached = false
-    Base.@lock _checked_cache begin
-        stamp = get(_checked_cache[], tt, nothing)
-        cached = (stamp !== nothing && stamp[1] == world && stamp[2] == cfg_key)
-    end
-    cached && return true
-
-    _ensure_registry_initialized()
-
-    mod = _method_module(tt, world)
-    root_pkg = mod === nothing ? Main : _package_root_module(mod)
-    callee_roots, check_all = _callee_check_mode(cfg, root_pkg)
-
-    return _check_signature_recursive(
-        tt;
-        cfg=cfg,
-        world=world,
-        depth=0,
-        callee_roots=callee_roots,
-        check_all=check_all,
-        cfg_key=cfg_key,
-    )
-end
-
-function _check_signature_recursive(
-    tt::Type{<:Tuple};
-    cfg::Config,
-    world::UInt,
-    depth::Int,
-    callee_roots::Vector{Module},
-    check_all::Bool,
-    cfg_key::UInt,
+function check_signature(
+    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
-    @nospecialize tt
-
-    cached = false
-    Base.@lock _checked_cache begin
-        stamp = get(_checked_cache[], tt, nothing)
-        cached = (stamp !== nothing && stamp[1] == world && stamp[2] == cfg_key)
+    _ensure_registry_initialized()
+    codes = Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+    viols = BorrowViolation[]
+    for entry in codes
+        ir = entry.first
+        ir isa CC.IRCode || continue
+        append!(viols, check_ir(ir, cfg))
     end
-    cached && return true
-
-    already = false
-    Base.@lock _checking_inprogress begin
-        already = (tt in _checking_inprogress[])
-        already || push!(_checking_inprogress[], tt)
-    end
-    already && return true
-
-    try
-        opt_until = (depth == 0) ? cfg.optimize_until : "slot2reg"
-        codes = try
-            Base.code_ircode_by_type(tt; optimize_until=opt_until, world=world)
-        catch
-            Base.code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-        end
-        viols = BorrowViolation[]
-        callee_tts = Base.IdSet{Any}()
-
-        for entry in codes
-            ir = entry.first
-            ir isa CC.IRCode || continue
-            append!(viols, check_ir(ir, cfg; copy_is_new_binding=(depth > 0)))
-
-            if (check_all || !isempty(callee_roots)) && depth < cfg.max_callee_depth
-                union!(callee_tts, _collect_callee_tts(ir))
-            end
-        end
-
-        isempty(viols) || throw(BorrowCheckError(tt, viols))
-
-        if (check_all || !isempty(callee_roots)) && depth < cfg.max_callee_depth
-            for ctt in callee_tts
-                (ctt isa Type && ctt <: Tuple) || continue
-                ctt === tt && continue
-                mm = _method_match(ctt, world)
-                mm === nothing && continue
-                m = mm.method
-                mod = m.module
-
-                _should_check_callee_module(callee_roots, check_all, mod) || continue
-
-                # Skip compiler-generated wrappers and kwcall plumbing; these are not
-                # "user-written" code and tend to be noisy under borrow checking.
-                name_str = String(m.name)
-                (m.name === :kwcall || startswith(name_str, "#")) && continue
-
-                _check_signature_recursive(
-                    ctt;
-                    cfg=cfg,
-                    world=world,
-                    depth=depth + 1,
-                    callee_roots=callee_roots,
-                    check_all=check_all,
-                    cfg_key=cfg_key,
-                )
-            end
-        end
-
-        Base.@lock _checked_cache begin
-            _checked_cache[][tt] = (world, cfg_key)
-        end
-
-        return true
-    finally
-        Base.@lock _checking_inprogress begin
-            delete!(_checking_inprogress[], tt)
-        end
-    end
+    isempty(viols) || throw(BorrowCheckError(tt, viols))
+    return true
 end
 
 Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
     @nospecialize tt
-    check_signature(tt; cfg=cfg, world=Base.get_world_counter())
+    world = Base.get_world_counter()
+    cached = false
+    Base.@lock _checked_cache begin
+        cached = (get(_checked_cache[], tt, UInt(0)) == world)
+    end
+    cached && return nothing
+    check_signature(tt; cfg=cfg, world=world)
+    Base.@lock _checked_cache begin
+        _checked_cache[][tt] = world
+    end
     return nothing
 end
 
