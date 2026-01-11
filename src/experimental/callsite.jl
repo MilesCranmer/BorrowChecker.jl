@@ -48,17 +48,6 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     end
 end
 
-function _is_functor_instance(@nospecialize(f))
-    try
-        f isa DataType && return false
-        tf = typeof(f)
-        tf isa DataType || return false
-        return fieldcount(tf) > 0
-    catch
-        return false
-    end
-end
-
 @inline function _unwrap_unionall_datatype(@nospecialize(x))
     try
         dt = Base.unwrap_unionall(x)

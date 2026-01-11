@@ -4,6 +4,8 @@
 
     using BorrowChecker.Experimental: BorrowCheckError, @borrow_checker
 
+    Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
+
     mutable struct Box
         x::Int
     end
@@ -295,5 +297,19 @@
         BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=0)
         entry2 = latest_entry()
         @test entry2.over_budget == false
+    end
+
+    @testset "Registry override API" begin
+        BorrowChecker.Experimental.register_effects!(fakewrite; writes=(2,))
+
+        @borrow_checker function bc_registry_override()
+            x = [1, 2, 3]
+            y = x
+            z = fakewrite(x)
+            z === y || error("unexpected")
+            return y
+        end
+
+        @test_throws BorrowCheckError bc_registry_override()
     end
 end
