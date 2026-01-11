@@ -9,6 +9,7 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
         return any(tt, Base.uniontypes(T))
     end
     T isa Type || return true
+    T === Symbol && return false
 
     if T <: AbstractArray
         return true
@@ -46,6 +47,60 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
 end
 
 is_tracked_type(@nospecialize T)::Bool = TypeTracker()(T)
+
+# "Tracking" answers: should we include this value in alias/liveness tracking?
+#
+# For move-like checks we also need a notion of "owned" values. Some low-level compiler
+# artifacts (e.g. `Core.MemoryRef`) behave more like borrows of an owned object rather than
+# independently-owned resources.
+Base.@kwdef struct OwnedTypeTracker
+    seen::Base.IdSet{Any} = Base.IdSet{Any}()
+end
+
+@inline function _is_nonowning_ref_type(@nospecialize(T))::Bool
+    if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
+        return true
+    end
+    if isdefined(Core, :GenericMemoryRef) && (T <: Core.GenericMemoryRef)
+        return true
+    end
+    if isdefined(Core, :GenericMemory) && (T <: Core.GenericMemory)
+        return true
+    end
+    return false
+end
+
+function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
+    T === Union{} && return false
+    T === Any && return true
+    if T isa Union
+        return any(tt, Base.uniontypes(T))
+    end
+    T isa Type || return true
+    T === Symbol && return false
+
+    _is_nonowning_ref_type(T) && return false
+
+    dt = Base.unwrap_unionall(T)
+    if dt isa DataType
+        if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
+            return false
+        end
+        Base.isconcretetype(dt) || return true
+
+        Base.ismutabletype(dt) && return true
+        Base.isbitstype(dt) && return false
+
+        if dt in tt.seen
+            return true
+        end
+        push!(tt.seen, dt)
+        return any(tt, fieldtypes(dt))
+    end
+    return true
+end
+
+is_owned_type(@nospecialize T)::Bool = OwnedTypeTracker()(T)
 
 @inline _ssa_handle(nargs::Int, id::Int) = nargs + id
 @inline _arg_handle(id::Int) = id

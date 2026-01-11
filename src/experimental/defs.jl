@@ -142,87 +142,36 @@ function _populate_registry!()
         (Core, :apply_type, :none, (), ()),
         (Core, :typeof, :none, (), ()),
         (Core, :_typeof_captured_variable, :none, (), ()),
+        (Core, :(===), :none, (), ()),
+        (Core, :(!==), :none, (), ()),
         (Core, :typeassert, :arg1, (), ()),
         (Core, :getfield, :arg1, (), ()),
         # setfield!(obj, field, val) mutates `obj` (arg2) and stores `val` (arg4).
+        # Storing an owned value is treated as a move/escape (filtered by `is_owned_type`).
         (Core, :setfield!, :none, (2,), (4,)),
+        # Field "write" family. All mutate the receiver (arg2) and store a value argument.
+        (Core, :swapfield!, :none, (2,), (4,)),      # swapfield!(obj, field, val, ...)
+        (Core, :modifyfield!, :none, (2,), (5,)),    # modifyfield!(obj, field, op, val, ...)
+        (Core, :replacefield!, :none, (2,), (5,)),   # replacefield!(obj, field, expected, val, ...)
+        (Core, :setfieldonce!, :none, (2,), (4,)),   # setfieldonce!(obj, field, val, ...)
+
+        # `memoryref*` family. These are used by Base array code. They exist in `Core`
+        # on Julia 1.12+; some are also exported from `Base` as aliases of the same function.
+        (Core, :memoryrefnew, :arg1, (), ()),
+        (Core, :memoryref, :arg1, (), ()),
+        (Core, :memoryrefoffset, :arg1, (), ()),
+        (Core, :memoryrefget, :none, (), ()),
+        (Core, :memoryrefset!, :none, (2,), (3,)),
+        (Core, :memoryrefswap!, :none, (2,), (3,)),
+        (Core, :memoryrefmodify!, :none, (2,), (4,)),
+        (Core, :memoryrefreplace!, :none, (2,), (4,)),
+        (Core, :memoryrefsetonce!, :none, (2,), (3,)),
     ]
 
     for (mod, nm, ret_alias, writes, consumes) in specs
         isdefined(mod, nm) || continue
         f = getfield(mod, nm)
         _maybe_register_effects_and_alias!(f, ret_alias; writes=writes, consumes=consumes)
-    end
-
-    if isdefined(Core, :(===))
-        _maybe_register_effects_and_alias!(Core.:(===), :none)
-    else
-        _maybe_register_effects_and_alias!(===, :none)
-    end
-    if isdefined(Core, :(!==))
-        _maybe_register_effects_and_alias!(Core.:(!==), :none)
-    else
-        _maybe_register_effects_and_alias!(!==, :none)
-    end
-
-    # Field "write" family. All mutate the receiver (arg2) and store a value argument.
-    field_store_specs = [
-        (:swapfield!, 4),      # swapfield!(obj, field, val, ...)
-        (:modifyfield!, 5),    # modifyfield!(obj, field, op, val, ...)
-        (:replacefield!, 5),   # replacefield!(obj, field, expected, val, ...)
-        (:setfieldonce!, 4),   # setfieldonce!(obj, field, val, ...)
-    ]
-    for (nm, cidx) in field_store_specs
-        isdefined(Core, nm) || continue
-        f = getfield(Core, nm)
-        _maybe_register_effects_and_alias!(f, :none; writes=(2,), consumes=(cidx,))
-    end
-
-    memref_ret_arg1 = (:memoryrefnew, :memoryref, :memoryrefoffset)
-    memref_ret_none = (:memoryrefget,)
-    memref_ret_none_writes = (
-        :memoryrefset!,
-        :memoryrefswap!,
-        :memoryrefmodify!,
-        :memoryrefreplace!,
-        :memoryrefsetonce!,
-    )
-
-    # `memoryref*` store family. These mutate the memory reference (arg2) and store a value.
-    memref_store_specs = [
-        (:memoryrefset!, 3),      # memoryrefset!(mem, item, order, boundscheck)
-        (:memoryrefswap!, 3),     # memoryrefswap!(mem, val, order, boundscheck)
-        (:memoryrefmodify!, 4),   # memoryrefmodify!(mem, op, val, order, boundscheck)
-        (:memoryrefreplace!, 4),  # memoryrefreplace!(mem, expected, val, ...)
-        (:memoryrefsetonce!, 3),  # memoryrefsetonce!(mem, val, ...)
-    ]
-
-    for mod in (Core, Base)
-        for nm in memref_ret_arg1
-            isdefined(mod, nm) || continue
-            f = getfield(mod, nm)
-            _maybe_register_effects_and_alias!(f, :arg1)
-        end
-        for nm in memref_ret_none
-            isdefined(mod, nm) || continue
-            f = getfield(mod, nm)
-            _maybe_register_effects_and_alias!(f, :none)
-        end
-        for nm in memref_ret_none_writes
-            isdefined(mod, nm) || continue
-            f = getfield(mod, nm)
-            cidx = 0
-            for (snm, scidx) in memref_store_specs
-                snm === nm || continue
-                cidx = scidx
-                break
-            end
-            if cidx == 0
-                _maybe_register_effects_and_alias!(f, :none; writes=(2,))
-            else
-                _maybe_register_effects_and_alias!(f, :none; writes=(2,), consumes=(cidx,))
-            end
-        end
     end
 
     return nothing

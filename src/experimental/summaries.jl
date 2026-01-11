@@ -226,6 +226,71 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     end
 end
 
+@inline function _widenargtype_or_any(@nospecialize(x), ir::CC.IRCode)
+    try
+        t = CC.widenconst(CC.argextype(x, ir))
+        return (t isa Type) ? t : Any
+    catch
+        return Any
+    end
+end
+
+@inline function _is_box_contents_setfield!(
+    @nospecialize(f), raw_args::AbstractVector, ir::CC.IRCode
+)::Bool
+    f === Core.setfield! || return false
+    length(raw_args) >= 4 || return false
+    fld = raw_args[3]
+    fldsym = fld isa QuoteNode ? fld.value : fld
+    fldsym === :contents || return false
+
+    obj = raw_args[2]
+    Tobj = _widenargtype_or_any(obj, ir)
+    if isdefined(Core, :Box)
+        try
+            return Tobj <: Core.Box
+        catch
+            return false
+        end
+    end
+    return false
+end
+
+function _filter_consumes_for_call(
+    @nospecialize(f),
+    raw_args::AbstractVector,
+    eff::EffectSummary,
+    ir::CC.IRCode,
+    nargs::Int,
+    track_arg,
+    track_ssa,
+)::EffectSummary
+    isempty(eff.consumes) && return eff
+
+    consumes = BitSet()
+    for p in eff.consumes
+        (1 <= p <= length(raw_args)) || continue
+
+        # Captured-variable boxing uses `setfield!(box, :contents, val)` as an
+        # implementation detail. Treat this as aliasing, not an ownership move.
+        if p == 4 && _is_box_contents_setfield!(f, raw_args, ir)
+            continue
+        end
+
+        v = raw_args[p]
+        hv = _handle_index(v, nargs, track_arg, track_ssa)
+        hv == 0 && continue
+
+        Tv = _widenargtype_or_any(v, ir)
+        is_owned_type(Tv) || continue
+
+        push!(consumes, p)
+    end
+
+    consumes == eff.consumes && return eff
+    return EffectSummary(; writes=eff.writes, consumes=consumes, ret_aliases=eff.ret_aliases)
+end
+
 function _effects_for_call(
     stmt,
     ir::CC.IRCode,
@@ -259,7 +324,9 @@ function _effects_for_call(
 
     if f !== nothing
         s = _known_effects_get(f)
-        s === nothing || return s
+        s === nothing || return _filter_consumes_for_call(
+            f, raw_args, s, ir, nargs, track_arg, track_ssa
+        )
     end
 
     if f !== nothing && _is_namedtuple_ctor(f)
@@ -274,7 +341,9 @@ function _effects_for_call(
                     tt_kw, cfg; depth=depth + 1, budget_state=budget_state, allow_core=true
                 )
                 if s !== nothing
-                    return s
+                    return _filter_consumes_for_call(
+                        f, raw_args, s, ir, nargs, track_arg, track_ssa
+                    )
                 end
             else
                 _mark_budget_hit!(budget_state)
@@ -286,7 +355,9 @@ function _effects_for_call(
         if depth < cfg.max_summary_depth
             s = _summary_for_mi(mi, cfg; depth=depth + 1, budget_state=budget_state)
             if s !== nothing
-                return s
+                return _filter_consumes_for_call(
+                    f, raw_args, s, ir, nargs, track_arg, track_ssa
+                )
             end
         else
             _mark_budget_hit!(budget_state)
@@ -301,7 +372,9 @@ function _effects_for_call(
                 if depth < cfg.max_summary_depth
                     s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
                     if s !== nothing
-                        return s
+                        return _filter_consumes_for_call(
+                            f, raw_args, s, ir, nargs, track_arg, track_ssa
+                        )
                     end
                 else
                     _mark_budget_hit!(budget_state)
@@ -316,7 +389,9 @@ function _effects_for_call(
             if depth < cfg.max_summary_depth
                 s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
                 if s !== nothing
-                    return s
+                    return _filter_consumes_for_call(
+                        f, raw_args, s, ir, nargs, track_arg, track_ssa
+                    )
                 end
             else
                 _mark_budget_hit!(budget_state)
@@ -327,8 +402,11 @@ function _effects_for_call(
     if cfg.unknown_call_policy === :consume
         consumes = Int[]
         for p in 1:length(raw_args)
-            h = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
+            v = raw_args[p]
+            h = _handle_index(v, nargs, track_arg, track_ssa)
             h == 0 && continue
+            Tv = _widenargtype_or_any(v, ir)
+            is_owned_type(Tv) || continue
             push!(consumes, p)
         end
         return EffectSummary(; consumes=consumes)
