@@ -48,14 +48,6 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     end
 end
 
-function _callee_name_str(@nospecialize(f))
-    try
-        return String(Base.nameof(f))
-    catch
-        return ""
-    end
-end
-
 function _is_functor_instance(@nospecialize(f))
     try
         f isa DataType && return false

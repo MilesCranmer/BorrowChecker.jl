@@ -126,7 +126,7 @@ function _normalize_lineinfo(ir::CC.IRCode, li, pc::Int=0)
                 return (linfo isa Core.LineInfoNode) ? linfo : nothing
             end
         end
-        return LineNumberNode(lii, Symbol("unknown"))
+        return nothing
     elseif li isa NTuple{3,<:Integer}
         return _lineinfo_from_debuginfo(ir, Int(li[1]))
     end
