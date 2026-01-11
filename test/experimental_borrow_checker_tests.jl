@@ -72,6 +72,9 @@
 
     g!(x) = (push!(x, 1); nothing)
 
+    const _BC_ESCAPE_CACHE = Any[]
+    _bc_consumes(x) = (push!(_BC_ESCAPE_CACHE, x); nothing)
+
     @testset "g!(y) should not require deleting x" begin
         BorrowChecker.Experimental.@borrow_checker function _bc_g_alias_ok()
             x = [1, 2, 3]
@@ -252,6 +255,18 @@
     @test _bc_ok_kwcall() == 12
     @test _bc_ok_kwcall_mut() == 14
     @test_throws BorrowCheckError _bc_bad_kwcall_alias_should_error()
+
+    @testset "escape/store is treated as consume (move)" begin
+        empty!(_BC_ESCAPE_CACHE)
+
+        @borrow_checker function _bc_escape_after_store_should_error()
+            x = [1, 2, 3]
+            _bc_consumes(x)
+            return x
+        end
+
+        @test_throws BorrowCheckError _bc_escape_after_store_should_error()
+    end
 
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
         local_f(x) = x
