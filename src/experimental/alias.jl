@@ -165,7 +165,13 @@ function _build_alias_classes!(
     return uf
 end
 
-function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+function _binding_origins(
+    ir::CC.IRCode,
+    nargs::Int,
+    track_arg,
+    track_ssa;
+    copy_is_new_binding::Bool=false,
+)
     nstmts = length(ir.stmts)
     origins = collect(1:(nargs + nstmts))
 
@@ -181,8 +187,12 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
         end
 
         if stmt isa Core.SSAValue || stmt isa Core.Argument
-            hsrc = _handle_index(stmt, nargs, track_arg, track_ssa)
-            origins[hdef] = (hsrc == 0) ? hdef : origins[hsrc]
+            if copy_is_new_binding
+                origins[hdef] = hdef
+            else
+                hsrc = _handle_index(stmt, nargs, track_arg, track_ssa)
+                origins[hdef] = (hsrc == 0) ? hdef : origins[hsrc]
+            end
             continue
         end
 

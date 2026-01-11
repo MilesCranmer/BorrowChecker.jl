@@ -148,6 +148,7 @@ function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
     length(raw_args) >= 3 || return nothing
 
     fexpr = raw_args[3]
+    fexpr isa Expr && return nothing
     ft = try
         CC.argextype(fexpr, ir)
     catch
@@ -165,6 +166,7 @@ function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
 
     argtypes = Any[typeof(kwf)]
     for i in 2:length(raw_args)
+        raw_args[i] isa Expr && return nothing
         ti = try
             CC.widenconst(CC.argextype(raw_args[i], ir))
         catch
@@ -217,6 +219,7 @@ end
 function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
     types = Any[]
     for a in raw_args
+        a isa Expr && return nothing
         t = Any
         try
             t = CC.widenconst(CC.argextype(a, ir))
