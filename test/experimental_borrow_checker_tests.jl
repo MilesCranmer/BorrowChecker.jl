@@ -268,6 +268,18 @@
         @test_throws BorrowCheckError _bc_escape_after_store_should_error()
     end
 
+    @testset "escape/store does not move non-owned values" begin
+        empty!(_BC_ESCAPE_CACHE)
+
+        @borrow_checker function _bc_escape_bits_ok()
+            x = (1, 2, 3)
+            _bc_consumes(x)
+            return x
+        end
+
+        @test _bc_escape_bits_ok() == (1, 2, 3)
+    end
+
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
         local_f(x) = x
         tt = Tuple{typeof(local_f),Int}
