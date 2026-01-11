@@ -18,6 +18,14 @@
         a::A
     end
 
+    mutable struct C
+        v
+    end
+
+    struct Wrap
+        x::Vector{Int}
+    end
+
     BorrowChecker.Experimental.@borrow_checker function _bc_bad_alias()
         x = [1, 2, 3]
         y = x
@@ -278,6 +286,74 @@
         end
 
         @test _bc_escape_bits_ok() == (1, 2, 3)
+    end
+
+    @testset "setfield!/Ref store moves owned values" begin
+        @borrow_checker function _bc_ref_store_moves_owned()
+            r = Ref{Any}()
+            x = [1, 2, 3]
+            r[] = x
+            return x
+        end
+
+        @test_throws BorrowCheckError _bc_ref_store_moves_owned()
+    end
+
+    @testset "setfield!/Ref store does not move isbits" begin
+        @borrow_checker function _bc_ref_store_bits_ok()
+            r = Ref{Any}()
+            x = (1, 2, 3)
+            r[] = x
+            return x
+        end
+
+        @test _bc_ref_store_bits_ok() == (1, 2, 3)
+    end
+
+    @testset "mutable field store moves owned values" begin
+        @borrow_checker function _bc_mutable_field_store_moves_owned()
+            c = C(nothing)
+            x = [1, 2, 3]
+            c.v = x
+            return x
+        end
+
+        @test_throws BorrowCheckError _bc_mutable_field_store_moves_owned()
+    end
+
+    @testset "unknown call does not consume non-owned values" begin
+        @borrow_checker function _bc_unknown_call_bits_ok(vf)
+            x = (1, 2, 3)
+            f = only(vf)
+            f(x)
+            return x
+        end
+
+        @test _bc_unknown_call_bits_ok(Any[identity]) == (1, 2, 3)
+    end
+
+    @testset "immutable wrapper containing owned field is owned" begin
+        empty!(_BC_ESCAPE_CACHE)
+
+        @borrow_checker function _bc_escape_wrap_should_error()
+            w = Wrap([1, 2, 3])
+            _bc_consumes(w)
+            return w
+        end
+
+        @test_throws BorrowCheckError _bc_escape_wrap_should_error()
+    end
+
+    @testset "symbols are not moved" begin
+        empty!(_BC_ESCAPE_CACHE)
+
+        @borrow_checker function _bc_escape_symbol_ok()
+            x = :a
+            _bc_consumes(x)
+            return x
+        end
+
+        @test _bc_escape_symbol_ok() == :a
     end
 
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
