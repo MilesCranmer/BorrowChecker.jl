@@ -4,11 +4,13 @@ struct SummaryCacheEntry
     over_budget::Bool
 end
 
+const SummaryCacheKey = Tuple{Any,UInt,Config}
+
 const _summary_state = Lockable((
-    summary_cache=IdDict{Any,SummaryCacheEntry}(),
-    tt_summary_cache=Dict{Tuple{Any,UInt},SummaryCacheEntry}(),
-    summary_inprogress=Base.IdSet{Any}(),
-    tt_summary_inprogress=Set{Tuple{Any,UInt}}(),
+    summary_cache=Dict{SummaryCacheKey,SummaryCacheEntry}(),
+    tt_summary_cache=Dict{SummaryCacheKey,SummaryCacheEntry}(),
+    summary_inprogress=Set{SummaryCacheKey}(),
+    tt_summary_inprogress=Set{SummaryCacheKey}(),
 ))
 
 const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
@@ -72,19 +74,21 @@ end
     return (new.depth < old.depth) ? new : old
 end
 
-@inline function _summary_state_get_tt(key::Tuple{Any,UInt})
+@inline function _summary_state_get_tt(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         return get(_summary_state[].tt_summary_cache, key, nothing)
     end
 end
 
-@inline function _summary_state_get_mi(mi)
+@inline function _summary_state_get_mi(key::SummaryCacheKey)
     Base.@lock _summary_state begin
-        return get(_summary_state[].summary_cache, mi, nothing)
+        return get(_summary_state[].summary_cache, key, nothing)
     end
 end
 
-@inline function _summary_state_set_tt!(key::Tuple{Any,UInt}, new_entry::SummaryCacheEntry)
+@inline function _summary_state_set_tt!(
+    key::SummaryCacheKey, new_entry::SummaryCacheEntry
+)
     Base.@lock _summary_state begin
         cache = _summary_state[].tt_summary_cache
         old = get(cache, key, nothing)
@@ -93,16 +97,20 @@ end
     return nothing
 end
 
-@inline function _summary_state_set_mi!(mi, new_entry::SummaryCacheEntry)
+@inline function _summary_state_set_mi!(
+    key::SummaryCacheKey, new_entry::SummaryCacheEntry
+)
     Base.@lock _summary_state begin
         cache = _summary_state[].summary_cache
-        old = get(cache, mi, nothing)
-        cache[mi] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
+        old = get(cache, key, nothing)
+        cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
     end
     return nothing
 end
 
-@inline function _summary_state_tt_inprogress_enter!(key::Tuple{Any,UInt})::Bool
+@inline function _summary_state_tt_inprogress_enter!(
+    key::SummaryCacheKey
+)::Bool
     reentered = false
     Base.@lock _summary_state begin
         inprog = _summary_state[].tt_summary_inprogress
@@ -112,26 +120,28 @@ end
     return reentered
 end
 
-@inline function _summary_state_tt_inprogress_exit!(key::Tuple{Any,UInt})
+@inline function _summary_state_tt_inprogress_exit!(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         delete!(_summary_state[].tt_summary_inprogress, key)
     end
     return nothing
 end
 
-@inline function _summary_state_mi_inprogress_enter!(mi)::Bool
+@inline function _summary_state_mi_inprogress_enter!(
+    key::SummaryCacheKey
+)::Bool
     reentered = false
     Base.@lock _summary_state begin
         inprog = _summary_state[].summary_inprogress
-        reentered = (mi in inprog)
-        reentered || push!(inprog, mi)
+        reentered = (key in inprog)
+        reentered || push!(inprog, key)
     end
     return reentered
 end
 
-@inline function _summary_state_mi_inprogress_exit!(mi)
+@inline function _summary_state_mi_inprogress_exit!(key::SummaryCacheKey)
     Base.@lock _summary_state begin
-        delete!(_summary_state[].summary_inprogress, mi)
+        delete!(_summary_state[].summary_inprogress, key)
     end
     return nothing
 end
@@ -237,7 +247,7 @@ function _summary_for_tt(
     tt::Type{<:Tuple}, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool=false
 )
     world = _reflection_world()
-    key = (tt, UInt(world))
+    key = (tt, UInt(world), cfg)
 
     try
         tt_u = Base.unwrap_unionall(tt)
@@ -280,11 +290,13 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         return nothing
     end
 
+    world = _reflection_world()
+    key = (mi, UInt(world), cfg)
+
     return _summary_cached_mi(
-        mi, cfg; depth=depth, budget_state=budget_state
+        key, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
         tt = mi.specTypes
-        world = _reflection_world()
         codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
