@@ -12,6 +12,15 @@
 
 This is an experimental package for emulating a runtime borrow checker in Julia, using a macro layer over regular code. This is built to mimic Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
+BorrowChecker.jl currently has two alternative layers:
+
+1. **Automatic checking (`BorrowChecker.@auto`)**
+   - Drop-in for existing Julia code: wrap a function and BorrowChecker will run a best-effort borrow check when that method specialization executes.
+   - It does not change program behavior (except for throwing when it finds a violation).
+2. **Manual overlay (explicit ownership/borrow macros like `@own`, `@ref`, `@take!`, …)**
+   - More explicit and safer, but much more effort and invasive.
+   - More feature complete.
+
 In Julia, when you write `x = [1, 2, 3]`, the actual _object_ exists completely independently of the variable, and you can refer to it from as many variables as you want without issue:
 
 ```julia
@@ -50,10 +59,36 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 
 ## Automatic Checking: `BorrowChecker.@auto`
 
-`BorrowChecker.@auto` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime.
+`BorrowChecker.@auto` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime. This requires Julia ≥ 1.12.
 
 > [!WARNING]
 > This macro is highly experimental and compiler-dependent. There are likely bugs and false positives. It is intended for development and testing, and does not guarantee memory safety.
+
+`@auto` is meant to be a *drop-in tripwire* for existing code:
+
+- **Aliasing violations**: mutating a value while another live binding may observe that mutation.
+- **Escapes / "moves"**: storing a mutable value somewhere that outlives the current scope (e.g. a global cache / a field / a container), then continuing to reference it locally.
+
+This analyzes the compiler’s IR, so it can catch patterns that are "hidden" by lowering (keyword calls, closure captures, views, etc.). It is intentionally **best-effort**: when it cannot determine what a call does, it will be conservative (and may throw false positives). For code where you want a stronger, explicit model, use the manual overlay macros below.
+
+### How it works
+
+When you write:
+
+```julia
+BorrowChecker.@auto function f(args...)
+    # ...
+end
+```
+
+the macro rewrites the function so that:
+
+1. **On entry**, it runs a borrow check for the *current method specialization* (e.g. `f(::Vector{Int})`), and caches the result (so future calls are faster).
+2. The checker asks Julia for the function's **typed compiler IR** (the lowered form the compiler optimizes).
+3. It walks that IR and tracks two key things:
+   - Which bindings may refer to the **same mutable object** (aliasing).
+   - Which operations **write** to a tracked object or cause it to **escape** (be treated like a move).
+4. When it sees an operation that would be illegal under Rust-like rules (e.g. "write while aliased", or "use after escape"), it throws a `BorrowCheckError` with a source-level-ish diagnostic.
 
 ### Aliasing Detection
 
@@ -176,9 +211,89 @@ bar (generic function with 1 method)
 julia> bar()  # ok
 ```
 
+### More `@auto` examples
+
+<details>
+<summary><code>@auto</code> analyzes the entire callstack</summary>
+
+BorrowChecker doesn't rely on naming conventions, such as the presence of `!` in the function name. It tries to infer effects from IR:
+
+```julia
+julia> h(x) = (push!(x, 1); nothing)  # no "!" in the name
+h (generic function with 1 method)
+
+julia> BorrowChecker.@auto function demo()
+           x = [1, 2, 3]
+           y = x
+           h(x)
+           return y
+       end
+demo (generic function with 1 method)
+
+julia> demo()  # errors
+```
+</details>
+
+<details>
+<summary>Keyword arguments are handled (the checker sees lowered <code>kwcall</code> IR)</summary>
+
+Keyword calls get lowered into a `NamedTuple` + `Core.kwcall(...)`. `@auto` analyzes the lowered IR, so aliasing via keyword arguments is still visible:
+
+```julia
+julia> f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
+f (generic function with 1 method)
+
+julia> BorrowChecker.@auto function kw_demo()
+           x = [1, 2, 3]
+           y = x
+           return sum(f(; x=x, y=y))
+       end
+kw_demo (generic function with 1 method)
+
+julia> kw_demo()  # errors
+```
+</details>
+
+<details>
+<summary>Aliasing isn't only <code>y = x</code>: views can alias too</summary>
+
+```julia
+julia> BorrowChecker.@auto function view_demo()
+           x = [1, 2, 3, 4]
+           y = view(x, 1:2)  # aliases x
+           push!(x, 9)
+           return collect(y)
+       end
+view_demo (generic function with 1 method)
+
+julia> view_demo()  # errors
+```
+</details>
+
+<details>
+<summary>Closures are analyzed too</summary>
+
+```julia
+julia> BorrowChecker.@auto function closure_demo()
+           x = [1, 2, 3]
+           y = x
+           f = () -> (push!(x, 9); nothing)
+           f()
+           return y
+       end
+closure_demo (generic function with 1 method)
+
+julia> closure_demo()  # errors
+```
+
+Read-only captures are typically fine.
+</details>
+
 ## Manual Overlay (explicit ownership/borrow macros)
 
-The above example, with BorrowChecker.jl, would look like this:
+Alternatively, we can use the manual overlay macros to achieve a more explicit effect. This is much more invasive, but might be useful in teaching you how to think about ownership and borrowing.
+
+The early Rust example, with BorrowChecker.jl, would look like this:
 
 ```julia
 using BorrowChecker
