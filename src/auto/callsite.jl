@@ -108,9 +108,64 @@ function _kwcall_value_exprs(@nospecialize(stmt), ir::CC.IRCode)
     return _maybe_namedtuple_value_exprs(raw_args[2], ir)
 end
 
-function _used_handles(stmt, ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+function _foreigncall_used_handles(stmt, ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     s = BitSet()
+
+    # Start with any directly-visible tracked handles in the foreigncall expression.
     _collect_used_handles!(s, stmt, nargs, track_arg, track_ssa)
+
+    # `:foreigncall` typically operates on pointers derived from tracked values.
+    # To avoid missing in-place effects (e.g. BLAS `ccall`), walk backwards through
+    # SSA definitions starting from all SSA values referenced by this statement and
+    # include any tracked handles reachable in their defining expressions.
+    nstmts = length(ir.stmts)
+    seed = Int[]
+    _collect_ssa_ids!(seed, stmt)
+    isempty(seed) && return s
+
+    seen = falses(nstmts)
+    work = copy(seed)
+    while !isempty(work)
+        sid = pop!(work)
+        (1 <= sid <= nstmts) || continue
+        seen[sid] && continue
+        seen[sid] = true
+
+        def = try
+            ir[Core.SSAValue(sid)][:stmt]
+        catch
+            continue
+        end
+
+        # Do not expand through binding-barriers: they intentionally create a distinct
+        # binding identity. Traversing into their argument can introduce a spurious
+        # "second live binding" (e.g. the array literal SSA) and trigger false
+        # uniqueness violations for foreigncalls.
+        if def isa Expr && (def.head === :call || def.head === :invoke)
+            f = _resolve_callee(def, ir)
+            if f === __bc_bind__ ||
+                (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
+                hv = _handle_index(Core.SSAValue(sid), nargs, track_arg, track_ssa)
+                hv != 0 && push!(s, hv)
+                continue
+            end
+        end
+
+        _collect_used_handles!(s, def, nargs, track_arg, track_ssa)
+        _collect_ssa_ids!(work, def)
+    end
+
+    return s
+end
+
+function _used_handles(stmt, ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+    s = if stmt isa Expr && stmt.head === :foreigncall
+        _foreigncall_used_handles(stmt, ir, nargs, track_arg, track_ssa)
+    else
+        s = BitSet()
+        _collect_used_handles!(s, stmt, nargs, track_arg, track_ssa)
+        s
+    end
 
     vals = _kwcall_value_exprs(stmt, ir)
     if vals !== nothing

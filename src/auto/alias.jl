@@ -198,6 +198,29 @@ function _build_alias_classes!(
             raw_args = (stmt.head === :invoke) ? stmt.args[2:end] : stmt.args
             f = _resolve_callee(stmt, ir)
 
+            # Tuples are immutable containers. We intentionally do NOT union tuples with all
+            # tracked elements (that would incorrectly merge distinct tracked values).
+            # However, a common compiler pattern is to return a tuple that contains exactly
+            # one tracked value (e.g. `(ptr, stride)`), which is then immediately projected
+            # with `getfield` / `indexed_iterate`. In that case we conservatively union the
+            # tuple with that single tracked element so effects can flow through the
+            # intermediate tuple value.
+            if f === Core.tuple
+                only_h = 0
+                for p in 2:length(raw_args)
+                    in_h = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
+                    in_h == 0 && continue
+                    if only_h == 0
+                        only_h = in_h
+                    else
+                        only_h = -1
+                        break
+                    end
+                end
+                (only_h > 0) && _uf_union!(uf, out_h, only_h)
+                continue
+            end
+
             if f !== nothing && _is_namedtuple_ctor(f)
                 continue
             end

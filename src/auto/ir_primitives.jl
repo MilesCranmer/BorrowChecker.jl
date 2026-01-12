@@ -11,6 +11,9 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     T isa Type || return true
     T === Symbol && return false
 
+    if T <: Ptr
+        return true
+    end
     if T <: AbstractArray
         return true
     end
@@ -35,7 +38,12 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
         Base.isconcretetype(dt) || return true
 
         Base.ismutabletype(dt) && return true
-        Base.isbitstype(dt) && return false
+        if Base.isbitstype(dt)
+            # Most bitstypes are pure values. However, some bitstypes (notably tuples/structs
+            # that contain `Ptr`) represent references into mutable memory and need tracking
+            # for IR-level effects (e.g. BLAS `ccall` lowering through pointer tuples).
+            return any(tt, fieldtypes(dt))
+        end
 
         if dt in tt.seen
             return true
@@ -65,6 +73,9 @@ function _is_nonowning_ref_type(@nospecialize(T))::Bool
         return true
     end
     if isdefined(Core, :GenericMemory) && (T <: Core.GenericMemory)
+        return true
+    end
+    if T <: Ptr
         return true
     end
     return false
@@ -266,7 +277,29 @@ function _uf_union!(uf::UnionFind, a::Int, b::Int)
     return nothing
 end
 
+@inline function _phi_values(@nospecialize(x))
+    if Base.hasproperty(x, :values)
+        return getproperty(x, :values)
+    end
+    if Base.hasproperty(x, :vals)
+        return getproperty(x, :vals)
+    end
+    return ()
+end
+
 function _collect_used_handles!(s::BitSet, x, nargs::Int, track_arg, track_ssa)
+    if x isa Core.PhiNode
+        for v in _phi_values(x)
+            _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    if isdefined(Core, :PhiCNode) && x isa Core.PhiCNode
+        for v in _phi_values(x)
+            _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
     if x isa Core.Argument || x isa Core.SSAValue
         h = _handle_index(x, nargs, track_arg, track_ssa)
         h != 0 && push!(s, h)
@@ -311,6 +344,68 @@ function _collect_used_handles!(s::BitSet, x, nargs::Int, track_arg, track_ssa)
     if x isa AbstractArray
         for a in x
             _collect_used_handles!(s, a, nargs, track_arg, track_ssa)
+        end
+        return nothing
+    end
+    return nothing
+end
+
+function _collect_ssa_ids!(ids::Vector{Int}, x)
+    if x isa Core.PhiNode
+        for v in _phi_values(x)
+            _collect_ssa_ids!(ids, v)
+        end
+        return nothing
+    end
+    if isdefined(Core, :PhiCNode) && x isa Core.PhiCNode
+        for v in _phi_values(x)
+            _collect_ssa_ids!(ids, v)
+        end
+        return nothing
+    end
+    if x isa Core.SSAValue
+        push!(ids, x.id)
+        return nothing
+    end
+    if x isa Core.ReturnNode
+        if isdefined(x, :val)
+            _collect_ssa_ids!(ids, getfield(x, :val))
+        end
+        return nothing
+    end
+    if x isa Core.PiNode
+        if isdefined(x, :val)
+            _collect_ssa_ids!(ids, getfield(x, :val))
+        end
+        return nothing
+    end
+    if x isa Core.UpsilonNode
+        if isdefined(x, :val)
+            _collect_ssa_ids!(ids, getfield(x, :val))
+        end
+        return nothing
+    end
+    if x isa Core.GotoIfNot
+        if isdefined(x, :cond)
+            _collect_ssa_ids!(ids, getfield(x, :cond))
+        end
+        return nothing
+    end
+    if x isa Expr
+        for a in x.args
+            _collect_ssa_ids!(ids, a)
+        end
+        return nothing
+    end
+    if x isa Tuple
+        for a in x
+            _collect_ssa_ids!(ids, a)
+        end
+        return nothing
+    end
+    if x isa AbstractArray
+        for a in x
+            _collect_ssa_ids!(ids, a)
         end
         return nothing
     end

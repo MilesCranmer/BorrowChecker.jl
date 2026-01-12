@@ -1,6 +1,7 @@
 @testitem "Auto @auto" tags = [:auto] begin
     using TestItems
     using BorrowChecker
+    using LinearAlgebra
 
     using BorrowChecker.Auto: BorrowCheckError, @auto
 
@@ -207,12 +208,14 @@
         # Ensure our lambda instrumentation handles it.
         fexpr = Expr(:(->), nothing, :(1))
 
-        eval(quote
-            BorrowChecker.Auto.@auto function _bc_lambda_arglist_nothing()
-                f = $fexpr
-                return f()
-            end
-        end)
+        eval(
+            quote
+                BorrowChecker.Auto.@auto function _bc_lambda_arglist_nothing()
+                    f = $fexpr
+                    return f()
+                end
+            end,
+        )
 
         @test _bc_lambda_arglist_nothing() == 1
     end
@@ -254,6 +257,42 @@
         end
 
         @test_throws BorrowCheckError _bc_local_oneliner_bad()
+    end
+
+    @testset "LinearAlgebra in-place ops" begin
+        # Vector scaling (BLAS foreigncall) should be treated as a write.
+        @auto function _bc_la_scal_ok()
+            x = rand(3)
+            y = copy(x)
+            LinearAlgebra.BLAS.scal!(2.0, y)
+            return y
+        end
+        @test length(_bc_la_scal_ok()) == 3
+
+        @auto function _bc_la_scal_bad()
+            x = rand(3)
+            y = x
+            LinearAlgebra.BLAS.scal!(2.0, x)
+            # Use both bindings after the mutation so the alias is live.
+            return y
+        end
+        @test_throws BorrowCheckError _bc_la_scal_bad()
+
+        @auto function _bc_la_triu_ok()
+            A = [1.0 2.0 3.0; 4.0 5.0 6.0; 7.0 8.0 9.0]
+            B = copy(A)
+            LinearAlgebra.triu!(B)
+            return B
+        end
+        @test _bc_la_triu_ok()[2, 1] == 0.0
+
+        @auto function _bc_la_triu_bad()
+            A = [1.0 2.0 3.0; 4.0 5.0 6.0; 7.0 8.0 9.0]
+            B = A
+            LinearAlgebra.triu!(A)
+            return (A, B)
+        end
+        @test_throws BorrowCheckError _bc_la_triu_bad()
     end
 
     @test_throws BorrowCheckError _bc_bad_alias()
@@ -391,7 +430,9 @@
             return y
         end
 
-        @test_throws BorrowCheckError _bc_kwcall_unknown_consume_should_error(Any[fkw_nothing])
+        @test_throws BorrowCheckError _bc_kwcall_unknown_consume_should_error(
+            Any[fkw_nothing]
+        )
     end
 
     @auto function _bc_ok_kwcall()
@@ -504,6 +545,36 @@
 
         @test_throws BorrowCheckError _bc_foreigncall_bad(false)
         @test _bc_foreigncall_ok(false) == [1, 2, 3]
+    end
+
+    @testset "_collect_ssa_ids! handles IR node objects (coverage)" begin
+        # This is a real `:foreigncall` that embeds Core IR node objects as *constants*
+        # inside a tuple argument. The borrow checker doesn't care about these values,
+        # but the foreigncall backslice should traverse them without error.
+        #
+        # This exercises `_collect_ssa_ids!` branches for:
+        # - `Core.ReturnNode` (val)
+        # - `Core.PiNode` (val)
+        # - `Core.UpsilonNode` (val)
+        # - `Core.GotoIfNot` (cond)
+        # - `Tuple` recursion
+        @auto function _bc_foreigncall_node_constants_ok()
+            ccall(
+                :jl_typeof_str,
+                Cstring,
+                (Any,),
+                (
+                    Core.ReturnNode(Core.SSAValue(0)),
+                    Core.PiNode(Core.SSAValue(0), Any),
+                    Core.UpsilonNode(Core.SSAValue(0)),
+                    Core.GotoIfNot(Core.SSAValue(0), 1),
+                    (Core.SSAValue(0),),
+                ),
+            )
+            return nothing
+        end
+
+        @test _bc_foreigncall_node_constants_ok() === nothing
     end
 
     @testset "immutable wrapper containing owned field is owned" begin
