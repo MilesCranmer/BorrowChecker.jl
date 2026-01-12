@@ -1,8 +1,8 @@
-@testitem "Experimental @borrow_checker" tags = [:experimental] begin
+@testitem "Auto @auto" tags = [:experimental] begin
     using TestItems
     using BorrowChecker
 
-    using BorrowChecker.Experimental: BorrowCheckError, @borrow_checker
+    using BorrowChecker.Auto: BorrowCheckError, @auto
 
     Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
 
@@ -26,21 +26,21 @@
         x::Vector{Int}
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_alias()
+    BorrowChecker.Auto.@auto function _bc_bad_alias()
         x = [1, 2, 3]
         y = x
         x[1] = 0
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_copy()
+    BorrowChecker.Auto.@auto function _bc_ok_copy()
         x = [1, 2, 3]
         y = copy(x)
         x[1] = 0
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_unknown_call(vf)
+    BorrowChecker.Auto.@auto function _bc_bad_unknown_call(vf)
         x = [1, 2, 3]
         f = only(vf)
         f(x)
@@ -48,21 +48,21 @@
         return x
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_alias_mutable_struct()
+    BorrowChecker.Auto.@auto function _bc_bad_alias_mutable_struct()
         x = Box(1)
         y = x
         x.x = 0
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_copy_mutable_struct()
+    BorrowChecker.Auto.@auto function _bc_ok_copy_mutable_struct()
         x = Box(1)
         y = Box(x.x)
         x.x = 0
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_struct_of_struct()
+    BorrowChecker.Auto.@auto function _bc_bad_struct_of_struct()
         a = A(1)
         b = B(a)
         c = b
@@ -70,7 +70,7 @@
         return c
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_struct_of_struct()
+    BorrowChecker.Auto.@auto function _bc_ok_struct_of_struct()
         a = A(1)
         b = B(a)
         c = B(A(b.a.x))
@@ -85,7 +85,7 @@
     const D = Dict{Any,Any}()
 
     @testset "g!(y) should not require deleting x" begin
-        BorrowChecker.Experimental.@borrow_checker function _bc_g_alias_ok()
+        BorrowChecker.Auto.@auto function _bc_g_alias_ok()
             x = [1, 2, 3]
             y = x
             g!(y)
@@ -98,7 +98,7 @@
     @testset "effects inferred from IR (no naming heuristics)" begin
         h(x) = (push!(x, 1); nothing)
 
-        BorrowChecker.Experimental.@borrow_checker function _bc_nonbang_mutator_bad()
+        BorrowChecker.Auto.@auto function _bc_nonbang_mutator_bad()
             x = [1, 2, 3]
             y = x
             h(x)
@@ -107,7 +107,7 @@
 
         mut_second!(a, b) = (push!(b, 1); nothing)
 
-        BorrowChecker.Experimental.@borrow_checker function _bc_bang_mutates_second_bad()
+        BorrowChecker.Auto.@auto function _bc_bang_mutates_second_bad()
             x = [1, 2, 3]
             y = [4]
             z = y
@@ -129,7 +129,7 @@
     @test_throws BorrowCheckError _bc_bad_struct_of_struct()
     @test _bc_ok_struct_of_struct().a.x == 1
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_body_0arg()
+    BorrowChecker.Auto.@auto function _bc_bad_closure_body_0arg()
         f = () -> begin
             x = [1, 2, 3]
             y = x
@@ -139,7 +139,7 @@
         return f()
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_body_with_arg(z)
+    BorrowChecker.Auto.@auto function _bc_bad_closure_body_with_arg(z)
         f = () -> begin
             x = z
             y = x
@@ -149,7 +149,7 @@
         return f()
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_body_0arg()
+    BorrowChecker.Auto.@auto function _bc_ok_closure_body_0arg()
         f = () -> begin
             x = [1, 2, 3]
             y = copy(x)
@@ -159,7 +159,7 @@
         return f()
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_body_with_arg(z)
+    BorrowChecker.Auto.@auto function _bc_ok_closure_body_with_arg(z)
         f = () -> begin
             x = copy(z)
             y = copy(x)
@@ -174,7 +174,7 @@
     @test _bc_ok_closure_body_0arg() == [1, 2, 3]
     @test _bc_ok_closure_body_with_arg([1, 2, 3]) == [1, 2, 3]
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_phi_ternary(cond::Bool)
+    BorrowChecker.Auto.@auto function _bc_ok_phi_ternary(cond::Bool)
         x = [1, 2, 3]
         y = cond ? x : x
         push!(y, 1)
@@ -183,21 +183,21 @@
 
     @noinline _ret1(x) = x
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_identity_call()
+    BorrowChecker.Auto.@auto function _bc_ok_identity_call()
         x = [1, 2, 3]
         y = _ret1(x)
         push!(y, 1)
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_view_alias()
+    BorrowChecker.Auto.@auto function _bc_bad_view_alias()
         x = [1, 2, 3, 4]
         y = view(x, 1:2)
         push!(x, 9)
         return collect(y)
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_capture()
+    BorrowChecker.Auto.@auto function _bc_bad_closure_capture()
         x = [1, 2, 3]
         y = x
         f = () -> (push!(x, 9); nothing)
@@ -205,7 +205,7 @@
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_bad_closure_capture_nested()
+    BorrowChecker.Auto.@auto function _bc_bad_closure_capture_nested()
         x = [1, 2, 3]
         y = x
         f = () -> begin
@@ -217,7 +217,7 @@
         return y
     end
 
-    BorrowChecker.Experimental.@borrow_checker function _bc_ok_closure_capture_readonly()
+    BorrowChecker.Auto.@auto function _bc_ok_closure_capture_readonly()
         x = [1, 2, 3]
         y = x
         f = () -> begin
@@ -243,19 +243,19 @@
     f_kwcall_ok_mut(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
     f_kwcall_alias_bad(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 
-    @borrow_checker function _bc_ok_kwcall()
+    @auto function _bc_ok_kwcall()
         x = [1, 2, 3]
         y = copy(x)
         return sum(f_kwcall_ok(; x=x, y=y))
     end
 
-    @borrow_checker function _bc_ok_kwcall_mut()
+    @auto function _bc_ok_kwcall_mut()
         x = [1, 2, 3]
         y = copy(x)
         return sum(f_kwcall_ok_mut(; x=x, y=y))
     end
 
-    @borrow_checker function _bc_bad_kwcall_alias_should_error()
+    @auto function _bc_bad_kwcall_alias_should_error()
         x = [1, 2, 3]
         y = x
         return sum(f_kwcall_alias_bad(; x=x, y=y))
@@ -268,7 +268,7 @@
     @testset "escape/store is treated as consume (move)" begin
         empty!(_BC_ESCAPE_CACHE)
 
-        @borrow_checker function _bc_escape_after_store_should_error()
+        @auto function _bc_escape_after_store_should_error()
             x = [1, 2, 3]
             _bc_consumes(x)
             return x
@@ -280,7 +280,7 @@
     @testset "escape/store does not move non-owned values" begin
         empty!(_BC_ESCAPE_CACHE)
 
-        @borrow_checker function _bc_escape_bits_ok()
+        @auto function _bc_escape_bits_ok()
             x = (1, 2, 3)
             _bc_consumes(x)
             return x
@@ -290,7 +290,7 @@
     end
 
     @testset "setfield!/Ref store moves owned values" begin
-        @borrow_checker function _bc_ref_store_moves_owned()
+        @auto function _bc_ref_store_moves_owned()
             r = Ref{Any}()
             x = [1, 2, 3]
             r[] = x
@@ -301,7 +301,7 @@
     end
 
     @testset "setfield!/Ref store does not move isbits" begin
-        @borrow_checker function _bc_ref_store_bits_ok()
+        @auto function _bc_ref_store_bits_ok()
             r = Ref{Any}()
             x = (1, 2, 3)
             r[] = x
@@ -312,7 +312,7 @@
     end
 
     @testset "mutable field store moves owned values" begin
-        @borrow_checker function _bc_mutable_field_store_moves_owned()
+        @auto function _bc_mutable_field_store_moves_owned()
             c = C(nothing)
             x = [1, 2, 3]
             c.v = x
@@ -323,7 +323,7 @@
     end
 
     @testset "unknown call does not consume non-owned values" begin
-        @borrow_checker function _bc_unknown_call_bits_ok(vf)
+        @auto function _bc_unknown_call_bits_ok(vf)
             x = (1, 2, 3)
             f = only(vf)
             f(x)
@@ -336,7 +336,7 @@
     @testset "immutable wrapper containing owned field is owned" begin
         empty!(_BC_ESCAPE_CACHE)
 
-        @borrow_checker function _bc_escape_wrap_should_error()
+        @auto function _bc_escape_wrap_should_error()
             w = Wrap([1, 2, 3])
             _bc_consumes(w)
             return w
@@ -348,7 +348,7 @@
     @testset "symbols are not moved" begin
         empty!(_BC_ESCAPE_CACHE)
 
-        @borrow_checker function _bc_escape_symbol_ok()
+        @auto function _bc_escape_symbol_ok()
             x = :a
             _bc_consumes(x)
             return x
@@ -360,7 +360,7 @@
     @testset "Dict setindex! key escapes" begin
         empty!(D)
 
-        @borrow_checker function _bc_dict_key_escape_should_error()
+        @auto function _bc_dict_key_escape_should_error()
             x = [1, 2, 3]
             D[x] = 4
             return x
@@ -370,7 +370,7 @@
 
         empty!(D)
 
-        @borrow_checker function _bc_dict_key_copy_ok()
+        @auto function _bc_dict_key_copy_ok()
             x = [1, 2, 3]
             D[copy(x)] = 4
             return x
@@ -383,52 +383,52 @@
         local_f(x) = x
         tt = Tuple{typeof(local_f),Int}
 
-        BorrowChecker.Experimental.__bc_assert_safe__(tt)
+        BorrowChecker.Auto.__bc_assert_safe__(tt)
         GC.gc()
 
-        alloc = @allocated BorrowChecker.Experimental.__bc_assert_safe__(tt)
+        alloc = @allocated BorrowChecker.Auto.__bc_assert_safe__(tt)
         @test alloc < 200_000
     end
 
     @testset "summary cache determinism" begin
-        Base.@lock BorrowChecker.Experimental._summary_state begin
-            empty!(BorrowChecker.Experimental._summary_state[].summary_cache)
-            empty!(BorrowChecker.Experimental._summary_state[].tt_summary_cache)
+        Base.@lock BorrowChecker.Auto._summary_state begin
+            empty!(BorrowChecker.Auto._summary_state[].summary_cache)
+            empty!(BorrowChecker.Auto._summary_state[].tt_summary_cache)
         end
 
         deep1(x) = x
         deep2(x) = deep1(x)
         deep3(x) = deep2(x)
 
-        cfg = BorrowChecker.Experimental.Config(; max_summary_depth=2)
+        cfg = BorrowChecker.Auto.Config(; max_summary_depth=2)
         tt = Tuple{typeof(deep3),Vector{Int}}
 
-        BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
+        BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
 
         function latest_entry()
-            Base.@lock BorrowChecker.Experimental._summary_state begin
+            Base.@lock BorrowChecker.Auto._summary_state begin
                 best_key = nothing
-                for k in keys(BorrowChecker.Experimental._summary_state[].tt_summary_cache)
+                for k in keys(BorrowChecker.Auto._summary_state[].tt_summary_cache)
                     k[1] === tt || continue
                     (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
                 end
                 best_key === nothing && error("missing cache entry")
-                return BorrowChecker.Experimental._summary_state[].tt_summary_cache[best_key]
+                return BorrowChecker.Auto._summary_state[].tt_summary_cache[best_key]
             end
         end
 
         entry1 = latest_entry()
         @test entry1.over_budget == true
 
-        BorrowChecker.Experimental._summary_for_tt(tt, cfg; depth=0)
+        BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=0)
         entry2 = latest_entry()
         @test entry2.over_budget == false
     end
 
     @testset "Registry override API" begin
-        BorrowChecker.Experimental.register_effects!(fakewrite; writes=(2,))
+        BorrowChecker.Auto.register_effects!(fakewrite; writes=(2,))
 
-        @borrow_checker function bc_registry_override()
+        @auto function bc_registry_override()
             x = [1, 2, 3]
             y = x
             z = fakewrite(x)
@@ -439,9 +439,9 @@
         @test_throws BorrowCheckError bc_registry_override()
     end
 
-    @testset "@borrow_checker one-line method form" begin
+    @testset "@auto one-line method form" begin
         # Hits the `ex.head === :(=)` + `_is_method_definition_lhs` branch in the macro.
-        BorrowChecker.Experimental.@borrow_checker _bc_oneliner_bad() = begin
+        BorrowChecker.Auto.@auto _bc_oneliner_bad() = begin
             x = [1, 2, 3]
             y = x
             x[1] = 0

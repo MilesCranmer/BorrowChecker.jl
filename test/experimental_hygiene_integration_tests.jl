@@ -1,13 +1,13 @@
-@testitem "Experimental @borrow_checker hygiene and tracking" tags = [:experimental] begin
+@testitem "Auto @auto hygiene and tracking" tags = [:experimental] begin
     using TestItems
-    using BorrowChecker.Experimental: @borrow_checker
+    using BorrowChecker.Auto: @auto
 
     @testset "macro hygiene: no BorrowChecker global" begin
         user_mod = Module(:_BCHygieneUser)
 
-        Core.eval(user_mod, :(using BorrowChecker.Experimental: @borrow_checker))
+        Core.eval(user_mod, :(using BorrowChecker.Auto: @auto))
 
-        ex = :(@borrow_checker function f(x)
+        ex = :(@auto function f(x)
             y = x
             return y
         end)
@@ -32,8 +32,8 @@
 
     @testset "runtime hygiene: no `BorrowChecker` binding needed" begin
         user_mod = Module(:_BCHygieneRuntimeUser)
-        Core.eval(user_mod, :(using BorrowChecker.Experimental: @borrow_checker))
-        Core.eval(user_mod, :(@borrow_checker function f(x)
+        Core.eval(user_mod, :(using BorrowChecker.Auto: @auto))
+        Core.eval(user_mod, :(@auto function f(x)
             y = x
             return y
         end))
@@ -42,7 +42,7 @@
 
     @testset "is_tracked_type doesn't error on abstract" begin
         # Regression: fieldtypes(fieldcount) throws for abstract types.
-        @test BorrowChecker.Experimental.is_tracked_type(AbstractArray) === true
-        @test BorrowChecker.Experimental.is_tracked_type(AbstractVector) === true
+        @test BorrowChecker.Auto.is_tracked_type(AbstractArray) === true
+        @test BorrowChecker.Auto.is_tracked_type(AbstractVector) === true
     end
 end

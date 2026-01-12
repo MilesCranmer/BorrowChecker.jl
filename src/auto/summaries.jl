@@ -13,7 +13,7 @@ end
 
 const _summary_state = Lockable(SummaryState())
 
-const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerExperimental__reflection_ctx
+const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
 
 @inline function _reflection_ctx()
     return get(Base.task_local_storage(), _TLS_REFLECTION_CTX_KEY, nothing)
@@ -218,7 +218,7 @@ function _summary_for_tt(
                         m = targ.name.module
                     end
                 end
-                if m === Experimental || (!allow_core && m === Core)
+                if m === Auto || (!allow_core && m === Core)
                     return nothing
                 end
             end
@@ -238,7 +238,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     try
         if mi isa Core.MethodInstance
             m = mi.def
-            if (m isa Method) && (m.module === Core || m.module === Experimental)
+            if (m isa Method) && (m.module === Core || m.module === Auto)
                 return nothing
             end
         end

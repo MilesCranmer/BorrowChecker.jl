@@ -81,7 +81,7 @@ end
 function _tt_expr_from_signature(sig)
     call = _sig_call(sig)
     call isa Expr && call.head === :call ||
-        error("@borrow_checker currently supports standard function signatures")
+        error("@auto currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
     argrefs = Any[]
     for a in call.args[2:end]
@@ -188,7 +188,7 @@ function _prepend_check_stmt(sig, body)
     return _instrument_assignments(new_body)
 end
 
-macro borrow_checker(ex)
+macro auto(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
 
     # Function form
@@ -207,5 +207,5 @@ macro borrow_checker(ex)
         return esc(Expr(:function, sig, inst_body))
     end
 
-    return error("@borrow_checker must wrap a function/method definition")
+    return error("@auto must wrap a function/method definition")
 end

@@ -1,9 +1,9 @@
-@testitem "Experimental borrow checker printing" tags = [:experimental] begin
+@testitem "Auto @auto printing" tags = [:experimental] begin
     using TestItems
     using BorrowChecker
 
     # This test targets error printing helpers in the experimental borrow checker.
-    using BorrowChecker.Experimental: BorrowCheckError, BorrowViolation
+    using BorrowChecker.Auto: BorrowCheckError, BorrowViolation
 
     @testset "file source line" begin
         (path, io) = mktemp()
@@ -39,11 +39,11 @@
 
     @testset "BorrowCheckError includes REPL context (real checker)" begin
         mod = Module(:_BCPrintRealMod)
-        Core.eval(mod, :(using BorrowChecker.Experimental: @borrow_checker))
+        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
         Base.include_string(
             mod,
             """
-            @borrow_checker function foo()
+            @auto function foo()
                 x = [1, 2, 3]
                 y = x
                 push!(x, 9)
@@ -75,11 +75,11 @@
             path,
             """
             module _BCFilePrintMod
-            using BorrowChecker.Experimental: @borrow_checker
+            using BorrowChecker.Auto: @auto
 
             f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 
-            @borrow_checker function foo()
+            @auto function foo()
                 x = [1, 2, 3]
                 y = x
                 return sum(f(; x=x, y=y))
@@ -134,11 +134,11 @@
 
         repltask = @async REPL.run_repl(repl)
 
-        write(input.in, "using BorrowChecker.Experimental: @borrow_checker\r")
+        write(input.in, "using BorrowChecker.Auto: @auto\r")
         write(input.in, "f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)\r")
         write(
             input.in,
-            "@borrow_checker function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
+            "@auto function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
         )
         write(input.in, "foo()\r")
         close(input.in)

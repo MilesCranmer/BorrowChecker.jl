@@ -1,4 +1,4 @@
-@testitem "DynamicExpressions integration" tags = [:unstable] begin
+@testitem "DynamicExpressions integration" tags = [:experimental] begin
     using TestItems
     using BorrowChecker
 
@@ -6,13 +6,13 @@
     # real external package type (DynamicExpressions.Expression).
 
     using DynamicExpressions
-    using BorrowChecker.Experimental: BorrowCheckError
+    using BorrowChecker.Auto: BorrowCheckError
 
     operators = OperatorEnum(1 => [exp], 2 => [+, -, *])
     x1 = Expression(Node{Float64}(; feature=1); operators)
     x2 = Expression(Node{Float64}(; feature=2); operators)
 
-    BorrowChecker.Experimental.@borrow_checker bat(ex) = begin
+    BorrowChecker.Auto.@auto bat(ex) = begin
         (c1, r1) = get_scalar_constants(ex)
         ex2 = ex
         set_scalar_constants!(ex, c1 .* 2, r1)

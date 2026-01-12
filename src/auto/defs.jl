@@ -125,8 +125,8 @@ end
 function _populate_registry!()
     _maybe_register_effects_and_alias!(__bc_bind__, :arg1)
 
-    if isdefined(Experimental, :__bc_assert_safe__)
-        f = Experimental.__bc_assert_safe__
+    if isdefined(Auto, :__bc_assert_safe__)
+        f = Auto.__bc_assert_safe__
         _maybe_register_effects_and_alias!(f, :none)
     end
 

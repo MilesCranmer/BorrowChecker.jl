@@ -1,5 +1,4 @@
-export @borrow_checker,
-    Config, DEFAULT_CONFIG, BorrowCheckError, register_effects!, register_return_alias!
+export Config, DEFAULT_CONFIG, BorrowCheckError, register_effects!, register_return_alias!
 
 import Core.Compiler
 const CC = Core.Compiler

@@ -16,7 +16,7 @@ using DispatchDoctor: @stable
     include("overloads.jl")
     include("type_overloads.jl")
     include("disambiguations.jl")
-    include("experimental.jl")
+    include("auto.jl")
 end
 
 #! format: off
@@ -31,6 +31,7 @@ export @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut
 export Mutex
 
 # Not exported but still available
+using .Auto: @auto
 using .PreferencesModule: disable_by_default!
 using .StaticTraitModule: is_static
 using .TypesModule: AsMutable, Lifetime, LazyAccessorOf, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows
