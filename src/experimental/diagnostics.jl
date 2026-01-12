@@ -12,21 +12,7 @@ end
 
 const _srcfile_cache = Lockable(Dict{String,Vector{String}}())
 
-@inline function _lineinfo_file_line(li::Core.LineInfoNode)
-    file = try
-        String(getproperty(li, :file))
-    catch
-        nothing
-    end
-    line = try
-        Int(getproperty(li, :line))
-    catch
-        nothing
-    end
-    return file, line
-end
-
-@inline function _lineinfo_file_line(li::LineNumberNode)
+@inline function _lineinfo_file_line(li)
     file = try
         String(getproperty(li, :file))
     catch

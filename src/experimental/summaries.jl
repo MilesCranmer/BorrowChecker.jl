@@ -6,9 +6,7 @@ end
 
 Base.@kwdef struct SummaryState
     summary_cache::IdDict{Any,SummaryCacheEntry} = IdDict{Any,SummaryCacheEntry}()
-    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{
-        Tuple{Any,UInt},SummaryCacheEntry
-    }()
+    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{Tuple{Any,UInt},SummaryCacheEntry}()
     summary_inprogress::Base.IdSet{Any} = Base.IdSet{Any}()
     tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
 end
@@ -76,13 +74,52 @@ end
     return (new.depth < old.depth) ? new : old
 end
 
-function _summary_cached_tt(
-    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool
-)
+@inline function _summary_state_get(cache_field::Symbol, key)
     cached = nothing
     Base.@lock _summary_state begin
-        cached = get(_summary_state[].tt_summary_cache, key, nothing)
+        cache = getproperty(_summary_state[], cache_field)
+        cached = get(cache, key, nothing)
     end
+    return cached
+end
+
+@inline function _summary_state_set!(cache_field::Symbol, key, new_entry::SummaryCacheEntry)
+    Base.@lock _summary_state begin
+        cache = getproperty(_summary_state[], cache_field)
+        old = get(cache, key, nothing)
+        cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
+    end
+    return nothing
+end
+
+@inline function _summary_state_inprogress_enter!(inprogress_field::Symbol, key)::Bool
+    reentered = false
+    Base.@lock _summary_state begin
+        inprog = getproperty(_summary_state[], inprogress_field)
+        reentered = (key in inprog)
+        reentered || push!(inprog, key)
+    end
+    return reentered
+end
+
+@inline function _summary_state_inprogress_exit!(inprogress_field::Symbol, key)
+    Base.@lock _summary_state begin
+        inprog = getproperty(_summary_state[], inprogress_field)
+        delete!(inprog, key)
+    end
+    return nothing
+end
+
+function _summary_cached(
+    compute::Function,
+    key,
+    cfg::Config;
+    depth::Int,
+    budget_state=nothing,
+    cache_field::Symbol,
+    inprogress_field::Symbol,
+)
+    cached = _summary_state_get(cache_field, key)
     if cached !== nothing
         if !cached.over_budget || depth >= cached.depth
             cached.over_budget && _mark_budget_hit!(budget_state)
@@ -90,16 +127,9 @@ function _summary_cached_tt(
         end
     end
 
-    if budget_state !== nothing
-        budget_state.hit && return nothing
-    end
+    budget_state !== nothing && budget_state.hit && return nothing
 
-    reentered = false
-    Base.@lock _summary_state begin
-        reentered = (key in _summary_state[].tt_summary_inprogress)
-        reentered || push!(_summary_state[].tt_summary_inprogress, key)
-    end
-    if reentered
+    if _summary_state_inprogress_enter!(inprogress_field, key)
         _mark_budget_hit!(budget_state)
         return nothing
     end
@@ -111,83 +141,62 @@ function _summary_cached_tt(
     catch
         summ = nothing
     finally
-        Base.@lock _summary_state begin
-            delete!(_summary_state[].tt_summary_inprogress, key)
-        end
+        _summary_state_inprogress_exit!(inprogress_field, key)
     end
 
     if summ !== nothing
-        new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
-        Base.@lock _summary_state begin
-            old = get(_summary_state[].tt_summary_cache, key, nothing)
-            _summary_state[].tt_summary_cache[key] =
-                (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
-        end
+        _summary_state_set!(cache_field, key, SummaryCacheEntry(summ, depth, local_budget.hit))
     end
 
-    cached2 = nothing
-    Base.@lock _summary_state begin
-        cached2 = get(_summary_state[].tt_summary_cache, key, nothing)
-    end
+    cached2 = _summary_state_get(cache_field, key)
     cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
     return cached2 === nothing ? summ : cached2.summary
 end
 
-function _summary_cached_mi(
-    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing
+function _summary_cached_tt(
+    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing, allow_core::Bool
 )
-    cached = nothing
-    Base.@lock _summary_state begin
-        cached = get(_summary_state[].summary_cache, key, nothing)
-    end
-    if cached !== nothing
-        if !cached.over_budget || depth >= cached.depth
-            cached.over_budget && _mark_budget_hit!(budget_state)
-            return cached.summary
-        end
+    return _summary_cached(
+        compute,
+        key,
+        cfg;
+        depth=depth,
+        budget_state=budget_state,
+        cache_field=:tt_summary_cache,
+        inprogress_field=:tt_summary_inprogress,
+    )
+end
+
+function _summary_cached_mi(compute::Function, key, cfg::Config; depth::Int, budget_state=nothing)
+    return _summary_cached(
+        compute,
+        key,
+        cfg;
+        depth=depth,
+        budget_state=budget_state,
+        cache_field=:summary_cache,
+        inprogress_field=:summary_inprogress,
+    )
+end
+
+function _summarize_entries(codes, cfg::Config; depth::Int, budget_state=nothing)
+    writes = BitSet()
+    consumes = BitSet()
+    ret_aliases = BitSet()
+    got = false
+
+    for entry in codes
+        ir = entry.first
+        ir isa CC.IRCode || continue
+        got = true
+        s = _summarize_ir_effects(ir, cfg; depth=depth, budget_state=budget_state)
+        union!(writes, s.writes)
+        union!(consumes, s.consumes)
+        union!(ret_aliases, s.ret_aliases)
     end
 
-    if budget_state !== nothing
-        budget_state.hit && return nothing
-    end
-
-    reentered = false
-    Base.@lock _summary_state begin
-        reentered = (key in _summary_state[].summary_inprogress)
-        reentered || push!(_summary_state[].summary_inprogress, key)
-    end
-    if reentered
-        _mark_budget_hit!(budget_state)
-        return nothing
-    end
-
-    summ = nothing
-    local_budget = BudgetTracker(false)
-    try
-        summ = compute(local_budget)
-    catch
-        summ = nothing
-    finally
-        Base.@lock _summary_state begin
-            delete!(_summary_state[].summary_inprogress, key)
-        end
-    end
-
-    if summ !== nothing
-        new_entry = SummaryCacheEntry(summ, depth, local_budget.hit)
-        Base.@lock _summary_state begin
-            old = get(_summary_state[].summary_cache, key, nothing)
-            _summary_state[].summary_cache[key] =
-                (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
-        end
-    end
-
-    cached2 = nothing
-    Base.@lock _summary_state begin
-        cached2 = get(_summary_state[].summary_cache, key, nothing)
-    end
-    cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
-    return cached2 === nothing ? summ : cached2.summary
+    got || return nothing
+    return EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
 end
 
 function _summary_for_tt(
@@ -221,21 +230,7 @@ function _summary_for_tt(
         key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
         codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-        writes = BitSet()
-        consumes = BitSet()
-        ret_aliases = BitSet()
-        got = false
-        for entry in codes
-            ir = entry.first
-            ir isa CC.IRCode || continue
-            got = true
-            s = _summarize_ir_effects(ir, cfg; depth=depth, budget_state=local_budget)
-            union!(writes, s.writes)
-            union!(consumes, s.consumes)
-            union!(ret_aliases, s.ret_aliases)
-        end
-        got || return nothing
-        return EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+        return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
 
@@ -257,21 +252,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         tt = mi.specTypes
         world = _reflection_world()
         codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-        writes = BitSet()
-        consumes = BitSet()
-        ret_aliases = BitSet()
-        got = false
-        for entry in codes
-            ir = entry.first
-            ir isa CC.IRCode || continue
-            got = true
-            s = _summarize_ir_effects(ir, cfg; depth=depth, budget_state=local_budget)
-            union!(writes, s.writes)
-            union!(consumes, s.consumes)
-            union!(ret_aliases, s.ret_aliases)
-        end
-        got || return nothing
-        return EffectSummary(; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+        return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
 
@@ -466,6 +447,26 @@ function _effects_for_call(
     end
 end
 
+@inline function _push_arg_aliases!(
+    dest::BitSet, uf::UnionFind, root::Int, nargs::Int, track_arg
+)
+    for a in 1:nargs
+        track_arg[a] || continue
+        if _uf_find(uf, a) == root
+            push!(dest, a)
+        end
+    end
+    return nothing
+end
+
+@inline function _push_arg_aliases_for_handle!(
+    dest::BitSet, uf::UnionFind, hv::Int, nargs::Int, track_arg
+)
+    hv == 0 && return nothing
+    root = _uf_find(uf, hv)
+    return _push_arg_aliases!(dest, uf, root, nargs, track_arg)
+end
+
 function _summarize_ir_effects(
     ir::CC.IRCode, cfg::Config; depth::Int, budget_state=nothing
 )::EffectSummary
@@ -484,21 +485,15 @@ function _summarize_ir_effects(
 
     for i in 1:nstmts
         stmt = ir[Core.SSAValue(i)][:stmt]
-        head, _mi, raw_args = _call_parts(stmt)
         if stmt isa Expr && stmt.head === :foreigncall
             uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
             for hv in uses
-                rv = _uf_find(uf, hv)
-                for a in 1:nargs
-                    track_arg[a] || continue
-                    if _uf_find(uf, a) == rv
-                        push!(writes, a)
-                    end
-                end
+                _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
             end
             continue
         end
 
+        head, _mi, raw_args = _call_parts(stmt)
         raw_args === nothing && continue
 
         eff = _effects_for_call(
@@ -520,55 +515,27 @@ function _summarize_ir_effects(
             if kw_vals !== nothing && p == 2
                 for vkw in kw_vals
                     hv = _handle_index(vkw, nargs, track_arg, track_ssa)
-                    hv == 0 && continue
-                    rv = _uf_find(uf, hv)
-                    for a in 1:nargs
-                        track_arg[a] || continue
-                        if _uf_find(uf, a) == rv
-                            push!(writes, a)
-                        end
-                    end
+                    _push_arg_aliases_for_handle!(writes, uf, hv, nargs, track_arg)
                 end
                 continue
             end
 
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
-            hv == 0 && continue
-            rv = _uf_find(uf, hv)
-            for a in 1:nargs
-                track_arg[a] || continue
-                if _uf_find(uf, a) == rv
-                    push!(writes, a)
-                end
-            end
+            _push_arg_aliases_for_handle!(writes, uf, hv, nargs, track_arg)
         end
         for p in eff.consumes
             if kw_vals !== nothing && p == 2
                 for vkw in kw_vals
                     hv = _handle_index(vkw, nargs, track_arg, track_ssa)
-                    hv == 0 && continue
-                    rv = _uf_find(uf, hv)
-                    for a in 1:nargs
-                        track_arg[a] || continue
-                        if _uf_find(uf, a) == rv
-                            push!(consumes, a)
-                        end
-                    end
+                    _push_arg_aliases_for_handle!(consumes, uf, hv, nargs, track_arg)
                 end
                 continue
             end
 
             v = raw_args[p]
             hv = _handle_index(v, nargs, track_arg, track_ssa)
-            hv == 0 && continue
-            rv = _uf_find(uf, hv)
-            for a in 1:nargs
-                track_arg[a] || continue
-                if _uf_find(uf, a) == rv
-                    push!(consumes, a)
-                end
-            end
+            _push_arg_aliases_for_handle!(consumes, uf, hv, nargs, track_arg)
         end
     end
 

@@ -1,23 +1,3 @@
-struct CallSite
-    stmt::Any
-    head::Symbol
-    mi::Any
-    raw_args::Vector{Any}
-    idx::Int
-end
-
-function CallSite(ctx::IRContext, idx::Int, stmt)
-    if stmt isa Expr && stmt.head === :invoke
-        return CallSite(stmt, :invoke, stmt.args[1], Any[stmt.args[2:end]...], idx)
-    elseif stmt isa Expr && stmt.head === :call
-        return CallSite(stmt, :call, nothing, Any[stmt.args...], idx)
-    elseif stmt isa Expr && stmt.head === :foreigncall
-        return CallSite(stmt, :foreigncall, nothing, Any[], idx)
-    else
-        return nothing
-    end
-end
-
 function _call_parts(stmt)
     if stmt isa Expr && stmt.head === :invoke
         mi = stmt.args[1]
@@ -36,9 +16,7 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     raw_args === nothing && return nothing
     fexpr = raw_args[1]
 
-    if fexpr isa Core.Argument
-        return nothing
-    end
+    fexpr isa Core.Argument && return nothing
 
     try
         ft = CC.argextype(fexpr, ir)

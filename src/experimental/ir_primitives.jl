@@ -364,25 +364,3 @@ function compute_tracking_masks(ir::CC.IRCode)
 
     return track_arg, track_ssa
 end
-
-struct IRContext
-    ir::CC.IRCode
-    cfg::Config
-    nargs::Int
-    nstmts::Int
-    track_arg::Vector{Bool}
-    track_ssa::Vector{Bool}
-end
-
-function IRContext(ir::CC.IRCode, cfg::Config)
-    track_arg, track_ssa = compute_tracking_masks(ir)
-    return IRContext(ir, cfg, length(ir.argtypes), length(ir.stmts), track_arg, track_ssa)
-end
-
-@inline function handle(ctx::IRContext, x)
-    return _handle_index(x, ctx.nargs, ctx.track_arg, ctx.track_ssa)
-end
-
-@inline function stmt(ctx::IRContext, i::Int)
-    return ctx.ir[Core.SSAValue(i)][:stmt]
-end

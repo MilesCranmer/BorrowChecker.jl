@@ -1,3 +1,155 @@
+@inline _field_sym(x) = x isa QuoteNode ? x.value : x
+
+@inline function _box_key(@nospecialize(box), ir::CC.IRCode, nargs::Int)::Int
+    box = _canonical_ref(box, ir)
+    if box isa Core.Argument
+        return box.n
+    elseif box isa Core.SSAValue
+        return _ssa_handle(nargs, box.id)
+    end
+    return 0
+end
+
+@inline function _maybe_record_box_contents!(
+    box_contents::Dict{Int,Int},
+    @nospecialize(f),
+    raw_args,
+    ir::CC.IRCode,
+    nargs::Int,
+    track_arg,
+    track_ssa,
+)
+    f === Core.setfield! || return nothing
+    length(raw_args) >= 4 || return nothing
+
+    _field_sym(raw_args[3]) === :contents || return nothing
+
+    key = _box_key(raw_args[2], ir, nargs)
+    key == 0 && return nothing
+
+    vh = _handle_index(raw_args[4], nargs, track_arg, track_ssa)
+    vh == 0 && return nothing
+
+    box_contents[key] = vh
+    return nothing
+end
+
+@inline function _maybe_alias_box_contents!(
+    uf::UnionFind,
+    out_h::Int,
+    box_contents::Dict{Int,Int},
+    @nospecialize(f),
+    raw_args,
+    ir::CC.IRCode,
+    nargs::Int,
+)
+    f === Core.getfield || return nothing
+    length(raw_args) >= 3 || return nothing
+
+    _field_sym(raw_args[3]) === :contents || return nothing
+
+    key = _box_key(raw_args[2], ir, nargs)
+    key == 0 && return nothing
+
+    in_h = get(box_contents, key, 0)
+    in_h == 0 && return nothing
+
+    _uf_union!(uf, out_h, in_h)
+    return nothing
+end
+
+@inline function _push_all_user_args!(dest::Vector{Int}, raw_args)
+    for p in 2:length(raw_args)
+        push!(dest, p)
+    end
+    return dest
+end
+
+function _maybe_ret_alias_summary(
+    stmt,
+    ir::CC.IRCode,
+    cfg::Config,
+    @nospecialize(f),
+    raw_args;
+    depth::Int,
+    budget_state=nothing,
+)
+    if depth < cfg.max_summary_depth
+        if stmt.head === :invoke
+            return _summary_for_mi(
+                stmt.args[1], cfg; depth=depth + 1, budget_state=budget_state
+            )
+        end
+
+        if f === Core.kwcall
+            tt = _kwcall_tt_from_raw_args(raw_args, ir)
+            tt !== nothing && return _summary_for_tt(
+                tt,
+                cfg;
+                depth=depth + 1,
+                budget_state=budget_state,
+                allow_core=true,
+            )
+            return nothing
+        end
+
+        tt = _call_tt_from_raw_args(raw_args, ir)
+        tt !== nothing &&
+            return _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
+        return nothing
+    end
+
+    if stmt.head === :invoke
+        _mark_budget_hit!(budget_state)
+    else
+        tt = if f === Core.kwcall
+            _kwcall_tt_from_raw_args(raw_args, ir)
+        else
+            _call_tt_from_raw_args(raw_args, ir)
+        end
+        tt === nothing || _mark_budget_hit!(budget_state)
+    end
+
+    return nothing
+end
+
+function _ret_alias_positions_for_call(
+    stmt,
+    ir::CC.IRCode,
+    cfg::Config,
+    @nospecialize(f),
+    raw_args;
+    depth::Int,
+    budget_state=nothing,
+)
+    alias_args = Int[]
+
+    if f !== nothing && _ret_alias_has(f)
+        style = _ret_alias_get(f)
+        if style === :arg1
+            length(raw_args) >= 2 && push!(alias_args, 2)
+        elseif style === :all
+            _push_all_user_args!(alias_args, raw_args)
+        end
+        return alias_args
+    end
+
+    if cfg.analyze_invokes
+        s = _maybe_ret_alias_summary(
+            stmt, ir, cfg, f, raw_args; depth=depth, budget_state=budget_state
+        )
+        if s !== nothing
+            for p in s.ret_aliases
+                push!(alias_args, p)
+            end
+            return alias_args
+        end
+        return _push_all_user_args!(alias_args, raw_args)
+    end
+
+    return _push_all_user_args!(alias_args, raw_args)
+end
+
 function _build_alias_classes!(
     uf::UnionFind,
     ir::CC.IRCode,
@@ -54,105 +206,20 @@ function _build_alias_classes!(
                 continue
             end
 
-            if f === Core.setfield! && length(raw_args) >= 4
-                fld = raw_args[3]
-                fldsym = fld isa QuoteNode ? fld.value : fld
-                if fldsym === :contents
-                    box = _canonical_ref(raw_args[2], ir)
-                    key = if box isa Core.Argument
-                        box.n
-                    elseif box isa Core.SSAValue
-                        _ssa_handle(nargs, box.id)
-                    else
-                        0
-                    end
-                    v = raw_args[4]
-                    vh = _handle_index(v, nargs, track_arg, track_ssa)
-                    (key != 0 && vh != 0) && (box_contents[key] = vh)
-                end
-            elseif f === Core.getfield && length(raw_args) >= 3
-                fld = raw_args[3]
-                fldsym = fld isa QuoteNode ? fld.value : fld
-                if fldsym === :contents
-                    box = _canonical_ref(raw_args[2], ir)
-                    key = if box isa Core.Argument
-                        box.n
-                    elseif box isa Core.SSAValue
-                        _ssa_handle(nargs, box.id)
-                    else
-                        0
-                    end
-                    if key != 0 && haskey(box_contents, key)
-                        _uf_union!(uf, out_h, box_contents[key])
-                    end
-                end
-            end
+            _maybe_record_box_contents!(
+                box_contents, f, raw_args, ir, nargs, track_arg, track_ssa
+            )
+            _maybe_alias_box_contents!(uf, out_h, box_contents, f, raw_args, ir, nargs)
 
-            alias_args = Int[]
-            if f !== nothing && _ret_alias_has(f)
-                style = _ret_alias_get(f)
-                if style === :arg1
-                    length(raw_args) >= 2 && push!(alias_args, 2)
-                elseif style === :all
-                    for p in 2:length(raw_args)
-                        push!(alias_args, p)
-                    end
-                end
-            elseif cfg.analyze_invokes
-                s = nothing
-                if depth < cfg.max_summary_depth
-                    if stmt.head === :invoke
-                        s = _summary_for_mi(
-                            stmt.args[1], cfg; depth=depth + 1, budget_state=budget_state
-                        )
-                    else
-                        if f === Core.kwcall
-                            tt = _kwcall_tt_from_raw_args(raw_args, ir)
-                            tt !== nothing && (
-                                s = _summary_for_tt(
-                                    tt,
-                                    cfg;
-                                    depth=depth + 1,
-                                    budget_state=budget_state,
-                                    allow_core=true,
-                                )
-                            )
-                        else
-                            tt = _call_tt_from_raw_args(raw_args, ir)
-                            tt !== nothing && (
-                                s = _summary_for_tt(
-                                    tt, cfg; depth=depth + 1, budget_state=budget_state
-                                )
-                            )
-                        end
-                    end
-                else
-                    if stmt.head === :invoke
-                        _mark_budget_hit!(budget_state)
-                    else
-                        tt = if (f === Core.kwcall)
-                            _kwcall_tt_from_raw_args(raw_args, ir)
-                        else
-                            _call_tt_from_raw_args(raw_args, ir)
-                        end
-                        tt === nothing || _mark_budget_hit!(budget_state)
-                    end
-                end
-
-                if s !== nothing
-                    for p in s.ret_aliases
-                        push!(alias_args, p)
-                    end
-                else
-                    for p in 2:length(raw_args)
-                        push!(alias_args, p)
-                    end
-                end
-            else
-                for p in 2:length(raw_args)
-                    push!(alias_args, p)
-                end
-            end
+            alias_args = _ret_alias_positions_for_call(
+                stmt,
+                ir,
+                cfg,
+                f,
+                raw_args;
+                depth=depth,
+                budget_state=budget_state,
+            )
 
             isempty(alias_args) && continue
             for p in alias_args
@@ -190,6 +257,7 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
             f = _resolve_callee(stmt, ir)
             if f === __bc_bind__ ||
                 (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
+                # Binding barriers are treated as producing a fresh identity for tracking.
                 origins[hdef] = hdef
                 continue
             end

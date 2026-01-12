@@ -1,3 +1,94 @@
+function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+    blocks = ir.cfg.blocks
+    nblocks = length(blocks)
+
+    phi_edge_use = [BitSet() for _ in 1:nblocks]
+    use = [BitSet() for _ in 1:nblocks]
+    def = [BitSet() for _ in 1:nblocks]
+
+    inst2bb = zeros(Int, length(ir.stmts))
+    for b in 1:nblocks
+        for idx in blocks[b].stmts
+            inst2bb[idx] = b
+        end
+    end
+
+    for b in 1:nblocks
+        r = blocks[b].stmts
+        for idx in r
+            stmt = ir[Core.SSAValue(idx)][:stmt]
+            if stmt isa Core.PhiNode || stmt isa Core.PhiCNode
+                edges = getfield(stmt, :edges)
+                vals = getfield(stmt, :values)
+                for k in 1:length(edges)
+                    edge = edges[k]
+                    v = vals[k]
+                    h = _handle_index(v, nargs, track_arg, track_ssa)
+                    h == 0 && continue
+                    pred_bb = 0
+                    if 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0
+                        pred_bb = inst2bb[edge]
+                    elseif 1 <= edge <= nblocks
+                        pred_bb = edge
+                    end
+                    pred_bb == 0 && continue
+                    push!(phi_edge_use[pred_bb], h)
+                end
+            else
+                break
+            end
+        end
+    end
+
+    for b in 1:nblocks
+        seen_defs = BitSet()
+        for idx in blocks[b].stmts
+            if 1 <= idx <= length(track_ssa) && track_ssa[idx]
+                hdef = _ssa_handle(nargs, idx)
+                push!(def[b], hdef)
+                push!(seen_defs, hdef)
+            end
+            stmt = ir[Core.SSAValue(idx)][:stmt]
+            if stmt isa Core.PhiNode || stmt isa Core.PhiCNode
+                continue
+            end
+            uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
+            for u in uses
+                (u in seen_defs) || push!(use[b], u)
+            end
+        end
+    end
+
+    live_in = [BitSet() for _ in 1:nblocks]
+    live_out = [BitSet() for _ in 1:nblocks]
+
+    changed = true
+    while changed
+        changed = false
+        for b in nblocks:-1:1
+            out = BitSet()
+            union!(out, phi_edge_use[b])
+            for s in blocks[b].succs
+                union!(out, live_in[s])
+            end
+            inn = BitSet()
+            union!(inn, use[b])
+            tmp = BitSet(out)
+            for d in def[b]
+                delete!(tmp, d)
+            end
+            union!(inn, tmp)
+            if out != live_out[b] || inn != live_in[b]
+                live_out[b] = out
+                live_in[b] = inn
+                changed = true
+            end
+        end
+    end
+
+    return live_in, live_out
+end
+
 function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)
@@ -51,9 +142,8 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     return viols
 end
 
-@inline function _call_safe_under_unknown_consume(
-    raw_args,
-    extra_args,
+@inline function _args_safe_under_unknown_consume(
+    args,
     nargs,
     track_arg,
     track_ssa,
@@ -61,8 +151,8 @@ end
     origins,
     live_during::BitSet,
     live_after::BitSet,
-)
-    for arg in raw_args
+)::Bool
+    for arg in args
         hv = _handle_index(arg, nargs, track_arg, track_ssa)
         hv == 0 && continue
 
@@ -83,30 +173,41 @@ end
         end
     end
 
-    if extra_args !== nothing
-        for arg in extra_args
-            hv = _handle_index(arg, nargs, track_arg, track_ssa)
-            hv == 0 && continue
-
-            rv = _uf_find(uf, hv)
-            ohv = origins[hv]
-
-            for h2 in live_during
-                h2 == hv && continue
-                if _uf_find(uf, h2) == rv && origins[h2] != ohv
-                    return false
-                end
-            end
-
-            for h2 in live_after
-                if _uf_find(uf, h2) == rv
-                    return false
-                end
-            end
-        end
-    end
-
     return true
+end
+
+@inline function _call_safe_under_unknown_consume(
+    raw_args,
+    extra_args,
+    nargs,
+    track_arg,
+    track_ssa,
+    uf,
+    origins,
+    live_during::BitSet,
+    live_after::BitSet,
+)
+    _args_safe_under_unknown_consume(
+        raw_args, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
+    ) || return false
+
+    extra_args === nothing && return true
+
+    return _args_safe_under_unknown_consume(
+        extra_args, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
+    )
+end
+
+@inline function _push_violation!(
+    viols::Vector{BorrowViolation},
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    msg::String,
+)
+    li = _stmt_lineinfo(ir, idx)
+    push!(viols, BorrowViolation(idx, msg, li, stmt))
+    return nothing
 end
 
 function _check_stmt!(
@@ -210,6 +311,8 @@ function _check_stmt!(
         )
         _require_not_used_later!(viols, ir, idx, stmt, uf, origins, hv, live_after)
     end
+
+    return nothing
 end
 
 function _require_unique!(
@@ -229,15 +332,12 @@ function _require_unique!(
     for h2 in live_during
         (h2 == hv || h2 == ignore_h) && continue
         if _uf_find(uf, h2) == rv && origins[h2] != ohv
-            li = _stmt_lineinfo(ir, idx)
-            push!(
+            _push_violation!(
                 viols,
-                BorrowViolation(
-                    idx,
-                    "cannot perform $context: value is aliased by another live binding",
-                    li,
-                    stmt,
-                ),
+                ir,
+                idx,
+                stmt,
+                "cannot perform $context: value is aliased by another live binding",
             )
             return nothing
         end
@@ -257,15 +357,12 @@ function _require_not_used_later!(
     rv = _uf_find(uf, hv)
     for h2 in live_after
         if _uf_find(uf, h2) == rv
-            li = _stmt_lineinfo(ir, idx)
-            push!(
+            _push_violation!(
                 viols,
-                BorrowViolation(
-                    idx,
-                    "value escapes/consumed by unknown call; it (or an alias) is used later",
-                    li,
-                    stmt,
-                ),
+                ir,
+                idx,
+                stmt,
+                "value escapes/consumed by unknown call; it (or an alias) is used later",
             )
             return nothing
         end
