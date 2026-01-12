@@ -207,9 +207,5 @@ macro borrow_checker(ex)
         return esc(Expr(:function, sig, inst_body))
     end
 
-    # Block form: create a private thunk and run it (best-effort; captures are not checked precisely).
-    fname = gensym(:__bc_block__)
-    fdef = Expr(:function, Expr(:call, fname), Expr(:block, _instrument_assignments(ex)))
-    call = Expr(:call, fname)
-    return esc(Expr(:block, fdef, call))
+    return error("@borrow_checker must wrap a function/method definition")
 end
