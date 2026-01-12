@@ -74,7 +74,7 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - name: "Run unstable tests (nightly)"
         env:
-          BORROWCHECKER_INCLUDE_UNSTABLE: '1'
+          BORROWCHECKER_INCLUDE_EXPERIMENTAL: '1'
         run: |
           julia --color=yes --threads=auto --check-bounds=yes --depwarn=yes -e '
             import Pkg
