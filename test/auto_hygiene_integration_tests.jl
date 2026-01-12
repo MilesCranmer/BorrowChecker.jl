@@ -1,4 +1,4 @@
-@testitem "Auto @auto hygiene and tracking" tags = [:experimental] begin
+@testitem "Auto @auto hygiene and tracking" tags = [:auto] begin
     using TestItems
     using BorrowChecker.Auto: @auto
 

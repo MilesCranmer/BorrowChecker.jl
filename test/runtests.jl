@@ -8,9 +8,9 @@ include("feature_tests.jl")
 include("integration_tests.jl")
 include("complex_macros.jl")
 include("mutex_tests.jl")
-include("experimental_borrow_checker_tests.jl")
-include("experimental_printing_tests.jl")
-include("experimental_hygiene_integration_tests.jl")
+include("auto_borrow_checker_tests.jl")
+include("auto_printing_tests.jl")
+include("auto_hygiene_integration_tests.jl")
 include("dynamic_expressions_integration_tests.jl")
 
 @static if VERSION < v"1.14.0-"
@@ -29,12 +29,14 @@ end
 end
 
 const testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
-const include_unstable = get(ENV, "BORROWCHECKER_INCLUDE_EXPERIMENTAL", "") in ("1", "true")
+const include_auto =
+    lowercase(get(ENV, "BORROWCHECKER_INCLUDE_AUTO", "")) in ("1", "true", "yes") ||
+    lowercase(get(ENV, "BORROWCHECKER_INCLUDE_EXPERIMENTAL", "")) in ("1", "true", "yes")
 
 filter = if !isempty(testitem_name_filter)
     ti -> ti.name == testitem_name_filter
-elseif !include_unstable
-    ti -> !(:experimental in ti.tags)
+elseif !include_auto
+    ti -> !(:auto in ti.tags)
 else
     nothing
 end

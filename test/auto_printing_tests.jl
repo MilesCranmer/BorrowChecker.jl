@@ -1,4 +1,4 @@
-@testitem "Auto @auto printing" tags = [:experimental] begin
+@testitem "Auto @auto printing" tags = [:auto] begin
     using TestItems
     using BorrowChecker
 
