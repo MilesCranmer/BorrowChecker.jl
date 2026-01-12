@@ -122,9 +122,8 @@ function _lineinfo_chain(li::Core.LineInfoNode)
 end
 
 function _read_file_lines(file::String)
-    lines = String[]
     @lock _srcfile_cache begin
-        lines = get!(_srcfile_cache[], file) do
+        return get!(_srcfile_cache[], file) do
             try
                 readlines(file)
             catch
@@ -132,7 +131,6 @@ function _read_file_lines(file::String)
             end
         end
     end
-    return lines
 end
 
 function _recover_callee_from_tt(tt)
