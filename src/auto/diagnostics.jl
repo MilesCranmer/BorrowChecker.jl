@@ -80,11 +80,9 @@ function _try_repl_source(file::AbstractString)
     hp = _try_repl_history_provider()
     hp === nothing && return nothing
 
-    n = try
-        parse(Int, m.captures[1])
-    catch
-        return nothing
-    end
+    cap = m.captures[1]
+    cap === nothing && return nothing
+    n = parse(Int, cap)
     n <= 0 && return nothing
 
     hist = try
@@ -135,11 +133,9 @@ function _try_repl_source_lines(file::AbstractString, line::Int)
     hp = _try_repl_history_provider()
     hp === nothing && return nothing
 
-    n = try
-        parse(Int, m.captures[1])
-    catch
-        return nothing
-    end
+    cap = m.captures[1]
+    cap === nothing && return nothing
+    n = parse(Int, cap)
     n <= 0 && return nothing
 
     hist = try

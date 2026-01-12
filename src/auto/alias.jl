@@ -84,11 +84,7 @@ function _maybe_ret_alias_summary(
         if f === Core.kwcall
             tt = _kwcall_tt_from_raw_args(raw_args, ir)
             tt !== nothing && return _summary_for_tt(
-                tt,
-                cfg;
-                depth=depth + 1,
-                budget_state=budget_state,
-                allow_core=true,
+                tt, cfg; depth=depth + 1, budget_state=budget_state, allow_core=true
             )
             return nothing
         end
@@ -212,13 +208,7 @@ function _build_alias_classes!(
             _maybe_alias_box_contents!(uf, out_h, box_contents, f, raw_args, ir, nargs)
 
             alias_args = _ret_alias_positions_for_call(
-                stmt,
-                ir,
-                cfg,
-                f,
-                raw_args;
-                depth=depth,
-                budget_state=budget_state,
+                stmt, ir, cfg, f, raw_args; depth=depth, budget_state=budget_state
             )
 
             isempty(alias_args) && continue

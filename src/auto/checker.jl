@@ -143,14 +143,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
 end
 
 @inline function _args_safe_under_unknown_consume(
-    args,
-    nargs,
-    track_arg,
-    track_ssa,
-    uf,
-    origins,
-    live_during::BitSet,
-    live_after::BitSet,
+    args, nargs, track_arg, track_ssa, uf, origins, live_during::BitSet, live_after::BitSet
 )::Bool
     for arg in args
         hv = _handle_index(arg, nargs, track_arg, track_ssa)
@@ -199,11 +192,7 @@ end
 end
 
 @inline function _push_violation!(
-    viols::Vector{BorrowViolation},
-    ir::CC.IRCode,
-    idx::Int,
-    stmt,
-    msg::String,
+    viols::Vector{BorrowViolation}, ir::CC.IRCode, idx::Int, stmt, msg::String
 )
     li = _stmt_lineinfo(ir, idx)
     push!(viols, BorrowViolation(idx, msg, li, stmt))

@@ -69,15 +69,16 @@ for op in (:view, :reshape, :transpose, :adjoint)
     extra_args = op in (:view, :reshape) ? (:(i...),) : ()
     @eval @_stable begin
         function Base.$(op)(r::W, $(extra_args...)) where {W<:AllWrappers{<:AbstractArray}}
-            if !(W <: Union{Borrowed,LazyAccessorOf{Borrowed}})
+            if !(r isa Union{Borrowed,LazyAccessorOf{Borrowed}})
                 return throw_view_error($(op), r)
             end
+            rb = r::Union{Borrowed,LazyAccessorOf{Borrowed}}
             return Borrowed(
                 $(op)(
-                    request_value(r, Val(:read)), map(_maybe_read, ($(extra_args...),))...
+                    request_value(rb, Val(:read)), map(_maybe_read, ($(extra_args...),))...
                 ),
-                get_owner(r),
-                get_lifetime(r),
+                get_owner(rb),
+                get_lifetime(rb),
             )
         end
     end

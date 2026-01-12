@@ -13,7 +13,10 @@ else
     """
     macro auto(ex)
         is_borrow_checker_enabled(__module__) || return esc(ex)
-        @warn "BorrowChecker.Auto.@auto is not supported on this version of Julia." maxlog=1
+        @warn(
+            "BorrowChecker.Auto.@auto is not supported on this version of Julia.",
+            maxlog = 1,
+        )
         return esc(ex)
     end
 end

@@ -450,5 +450,4 @@
 
         @test_throws BorrowCheckError _bc_oneliner_bad()
     end
-
 end

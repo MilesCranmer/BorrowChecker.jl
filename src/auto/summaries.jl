@@ -4,14 +4,12 @@ struct SummaryCacheEntry
     over_budget::Bool
 end
 
-Base.@kwdef struct SummaryState
-    summary_cache::IdDict{Any,SummaryCacheEntry} = IdDict{Any,SummaryCacheEntry}()
-    tt_summary_cache::Dict{Tuple{Any,UInt},SummaryCacheEntry} = Dict{Tuple{Any,UInt},SummaryCacheEntry}()
-    summary_inprogress::Base.IdSet{Any} = Base.IdSet{Any}()
-    tt_summary_inprogress::Set{Tuple{Any,UInt}} = Set{Tuple{Any,UInt}}()
-end
-
-const _summary_state = Lockable(SummaryState())
+const _summary_state = Lockable((
+    summary_cache=IdDict{Any,SummaryCacheEntry}(),
+    tt_summary_cache=Dict{Tuple{Any,UInt},SummaryCacheEntry}(),
+    summary_inprogress=Base.IdSet{Any}(),
+    tt_summary_inprogress=Set{Tuple{Any,UInt}}(),
+))
 
 const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
 
@@ -74,52 +72,82 @@ end
     return (new.depth < old.depth) ? new : old
 end
 
-@inline function _summary_state_get(cache_field::Symbol, key)
-    cached = nothing
+@inline function _summary_state_get_tt(key::Tuple{Any,UInt})
     Base.@lock _summary_state begin
-        cache = getproperty(_summary_state[], cache_field)
-        cached = get(cache, key, nothing)
+        return get(_summary_state[].tt_summary_cache, key, nothing)
     end
-    return cached
 end
 
-@inline function _summary_state_set!(cache_field::Symbol, key, new_entry::SummaryCacheEntry)
+@inline function _summary_state_get_mi(mi)
     Base.@lock _summary_state begin
-        cache = getproperty(_summary_state[], cache_field)
+        return get(_summary_state[].summary_cache, mi, nothing)
+    end
+end
+
+@inline function _summary_state_set_tt!(key::Tuple{Any,UInt}, new_entry::SummaryCacheEntry)
+    Base.@lock _summary_state begin
+        cache = _summary_state[].tt_summary_cache
         old = get(cache, key, nothing)
         cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
     end
     return nothing
 end
 
-@inline function _summary_state_inprogress_enter!(inprogress_field::Symbol, key)::Bool
+@inline function _summary_state_set_mi!(mi, new_entry::SummaryCacheEntry)
+    Base.@lock _summary_state begin
+        cache = _summary_state[].summary_cache
+        old = get(cache, mi, nothing)
+        cache[mi] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
+    end
+    return nothing
+end
+
+@inline function _summary_state_tt_inprogress_enter!(key::Tuple{Any,UInt})::Bool
     reentered = false
     Base.@lock _summary_state begin
-        inprog = getproperty(_summary_state[], inprogress_field)
+        inprog = _summary_state[].tt_summary_inprogress
         reentered = (key in inprog)
         reentered || push!(inprog, key)
     end
     return reentered
 end
 
-@inline function _summary_state_inprogress_exit!(inprogress_field::Symbol, key)
+@inline function _summary_state_tt_inprogress_exit!(key::Tuple{Any,UInt})
     Base.@lock _summary_state begin
-        inprog = getproperty(_summary_state[], inprogress_field)
-        delete!(inprog, key)
+        delete!(_summary_state[].tt_summary_inprogress, key)
+    end
+    return nothing
+end
+
+@inline function _summary_state_mi_inprogress_enter!(mi)::Bool
+    reentered = false
+    Base.@lock _summary_state begin
+        inprog = _summary_state[].summary_inprogress
+        reentered = (mi in inprog)
+        reentered || push!(inprog, mi)
+    end
+    return reentered
+end
+
+@inline function _summary_state_mi_inprogress_exit!(mi)
+    Base.@lock _summary_state begin
+        delete!(_summary_state[].summary_inprogress, mi)
     end
     return nothing
 end
 
 function _summary_cached(
-    compute::Function,
+    compute::FCompute,
     key,
     cfg::Config;
     depth::Int,
     budget_state=nothing,
-    cache_field::Symbol,
-    inprogress_field::Symbol,
-)
-    cached = _summary_state_get(cache_field, key)
+    get_cached::FGet,
+    set_cached::FSet,
+    inprogress_enter::FEnter,
+    inprogress_exit::FExit,
+) where {FCompute<:Function,FGet<:Function,FSet<:Function,FEnter<:Function,FExit<:Function}
+    cached = get_cached(key)
     if cached !== nothing
         if !cached.over_budget || depth >= cached.depth
             cached.over_budget && _mark_budget_hit!(budget_state)
@@ -129,7 +157,7 @@ function _summary_cached(
 
     budget_state !== nothing && budget_state.hit && return nothing
 
-    if _summary_state_inprogress_enter!(inprogress_field, key)
+    if inprogress_enter(key)
         _mark_budget_hit!(budget_state)
         return nothing
     end
@@ -141,14 +169,14 @@ function _summary_cached(
     catch
         summ = nothing
     finally
-        _summary_state_inprogress_exit!(inprogress_field, key)
+        inprogress_exit(key)
     end
 
     if summ !== nothing
-        _summary_state_set!(cache_field, key, SummaryCacheEntry(summ, depth, local_budget.hit))
+        set_cached(key, SummaryCacheEntry(summ, depth, local_budget.hit))
     end
 
-    cached2 = _summary_state_get(cache_field, key)
+    cached2 = get_cached(key)
     cached2 !== nothing && cached2.over_budget && _mark_budget_hit!(budget_state)
     return cached2 === nothing ? summ : cached2.summary
 end
@@ -162,20 +190,26 @@ function _summary_cached_tt(
         cfg;
         depth=depth,
         budget_state=budget_state,
-        cache_field=:tt_summary_cache,
-        inprogress_field=:tt_summary_inprogress,
+        get_cached=_summary_state_get_tt,
+        set_cached=_summary_state_set_tt!,
+        inprogress_enter=_summary_state_tt_inprogress_enter!,
+        inprogress_exit=_summary_state_tt_inprogress_exit!,
     )
 end
 
-function _summary_cached_mi(compute::Function, key, cfg::Config; depth::Int, budget_state=nothing)
+function _summary_cached_mi(
+    compute::Function, key, cfg::Config; depth::Int, budget_state=nothing
+)
     return _summary_cached(
         compute,
         key,
         cfg;
         depth=depth,
         budget_state=budget_state,
-        cache_field=:summary_cache,
-        inprogress_field=:summary_inprogress,
+        get_cached=_summary_state_get_mi,
+        set_cached=_summary_state_set_mi!,
+        inprogress_enter=_summary_state_mi_inprogress_enter!,
+        inprogress_exit=_summary_state_mi_inprogress_exit!,
     )
 end
 

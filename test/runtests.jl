@@ -37,9 +37,7 @@ if only_auto && !auto_supported
 end
 
 filter = if !isempty(testitem_name_filter)
-    ti ->
-        ti.name == testitem_name_filter &&
-            (auto_supported || !(:auto in ti.tags))
+    ti -> ti.name == testitem_name_filter && (auto_supported || !(:auto in ti.tags))
 elseif only_auto
     ti -> :auto in ti.tags
 elseif !auto_supported
