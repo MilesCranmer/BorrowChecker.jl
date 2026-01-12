@@ -18,7 +18,7 @@ using BorrowChecker
 using JET
 
 @info "Running tests..."
-JET.test_package(BorrowChecker; target_defined_modules=true)
+JET.test_package(BorrowChecker; target_modules=(BorrowChecker,))
 @info "Done!"
 
 @info "test_jet.jl finished"

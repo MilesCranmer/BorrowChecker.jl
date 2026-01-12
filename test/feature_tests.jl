@@ -1,6 +1,3 @@
-using TestItems
-using BorrowChecker
-
 @testitem "Function Ownership" begin
     using BorrowChecker: is_moved
 
