@@ -192,6 +192,70 @@
         @test _bc_oneliner_ret(1) == 1
     end
 
+    @testset "lambda arglist: single argument" begin
+        @auto function _bc_lambda_arglist_symbol()
+            f = x -> x + 1
+            return f(1)
+        end
+
+        @test _bc_lambda_arglist_symbol() == 2
+    end
+
+    @testset "lambda arglist: args_expr === nothing" begin
+        # This form doesn't occur from the surface syntax, but older/lower-level
+        # IR can contain lambdas represented as `Expr(:(->), nothing, body)`.
+        # Ensure our lambda instrumentation handles it.
+        fexpr = Expr(:(->), nothing, :(1))
+
+        eval(quote
+            BorrowChecker.Auto.@auto function _bc_lambda_arglist_nothing()
+                f = $fexpr
+                return f()
+            end
+        end)
+
+        @test _bc_lambda_arglist_nothing() == 1
+    end
+
+    @testset "instrumentation leaves quoted code alone" begin
+        @auto function _bc_quote_expr()
+            q = quote
+                x = 1
+            end
+            return q isa Expr
+        end
+
+        @test _bc_quote_expr()
+    end
+
+    @testset "nested function definitions are instrumented" begin
+        BorrowChecker.Auto.@auto function _bc_nested_function_bad()
+            function _bc_inner()
+                x = [1, 2, 3]
+                y = x
+                x[1] = 0
+                return y
+            end
+            return _bc_inner()
+        end
+
+        @test_throws BorrowCheckError _bc_nested_function_bad()
+    end
+
+    @testset "local one-line method definitions are instrumented" begin
+        BorrowChecker.Auto.@auto function _bc_local_oneliner_bad()
+            _bc_inner() = begin
+                x = [1, 2, 3]
+                y = x
+                x[1] = 0
+                return y
+            end
+            return _bc_inner()
+        end
+
+        @test_throws BorrowCheckError _bc_local_oneliner_bad()
+    end
+
     @test_throws BorrowCheckError _bc_bad_alias()
     @test _bc_ok_copy() == [1, 2, 3]
     @test_throws BorrowCheckError _bc_bad_unknown_call(Any[identity])
