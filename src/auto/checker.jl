@@ -26,11 +26,8 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                     h = _handle_index(v, nargs, track_arg, track_ssa)
                     h == 0 && continue
                     pred_bb = 0
-                    if 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0
-                        pred_bb = inst2bb[edge]
-                    elseif 1 <= edge <= nblocks
-                        pred_bb = edge
-                    end
+                    @assert 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0 "Unexpected IR: PhiNode.edges should contain predecessor terminator statement indices (not block IDs)."
+                    pred_bb = inst2bb[edge]
                     pred_bb == 0 && continue
                     push!(phi_edge_use[pred_bb], h)
                 end
@@ -142,7 +139,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     return viols
 end
 
-@inline function _args_safe_under_unknown_consume(
+function _args_safe_under_unknown_consume(
     args, nargs, track_arg, track_ssa, uf, origins, live_during::BitSet, live_after::BitSet
 )::Bool
     for arg in args
@@ -169,7 +166,7 @@ end
     return true
 end
 
-@inline function _call_safe_under_unknown_consume(
+function _call_safe_under_unknown_consume(
     raw_args,
     extra_args,
     nargs,
@@ -191,7 +188,7 @@ end
     )
 end
 
-@inline function _push_violation!(
+function _push_violation!(
     viols::Vector{BorrowViolation}, ir::CC.IRCode, idx::Int, stmt, msg::String
 )
     li = _stmt_lineinfo(ir, idx)

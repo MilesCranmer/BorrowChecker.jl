@@ -1,6 +1,6 @@
 @inline _field_sym(x) = x isa QuoteNode ? x.value : x
 
-@inline function _box_key(@nospecialize(box), ir::CC.IRCode, nargs::Int)::Int
+function _box_key(@nospecialize(box), ir::CC.IRCode, nargs::Int)::Int
     box = _canonical_ref(box, ir)
     if box isa Core.Argument
         return box.n
@@ -10,7 +10,7 @@
     return 0
 end
 
-@inline function _maybe_record_box_contents!(
+function _maybe_record_box_contents!(
     box_contents::Dict{Int,Int},
     @nospecialize(f),
     raw_args,
@@ -34,7 +34,7 @@ end
     return nothing
 end
 
-@inline function _maybe_alias_box_contents!(
+function _maybe_alias_box_contents!(
     uf::UnionFind,
     out_h::Int,
     box_contents::Dict{Int,Int},
@@ -58,7 +58,7 @@ end
     return nothing
 end
 
-@inline function _push_all_user_args!(dest::Vector{Int}, raw_args)
+function _push_all_user_args!(dest::Vector{Int}, raw_args)
     for p in 2:length(raw_args)
         push!(dest, p)
     end

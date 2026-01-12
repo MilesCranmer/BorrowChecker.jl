@@ -26,7 +26,7 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     end
 end
 
-@inline function _unwrap_unionall_datatype(@nospecialize(x))
+function _unwrap_unionall_datatype(@nospecialize(x))
     try
         dt = Base.unwrap_unionall(x)
         return dt isa DataType ? dt : nothing
@@ -35,7 +35,7 @@ end
     end
 end
 
-@inline function _is_namedtuple_ctor(@nospecialize(f))::Bool
+function _is_namedtuple_ctor(@nospecialize(f))::Bool
     dt = _unwrap_unionall_datatype(f)
     dt === nothing && return false
     return dt.name === Base.unwrap_unionall(NamedTuple).name

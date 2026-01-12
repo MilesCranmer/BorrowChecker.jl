@@ -15,16 +15,16 @@ const _summary_state = Lockable((
 
 const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
 
-@inline function _reflection_ctx()
+function _reflection_ctx()
     return get(Base.task_local_storage(), _TLS_REFLECTION_CTX_KEY, nothing)
 end
 
-@inline function _reflection_world(default::UInt=Base.get_world_counter())
+function _reflection_world(default::UInt=Base.get_world_counter())
     ctx = _reflection_ctx()
     return (ctx === nothing) ? default : ctx.world
 end
 
-@inline function _reflection_interp()
+function _reflection_interp()
     ctx = _reflection_ctx()
     return (ctx === nothing) ? nothing : ctx.interp
 end
@@ -58,13 +58,13 @@ mutable struct BudgetTracker
     hit::Bool
 end
 
-@inline function _mark_budget_hit!(@nospecialize(budget_state))
+function _mark_budget_hit!(@nospecialize(budget_state))
     budget_state === nothing && return nothing
     budget_state.hit = true
     return nothing
 end
 
-@inline function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
+function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
     if !old.over_budget
         return old
     end
@@ -74,21 +74,19 @@ end
     return (new.depth < old.depth) ? new : old
 end
 
-@inline function _summary_state_get_tt(key::SummaryCacheKey)
+function _summary_state_get_tt(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         return get(_summary_state[].tt_summary_cache, key, nothing)
     end
 end
 
-@inline function _summary_state_get_mi(key::SummaryCacheKey)
+function _summary_state_get_mi(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         return get(_summary_state[].summary_cache, key, nothing)
     end
 end
 
-@inline function _summary_state_set_tt!(
-    key::SummaryCacheKey, new_entry::SummaryCacheEntry
-)
+function _summary_state_set_tt!(key::SummaryCacheKey, new_entry::SummaryCacheEntry)
     Base.@lock _summary_state begin
         cache = _summary_state[].tt_summary_cache
         old = get(cache, key, nothing)
@@ -97,9 +95,7 @@ end
     return nothing
 end
 
-@inline function _summary_state_set_mi!(
-    key::SummaryCacheKey, new_entry::SummaryCacheEntry
-)
+function _summary_state_set_mi!(key::SummaryCacheKey, new_entry::SummaryCacheEntry)
     Base.@lock _summary_state begin
         cache = _summary_state[].summary_cache
         old = get(cache, key, nothing)
@@ -108,9 +104,7 @@ end
     return nothing
 end
 
-@inline function _summary_state_tt_inprogress_enter!(
-    key::SummaryCacheKey
-)::Bool
+function _summary_state_tt_inprogress_enter!(key::SummaryCacheKey)::Bool
     reentered = false
     Base.@lock _summary_state begin
         inprog = _summary_state[].tt_summary_inprogress
@@ -120,16 +114,14 @@ end
     return reentered
 end
 
-@inline function _summary_state_tt_inprogress_exit!(key::SummaryCacheKey)
+function _summary_state_tt_inprogress_exit!(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         delete!(_summary_state[].tt_summary_inprogress, key)
     end
     return nothing
 end
 
-@inline function _summary_state_mi_inprogress_enter!(
-    key::SummaryCacheKey
-)::Bool
+function _summary_state_mi_inprogress_enter!(key::SummaryCacheKey)::Bool
     reentered = false
     Base.@lock _summary_state begin
         inprog = _summary_state[].summary_inprogress
@@ -139,7 +131,7 @@ end
     return reentered
 end
 
-@inline function _summary_state_mi_inprogress_exit!(key::SummaryCacheKey)
+function _summary_state_mi_inprogress_exit!(key::SummaryCacheKey)
     Base.@lock _summary_state begin
         delete!(_summary_state[].summary_inprogress, key)
     end
@@ -302,7 +294,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     end
 end
 
-@inline function _widenargtype_or_any(@nospecialize(x), ir::CC.IRCode)
+function _widenargtype_or_any(@nospecialize(x), ir::CC.IRCode)
     try
         t = CC.widenconst(CC.argextype(x, ir))
         return (t isa Type) ? t : Any
@@ -311,7 +303,7 @@ end
     end
 end
 
-@inline function _is_box_contents_setfield!(
+function _is_box_contents_setfield!(
     @nospecialize(f), raw_args::AbstractVector, ir::CC.IRCode
 )::Bool
     f === Core.setfield! || return false
@@ -493,9 +485,7 @@ function _effects_for_call(
     end
 end
 
-@inline function _push_arg_aliases!(
-    dest::BitSet, uf::UnionFind, root::Int, nargs::Int, track_arg
-)
+function _push_arg_aliases!(dest::BitSet, uf::UnionFind, root::Int, nargs::Int, track_arg)
     for a in 1:nargs
         track_arg[a] || continue
         if _uf_find(uf, a) == root
@@ -505,7 +495,7 @@ end
     return nothing
 end
 
-@inline function _push_arg_aliases_for_handle!(
+function _push_arg_aliases_for_handle!(
     dest::BitSet, uf::UnionFind, hv::Int, nargs::Int, track_arg
 )
     hv == 0 && return nothing

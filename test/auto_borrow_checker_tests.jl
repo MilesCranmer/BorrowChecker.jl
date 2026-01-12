@@ -449,14 +449,17 @@
         tt = Tuple{typeof(_cfg_sensitive_callee),Vector{Int},Vector{Any}}
 
         world = Base.get_world_counter()
-        BorrowChecker.Auto._with_reflection_ctx(() -> begin
-            s1 = BorrowChecker.Auto._summary_for_tt(tt, cfg_ignore; depth=0)
-            s2 = BorrowChecker.Auto._summary_for_tt(tt, cfg_consume; depth=0)
-            @test s1 !== nothing
-            @test s2 !== nothing
-            @test isempty(s1.consumes)
-            @test !isempty(s2.consumes)
-        end, world)
+        BorrowChecker.Auto._with_reflection_ctx(
+            () -> begin
+                s1 = BorrowChecker.Auto._summary_for_tt(tt, cfg_ignore; depth=0)
+                s2 = BorrowChecker.Auto._summary_for_tt(tt, cfg_consume; depth=0)
+                @test s1 !== nothing
+                @test s2 !== nothing
+                @test isempty(s1.consumes)
+                @test !isempty(s2.consumes)
+            end,
+            world,
+        )
     end
 
     @testset "Registry override API" begin

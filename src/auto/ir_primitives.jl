@@ -57,7 +57,7 @@ Base.@kwdef struct OwnedTypeTracker
     seen::Base.IdSet{Any} = Base.IdSet{Any}()
 end
 
-@inline function _is_nonowning_ref_type(@nospecialize(T))::Bool
+function _is_nonowning_ref_type(@nospecialize(T))::Bool
     if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
         return true
     end
@@ -105,7 +105,7 @@ is_owned_type(@nospecialize T)::Bool = OwnedTypeTracker()(T)
 @inline _ssa_handle(nargs::Int, id::Int) = nargs + id
 @inline _arg_handle(id::Int) = id
 
-@inline function _handle_index(
+function _handle_index(
     x, nargs::Int, track_arg::AbstractVector{Bool}, track_ssa::AbstractVector{Bool}
 )
     if x isa Core.Argument
@@ -119,7 +119,7 @@ is_owned_type(@nospecialize T)::Bool = OwnedTypeTracker()(T)
     end
 end
 
-@inline function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
+function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
     try
         return inst[sym]
     catch
@@ -240,7 +240,7 @@ function UnionFind(n::Int)
     return UnionFind(parent, rank)
 end
 
-@inline function _uf_find(uf::UnionFind, x::Int)
+function _uf_find(uf::UnionFind, x::Int)
     p = uf.parent[x]
     if p == x
         return x
@@ -250,7 +250,7 @@ end
     return r
 end
 
-@inline function _uf_union!(uf::UnionFind, a::Int, b::Int)
+function _uf_union!(uf::UnionFind, a::Int, b::Int)
     ((a == 0) || (b == 0) || (a == b)) && return nothing
     ra = _uf_find(uf, a)
     rb = _uf_find(uf, b)

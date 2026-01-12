@@ -104,17 +104,17 @@ end
 
 const _registry_inited = Lockable(Ref{Bool}(false))
 
-@inline function _maybe_register_effects!(@nospecialize(f); writes=(), consumes=())
+function _maybe_register_effects!(@nospecialize(f); writes=(), consumes=())
     _known_effects_has(f) || register_effects!(f; writes=writes, consumes=consumes)
     return nothing
 end
 
-@inline function _maybe_register_ret_alias!(@nospecialize(f), ret_alias::Symbol)
+function _maybe_register_ret_alias!(@nospecialize(f), ret_alias::Symbol)
     _ret_alias_has(f) || register_return_alias!(f, ret_alias)
     return nothing
 end
 
-@inline function _maybe_register_effects_and_alias!(
+function _maybe_register_effects_and_alias!(
     @nospecialize(f), ret_alias::Symbol; writes=(), consumes=()
 )
     _maybe_register_effects!(f; writes=writes, consumes=consumes)
