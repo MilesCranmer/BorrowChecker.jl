@@ -6,7 +6,7 @@ function _default_optimize_until()
         # bindings, while still giving us a stable CFG.
         for nm in CC.ALL_PASS_NAMES
             s = lowercase(String(nm))
-            if any(occursin(s), ("compact_1", "compact 1", "compact1", "slot2reg"))
+            if any(occursin(s), ("compact_1", "compact 1", "compact1"))
                 return nm
             end
         end
