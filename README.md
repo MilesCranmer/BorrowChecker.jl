@@ -12,11 +12,6 @@
 
 This is an experimental package for emulating a runtime borrow checker in Julia, using a macro layer over regular code. This is built to mimic Rust's ownership, lifetime, and borrowing semantics. This tool is mainly to be used in development and testing to flag memory safety issues, and help you design safer code.
 
-> [!WARNING]
-> BorrowChecker.jl does not guarantee memory safety. This library emulates aspects of Rust's ownership model, but it does not do this at a compiler level. Furthermore, BorrowChecker.jl heavily relies on the user's cooperation, and will not prevent you from misusing it, or from mixing it with regular Julia code.
-
-## Usage
-
 In Julia, when you write `x = [1, 2, 3]`, the actual _object_ exists completely independently of the variable, and you can refer to it from as many variables as you want without issue:
 
 ```julia
@@ -53,6 +48,136 @@ This "ownership" paradigm can help improve safety of code. Especially in complex
 
 In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. The aim is to build a development layer that can help prevent a few classes of memory safety issues, without affecting runtime behavior of code.
 
+## Automatic Checking: `BorrowChecker.@auto`
+
+`BorrowChecker.@auto` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime.
+
+> [!WARNING]
+> This macro is highly experimental and compiler-dependent. There are likely bugs and false positives. It is intended for development and testing, and does not guarantee memory safety.
+
+### Aliasing Detection
+
+BorrowChecker.jl's `@auto` macro can detect when values are modified through aliased bindings, and throw an error:
+
+```julia
+julia> import BorrowChecker
+
+julia> BorrowChecker.@auto function f()
+           x = [1, 2, 3]
+           y = x
+           push!(x, 4)
+           return y
+       end
+f (generic function with 1 method)
+
+julia> f()  # errors
+```
+
+This will generate a helpful error pointing out the location of the borrow check violation, and the statement that violated the rule:
+
+```
+ERROR: BorrowCheckError for specialization Tuple{typeof(f)}
+
+  method: f() @ Main REPL[7]:1
+
+  [1] stmt#7: cannot perform write: value is aliased by another live binding      at REPL[7]:4
+        2         x = [1, 2, 3]
+        3         y = x
+      > 4         push!(x, 4)
+        5         return y
+        6     end
+
+      stmt: Main.push!(%5, 4)
+
+```
+
+To fix it, simply copy the value, which will avoid the error:
+
+```julia
+julia> BorrowChecker.@auto function f()
+           x = [1, 2, 3]
+           y = copy(x)
+           push!(x, 4)
+           return y
+       end
+f (generic function with 1 method)
+
+julia> f()
+3-element Vector{Int64}:
+ 1
+ 2
+ 3
+```
+
+### Escape Detection
+
+Much like Rust's ownership model, BorrowChecker.jl's `@auto` macro attempts to infer when values escape their scope (moved/consumed) and throw an error if they are used afterwards.
+
+```julia
+julia> const CACHE = Dict()
+Dict{Any, Any}()
+
+julia> foo(x) = (CACHE[x] = 1; nothing)
+foo (generic function with 1 method)
+
+julia> BorrowChecker.@auto function bar()
+           x = [1, 2]
+           foo(x)
+           return x
+       end
+bar (generic function with 1 method)
+
+julia> bar()  # errors
+```
+
+This generates the following error:
+
+```
+ERROR: BorrowCheckError for specialization Tuple{typeof(bar)}
+
+  method: bar() @ Main REPL[13]:1
+
+  [1] stmt#6: value escapes/consumed by unknown call; it (or an alias) is used later      at REPL[13]:3
+        1     BorrowChecker.@auto function bar()
+        2         x = [1, 2]
+      > 3         foo(x)
+        4         return x
+        5     end
+
+      stmt: Main.foo(%5)
+```
+
+Why is this an error? Because `x` was stored as a key in the cache, but is _mutable externally_. Furthermore, it is returned by `bar`! This is a violation of borrowing rules. Once the value gets stored in the cache, its ownership is _transferred_ to the cache, and is no longer accessible by `bar`. So this example is illegal.
+
+How can we fix it? We have two options. The first is we can copy the value before storing it:
+
+```julia
+julia> BorrowChecker.@auto function bar()
+           x = [1, 2]
+           foo(copy(x))
+           return x
+       end
+bar (generic function with 1 method)
+
+julia> bar()  # ok
+```
+
+We no longer have access to the object created by `copy(x)`, so the borrow check passes.
+Alternatively, we can use immutable objects, which are safe to pass around:
+
+```julia
+julia> BorrowChecker.@auto function bar()
+           x = (1, 2)
+           foo(x)
+           return x
+       end
+bar (generic function with 1 method)
+
+julia> bar()  # ok
+```
+
+## Manual Overlay (explicit ownership/borrow macros)
+
 The above example, with BorrowChecker.jl, would look like this:
 
 ```julia
@@ -79,7 +204,7 @@ end
 
 Note that BorrowChecker.jl does not prevent you from cheating the system and using `y = x` (_however, the library does try to flag such mistakes by recording symbols used in the macro_). To use this library, you will need to _buy in_ to the system to get the most out of it. But the good news is that you can introduce it in a library gradually:  add `@own`, `@move`, etc., inside a single function, and call `@take!` when passing objects to external functions. And for convenience, a variety of standard library functions will automatically forward operations on the underlying objects.
 
-### Example: Preventing Thread Races
+#### Example: Preventing Thread Races
 
 BorrowChecker.jl helps prevent data races by enforcing borrowing rules.
 
@@ -116,7 +241,7 @@ nested task error: Cannot create mutable reference: `data` is already mutably bo
 This is because in BorrowChecker.jl's ownership model, similar to Rust, an owned object follows strict borrowing rules to prevent data races and ensure safety.
 (Though, in practice, you should use `BorrowChecker.@spawn` instead of `Threads.@spawn`, so that it validates captured variables.)
 
-## Ownership Rules
+### Ownership Rules
 
 At any given time, an object managed by BorrowChecker.jl can only be accessed in one of the following states:
 
@@ -143,7 +268,7 @@ At any given time, an object managed by BorrowChecker.jl can only be accessed in
 
 In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedMut`), but not both simultaneously. While any borrow is active, the original owner faces restrictions (cannot be moved, cannot be mutated directly if borrowed immutably, cannot be accessed at all if borrowed mutably).
 
-### Sharp Edges
+#### Sharp Edges
 
 > [!CAUTION]
 > Be especially careful with closure functions that capture variables, as
@@ -159,9 +284,9 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 > Similarly, you should generally prefer the `BorrowChecker.@spawn` macro instead of
 > `Threads.@spawn` to validate captured variables.
 
-## API
+### API
 
-### Basics
+#### Basics
 
 - `@own [:mut] x [= value]`: Create a new owned value (mutable if `:mut` is specified)
   - These are `Owned{T}` and `OwnedMut{T}` objects, respectively.
@@ -172,7 +297,7 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
 - `getproperty` and `getindex` on owned/borrowed values return a `LazyAccessor` that preserves ownership/lifetime until the raw value is used.
   - For example, for an object `x::Owned{T}`, the accessor `x.a` would return `LazyAccessor{typeof(x.a), T, Val{:a}, Owned{T}}` which has the same reading/writing constraints as the original.
 
-### References and Lifetimes
+#### References and Lifetimes
 
 - `@lifetime lt begin ... end`: Create a scope for references whose lifetimes `lt` are the duration of the block
 - `@ref ~lt [:mut] var = value`: Create a reference, for the duration of `lt`, to owned value `value` and assign it to `var` (mutable if `:mut` is specified)
@@ -184,17 +309,17 @@ In essence: You can have many readers (`Borrowed`) **or** one writer (`BorrowedM
   - Use `@mut(arg)` to mark an input as mutable.
 - `@& [:mut] T`: Alias for `Union{T, Borrowed[Mut]{T}}` (incl. lazy versions). Use in function signatures to accept `T` or its borrowed form.
 
-### Validation
+#### Validation
 
 - `@cc closure_expr`: Verifies that closures only capture immutable references.
 - `BorrowChecker.@spawn [options...] expr`: A safety wrapper around `Threads.@spawn` that applies `@cc` to the expression (which is internally put inside a closure).
 
-### Loops
+#### Loops
 
 - `@own [:mut] for var in iter`: Create a loop over an iterable, assigning ownership of each element to `var`. The original `iter` is marked as moved.
 - `@ref ~lt [:mut] for var in iter`: Create a loop over an owned iterable, generating references to each element, for the duration of `lt`.
 
-### Disabling BorrowChecker
+#### Disabling BorrowChecker
 
 You can disable BorrowChecker.jl's functionality by setting `borrow_checker = false` in your LocalPreferences.toml file (using Preferences.jl). When disabled, all macros like `@own`, `@move`, etc., will simply pass through their arguments without any ownership or borrowing checks.
 
@@ -213,9 +338,9 @@ This can then be overridden by the LocalPreferences.toml file.
 
 If you wanted to use BorrowChecker in a library, the idea is you could disable it by default with this command, but enable it during testing, to flag any problematic memory patterns.
 
-## Further Examples
+### Further Examples
 
-### Basic ownership
+#### Basic ownership
 
 Let's look at the basic ownership system. When you create an owned value, it's immutable by default:
 
@@ -278,7 +403,7 @@ ERROR: Variable `y` holds an object that was reassigned from `x`.
 
 This won't catch all misuses but it can help prevent some.
 
-### Lifetimes
+#### Lifetimes
 
 <details>
 
@@ -350,7 +475,7 @@ end
 
 </details>
 
-### Mutating owned values
+#### Mutating owned values
 
 <details>
 
@@ -392,7 +517,7 @@ end
 
 </details>
 
-### Cloning values
+#### Cloning values
 
 <details>
 
@@ -426,7 +551,7 @@ Note that `@own new = old` will also work as a convenience, but `@move` is more 
 
 </details>
 
-### Safe use of closures
+#### Safe use of closures
 
 <details>
 
@@ -477,7 +602,7 @@ end
 
 </details>
 
-### Automated Borrowing with `@bc`
+#### Automated Borrowing with `@bc`
 
 <details>
 
@@ -505,7 +630,7 @@ way to handle the majority of borrowing patterns. You can freely mix owned, borr
 
 </details>
 
-### Safe multi-threading with `Mutex`
+#### Safe multi-threading with `Mutex`
 
 <details>
 
@@ -569,7 +694,7 @@ ERROR: Cannot use `d`: value's lifetime has expired
 
 </details>
 
-### Introducing BorrowChecker.jl to Your Codebase
+#### Introducing BorrowChecker.jl to Your Codebase
 
 When introducing BorrowChecker.jl to your codebase, the first thing is to `@own` all variables at the top of a particular function. The simplified version of `@own` is particularly useful in this case:
 
