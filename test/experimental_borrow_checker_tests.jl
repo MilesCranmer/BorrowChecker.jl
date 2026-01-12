@@ -438,4 +438,17 @@
 
         @test_throws BorrowCheckError bc_registry_override()
     end
+
+    @testset "@borrow_checker one-line method form" begin
+        # Hits the `ex.head === :(=)` + `_is_method_definition_lhs` branch in the macro.
+        BorrowChecker.Experimental.@borrow_checker _bc_oneliner_bad() = begin
+            x = [1, 2, 3]
+            y = x
+            x[1] = 0
+            y
+        end
+
+        @test_throws BorrowCheckError _bc_oneliner_bad()
+    end
+
 end
