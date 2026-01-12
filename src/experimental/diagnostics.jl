@@ -10,7 +10,13 @@ struct BorrowCheckError <: Exception
     violations::Vector{BorrowViolation}
 end
 
-const _srcfile_cache = Lockable(Dict{String,Vector{String}}())
+struct CachedFileLines
+    mtime::Float64
+    size::Int64
+    lines::Vector{String}
+end
+
+const _srcfile_cache = Lockable(Dict{String,CachedFileLines}())
 
 @inline function _lineinfo_file_line(li)
     file = try
@@ -122,14 +128,29 @@ function _lineinfo_chain(li::Core.LineInfoNode)
 end
 
 function _read_file_lines(file::String)
+    st = try
+        stat(file)
+    catch
+        return String[]
+    end
+
+    mtime = Float64(st.mtime)
+    size = Int64(st.size)
+
     @lock _srcfile_cache begin
-        return get!(_srcfile_cache[], file) do
-            try
-                readlines(file)
-            catch
-                String[]
-            end
+        cache = _srcfile_cache[]
+        entry = get(cache, file, nothing)
+        if entry !== nothing && entry.mtime == mtime && entry.size == size
+            return entry.lines
         end
+
+        lines = try
+            readlines(file)
+        catch
+            String[]
+        end
+        cache[file] = CachedFileLines(mtime, size, lines)
+        return lines
     end
 end
 
