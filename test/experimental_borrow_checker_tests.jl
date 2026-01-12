@@ -1,4 +1,4 @@
-@testitem "Experimental @borrow_checker" tags = [:unstable] begin
+@testitem "Experimental @borrow_checker" tags = [:experimental] begin
     using TestItems
     using BorrowChecker
 

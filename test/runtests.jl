@@ -28,14 +28,13 @@ end
     end
 end
 
-testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
-include_unstable =
-    lowercase(get(ENV, "BORROWCHECKER_INCLUDE_UNSTABLE", "")) in ("1", "true", "yes")
+const testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
+const include_unstable = get(ENV, "BORROWCHECKER_INCLUDE_EXPERIMENTAL", "") in ("1", "true")
 
 filter = if !isempty(testitem_name_filter)
     ti -> ti.name == testitem_name_filter
 elseif !include_unstable
-    ti -> !(:unstable in ti.tags)
+    ti -> !(:experimental in ti.tags)
 else
     nothing
 end

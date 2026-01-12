@@ -1,4 +1,4 @@
-@testitem "Experimental borrow checker printing" tags = [:unstable] begin
+@testitem "Experimental borrow checker printing" tags = [:experimental] begin
     using TestItems
     using BorrowChecker
 
@@ -65,6 +65,46 @@
         @test occursin("REPL[999]", s)
         @test occursin("lowered:", s)
         @test occursin("push!", s)
+    end
+
+    @testset "BorrowCheckError prints file-backed source context (real checker)" begin
+        (path, io) = mktemp()
+        close(io)
+
+        write(
+            path,
+            """
+            module _BCFilePrintMod
+            using BorrowChecker.Experimental: @borrow_checker
+
+            f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
+
+            @borrow_checker function foo()
+                x = [1, 2, 3]
+                y = x
+                return sum(f(; x=x, y=y))
+            end
+            end
+            """,
+        )
+
+        mod = Module(:_BCFilePrintHost)
+        Base.include(mod, path)
+        inner = getfield(mod, :_BCFilePrintMod)
+        foo = getfield(inner, :foo)
+
+        err = try
+            foo()
+            nothing
+        catch e
+            e
+        end
+
+        @test err isa BorrowCheckError
+        s = sprint(showerror, err)
+        @test occursin("at $path:", s)
+        @test occursin("return sum(f(; x=x, y=y))", s)
+        @test occursin(r"(?m)^\s*>\s*9\s+return sum\(f\(; x=x, y=y\)\)", s)
     end
 
     @testset "BorrowCheckError prints REPL source (real REPL)" begin
