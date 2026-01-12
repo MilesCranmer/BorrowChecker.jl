@@ -96,7 +96,16 @@ end
 function _is_method_definition_lhs(lhs)
     lhs isa Expr || return false
     # Local method definition forms appear as assignment with a call-like LHS.
-    return lhs.head === :call || lhs.head === :where || lhs.head === :(::)
+    # Be careful not to treat typed variable assignments like `x::T = rhs` as a
+    # method definition.
+    call = lhs
+    while call isa Expr && call.head === :where
+        call = call.args[1]
+    end
+    if call isa Expr && call.head === :(::)
+        call = call.args[1]
+    end
+    return call isa Expr && call.head === :call
 end
 
 function _lambda_arglist(args_expr)

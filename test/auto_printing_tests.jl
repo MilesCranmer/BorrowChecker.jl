@@ -204,8 +204,14 @@
         # This test does not require an interactive REPL. We mock `Base.active_repl`
         # so `_try_repl_source` can pull text for `REPL[n]`.
 
+        struct _BCEntryMock
+            content::String
+        end
+        struct _BCThrowEntryMock end
+        Base.propertynames(::_BCThrowEntryMock; private::Bool=false) = (:content,)
+        Base.getproperty(::_BCThrowEntryMock, ::Symbol) = error("boom")
         struct _BCHistMock
-            history::Vector{String}
+            history::Vector{Any}
             start_idx::Int
         end
         struct _BCModeMock
@@ -228,7 +234,7 @@
             # In real REPL sessions `start_idx` is the number of entries loaded from
             # the history file, and `REPL[1]` corresponds to the first entry *after*
             # that baseline: history[start_idx + 1].
-            hist = ["OLD_ENTRY_1", "OLD_ENTRY_2", src]
+            hist = Any["OLD_ENTRY_1", _BCEntryMock(src), _BCThrowEntryMock()]
             mock = _BCReplMock(_BCInterfaceMock([_BCModeMock(_BCHistMock(hist, 2))]))
             Base.active_repl = mock
         catch

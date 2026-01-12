@@ -119,6 +119,79 @@
         @test_throws BorrowCheckError _bc_bang_mutates_second_bad()
     end
 
+    @testset "macro signature parsing: varargs" begin
+        @auto function _bc_varargs_signature(xs...)
+            return 0
+        end
+        @test true
+    end
+
+    @testset "macro signature parsing: default args" begin
+        @auto function _bc_default_arg_signature(x=1)
+            return x + 1
+        end
+
+        @test _bc_default_arg_signature() == 2
+    end
+
+    @testset "macro signature parsing: keyword-only signature" begin
+        @auto function _bc_keyword_only_signature(; x, y)
+            return x + y
+        end
+
+        @test _bc_keyword_only_signature(; x=1, y=2) == 3
+    end
+
+    @testset "macro signature parsing: destructuring arg" begin
+        @auto function _bc_destructure_signature((a, b))
+            return a + b
+        end
+
+        @test _bc_destructure_signature((1, 2)) == 3
+    end
+
+    @testset "macro signature parsing: where + return type" begin
+        @auto function _bc_where_ret_signature(x::T)::T where {T}
+            return x
+        end
+
+        @test _bc_where_ret_signature(1) == 1
+    end
+
+    @testset "macro signature parsing: functor call method" begin
+        struct _BCFun end
+
+        @auto (f::_BCFun)(x) = x + 1
+
+        @test _BCFun()(1) == 2
+    end
+
+    @testset "macro signature parsing: dotted function name" begin
+        struct _BCAutoDotT end
+
+        BorrowChecker.Auto.@auto function Base.identity(x::_BCAutoDotT)
+            return x
+        end
+
+        @test Base.identity(_BCAutoDotT()) isa _BCAutoDotT
+    end
+
+    @testset "macro rejects non-function inputs" begin
+        @test_throws LoadError eval(:(BorrowChecker.Auto.@auto begin
+            x = 1
+        end))
+    end
+
+    @testset "macro one-line method parsing: where clause" begin
+        BorrowChecker.Auto.@auto _bc_oneliner_where(x::T) where {T} = x
+        @test _bc_oneliner_where(1) == 1
+    end
+
+    @testset "macro one-line method parsing: return type" begin
+        BorrowChecker.Auto.@auto _bc_oneliner_ret(x)::Int = x
+        @test _bc_oneliner_ret(1) == 1
+    end
+
     @test_throws BorrowCheckError _bc_bad_alias()
     @test _bc_ok_copy() == [1, 2, 3]
     @test_throws BorrowCheckError _bc_bad_unknown_call(Any[identity])
@@ -242,6 +315,20 @@
     f_kwcall_ok(; x, y) = x .+ y
     f_kwcall_ok_mut(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
     f_kwcall_alias_bad(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
+
+    @testset "kwcall unknown-call consume expands to keyword values" begin
+        fkw_nothing(; x, y) = nothing
+
+        @auto function _bc_kwcall_unknown_consume_should_error(vf)
+            x = [1, 2, 3]
+            y = x
+            g = only(vf)
+            g(; x=x, y=y)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_kwcall_unknown_consume_should_error(Any[fkw_nothing])
+    end
 
     @auto function _bc_ok_kwcall()
         x = [1, 2, 3]
