@@ -197,6 +197,23 @@ function _prepend_check_stmt(sig, body)
     return _instrument_assignments(new_body)
 end
 
+"""
+Automatically borrow-check a function (best-effort).
+
+`BorrowChecker.@auto` is a *drop-in tripwire* for existing code:
+
+- **Aliasing violations**: mutating a value while another live binding may observe that mutation.
+- **Escapes / “moves”**: storing a mutable value somewhere that outlives the current scope
+  (e.g. a global cache / a field / a container), then continuing to reference it locally.
+
+On function entry, it checks the current specialization and caches the result so future
+calls are fast. On failure it throws `BorrowCheckError` with best-effort source context.
+
+!!! warning
+    This macro is highly experimental and compiler-dependent. There are likely bugs and
+    false positives. It is intended for development and testing, and does not guarantee
+    memory safety.
+"""
 macro auto(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
 

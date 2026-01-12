@@ -11,6 +11,7 @@ else
 
     This feature requires `Base.code_ircode_by_type`.
     """
+    "Unavailable `@auto` stub for unsupported Julia versions."
     macro auto(ex)
         is_borrow_checker_enabled(__module__) || return esc(ex)
         @warn(
