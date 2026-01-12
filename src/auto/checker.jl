@@ -28,7 +28,6 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                     pred_bb = 0
                     @assert 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0 "Unexpected IR: PhiNode.edges should contain predecessor terminator statement indices (not block IDs)."
                     pred_bb = inst2bb[edge]
-                    pred_bb == 0 && continue
                     push!(phi_edge_use[pred_bb], h)
                 end
             else
@@ -210,9 +209,6 @@ function _check_stmt!(
     live_after::BitSet,
     live_during::BitSet,
 )
-    head, mi, raw_args = _call_parts(stmt)
-    raw_args === nothing && return nothing
-
     if stmt isa Expr && stmt.head === :foreigncall
         used = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
         for hv in used
@@ -223,6 +219,9 @@ function _check_stmt!(
         end
         return nothing
     end
+
+    head, mi, raw_args = _call_parts(stmt)
+    raw_args === nothing && return nothing
 
     f = _resolve_callee(stmt, ir)
     kw_vals = (f === Core.kwcall) ? _kwcall_value_exprs(stmt, ir) : nothing

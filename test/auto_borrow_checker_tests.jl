@@ -333,6 +333,28 @@
         @test _bc_unknown_call_bits_ok(Any[identity]) == (1, 2, 3)
     end
 
+    @testset "foreigncall treated as write (uniqueness enforced)" begin
+        @auto function _bc_foreigncall_bad(flag::Bool)
+            x = [1, 2, 3]
+            y = x
+            if flag
+                ccall(:jl_typeof_str, Cstring, (Any,), x)
+            end
+            return y
+        end
+
+        @auto function _bc_foreigncall_ok(flag::Bool)
+            x = [1, 2, 3]
+            if flag
+                ccall(:jl_typeof_str, Cstring, (Any,), x)
+            end
+            return x
+        end
+
+        @test_throws BorrowCheckError _bc_foreigncall_bad(false)
+        @test _bc_foreigncall_ok(false) == [1, 2, 3]
+    end
+
     @testset "immutable wrapper containing owned field is owned" begin
         empty!(_BC_ESCAPE_CACHE)
 
