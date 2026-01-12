@@ -67,6 +67,42 @@
         @test occursin("push!", s)
     end
 
+    @testset "BorrowCheckError prints multiple violations" begin
+        mod = Module(:_BCPrintMultiMod)
+        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
+        Base.include_string(
+            mod,
+            """
+            @auto function multi()
+                x = [1, 2, 3]
+                y = x
+                push!(x, 9)
+
+                a = [1, 2, 3]
+                b = a
+                a[1] = 0
+
+                return (y, b)
+            end
+            """,
+            "REPL[998]",
+        )
+
+        err = try
+            getfield(mod, :multi)()
+            nothing
+        catch e
+            e
+        end
+
+        @test err isa BorrowCheckError
+        s = sprint(showerror, err)
+
+        n = length(collect(eachmatch(r"(?m)^  \[[0-9]+\] stmt#", s)))
+        @test n >= 2
+        @test count("cannot perform write", s) >= 2
+    end
+
     @testset "BorrowCheckError prints file-backed source context (real checker)" begin
         (path, io) = mktemp()
         close(io)
