@@ -227,7 +227,7 @@ function _check_stmt!(
     kw_vals = (f === Core.kwcall) ? _kwcall_value_exprs(stmt, ir) : nothing
     (kw_vals === nothing || isempty(kw_vals)) && (kw_vals = nothing)
 
-    if cfg.unknown_call_policy === :consume && _call_safe_under_unknown_consume(
+    if _call_safe_under_unknown_consume(
         raw_args, kw_vals, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
     )
         return nothing

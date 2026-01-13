@@ -130,19 +130,15 @@ function _ret_alias_positions_for_call(
         return alias_args
     end
 
-    if cfg.analyze_invokes
-        s = _maybe_ret_alias_summary(
-            stmt, ir, cfg, f, raw_args; depth=depth, budget_state=budget_state
-        )
-        if s !== nothing
-            for p in s.ret_aliases
-                push!(alias_args, p)
-            end
-            return alias_args
+    s = _maybe_ret_alias_summary(
+        stmt, ir, cfg, f, raw_args; depth=depth, budget_state=budget_state
+    )
+    if s !== nothing
+        for p in s.ret_aliases
+            push!(alias_args, p)
         end
-        return _push_all_user_args!(alias_args, raw_args)
+        return alias_args
     end
-
     return _push_all_user_args!(alias_args, raw_args)
 end
 

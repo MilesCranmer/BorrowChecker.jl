@@ -1,42 +1,22 @@
 function _default_optimize_until()
-    if isdefined(CC, :ALL_PASS_NAMES)
-        # Prefer a stage before inlining but after slot2reg.
-        # Keeping IR pre-inlining helps avoid optimizer rewrite artifacts
-        # (e.g. copy-prop/return rewriting) that are unrelated to source-level
-        # bindings, while still giving us a stable CFG.
-        for nm in CC.ALL_PASS_NAMES
-            s = lowercase(String(nm))
-            if any(occursin(s), ("compact_1", "compact 1", "compact1"))
-                return nm
-            end
+    return if isdefined(CC, :ALL_PASS_NAMES)
+        let idx = findfirst(
+                nm -> any(
+                    p -> occursin(p, lowercase(String(nm))),
+                    ("compact_1", "compact 1", "compact1"),
+                ),
+                CC.ALL_PASS_NAMES,
+            )
+            idx === nothing ? "compact 1" : CC.ALL_PASS_NAMES[idx]
         end
-        return nothing
+    else
+        "compact 1"
     end
-
-    # Julia < 1.13 does not expose `Core.Compiler.ALL_PASS_NAMES`, but
-    # `Base.code_ircode_by_type(...; optimize_until="compact 1")` is supported
-    # and stops right before inlining on the 1.12 series.
-    return "compact 1"
 end
 
 Base.@kwdef struct Config
     "Which compiler pass to stop at when fetching IR (`Base.code_ircode_by_type`)."
     optimize_until::Union{String,Int,Nothing} = _default_optimize_until()
-
-    """
-    Policy for calls where we cannot determine a safe effect summary.
-
-    * `:consume`  -> treat tracked arguments as *consumed*: they must be unique at the call site
-                    and must not be used afterwards.
-    * `:ignore`   -> do not enforce anything for unknown calls (NOT recommended; unsound).
-    """
-    unknown_call_policy::Symbol = :consume
-
-    """
-    If true, attempt to infer effects for `:invoke` calls by recursively summarizing
-    the callee's `IRCode` (with recursion bounded by `max_summary_depth`).
-    """
-    analyze_invokes::Bool = true
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 12

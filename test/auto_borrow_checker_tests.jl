@@ -671,41 +671,6 @@
         @test entry2.over_budget == false
     end
 
-    @testset "summary cache respects Config" begin
-        Base.@lock BorrowChecker.Auto._summary_state begin
-            empty!(BorrowChecker.Auto._summary_state[].summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].summary_inprogress)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_inprogress)
-        end
-
-        # This callee has an *unknown* dynamic call in its body. Under
-        # `unknown_call_policy=:consume` it should be summarized as consuming `x`,
-        # while under `:ignore` it should not.
-        function _cfg_sensitive_callee(x, vf)
-            f = only(vf)
-            f(x)
-            return x
-        end
-
-        cfg_ignore = BorrowChecker.Auto.Config(; unknown_call_policy=:ignore)
-        cfg_consume = BorrowChecker.Auto.Config(; unknown_call_policy=:consume)
-        tt = Tuple{typeof(_cfg_sensitive_callee),Vector{Int},Vector{Any}}
-
-        world = Base.get_world_counter()
-        BorrowChecker.Auto._with_reflection_ctx(
-            () -> begin
-                s1 = BorrowChecker.Auto._summary_for_tt(tt, cfg_ignore; depth=0)
-                s2 = BorrowChecker.Auto._summary_for_tt(tt, cfg_consume; depth=0)
-                @test s1 !== nothing
-                @test s2 !== nothing
-                @test isempty(s1.consumes)
-                @test !isempty(s2.consumes)
-            end,
-            world,
-        )
-    end
-
     @testset "Registry override API" begin
         BorrowChecker.Auto.register_effects!(fakewrite; writes=(2,))
 

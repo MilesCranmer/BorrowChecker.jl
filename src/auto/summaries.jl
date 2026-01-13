@@ -45,10 +45,7 @@ function _with_reflection_ctx(f::Function, world::UInt)
 end
 
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
-    interp = _reflection_interp()
-    if interp === nothing
-        return Base.code_ircode_by_type(tt; optimize_until=optimize_until, world=world)
-    end
+    interp = @something(_reflection_interp(), CC.NativeInterpreter(world))
     return Base.code_ircode_by_type(
         tt; optimize_until=optimize_until, world=world, interp=interp
     )
@@ -65,9 +62,10 @@ function _mark_budget_hit!(@nospecialize(budget_state))
 end
 
 function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
-    if !old.over_budget
-        return old
-    end
+    # NOTE: `_choose_summary_entry` is only called when there is an existing cache entry
+    # and we're recomputing because the existing entry was over budget at a deeper
+    # summary depth. Therefore `old.over_budget` is expected to be true here.
+    @assert old.over_budget
     if !new.over_budget
         return new
     end
@@ -102,6 +100,25 @@ function _summary_state_set_mi!(key::SummaryCacheKey, new_entry::SummaryCacheEnt
         cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
     end
     return nothing
+end
+
+# Debug helper for tests: retrieve the current cached TT summary entry (if any)
+# for a given `tt` and `cfg`. This is intentionally not exported.
+function _debug_tt_summary_entry(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
+    return Base.@lock _summary_state begin
+        best_world = UInt(0)
+        best = nothing
+        for (key, entry) in _summary_state[].tt_summary_cache
+            key_tt, key_world, key_cfg = key
+            key_tt === tt || continue
+            key_cfg == cfg || continue
+            if key_world >= best_world
+                best_world = key_world
+                best = entry
+            end
+        end
+        return best
+    end
 end
 
 function _summary_state_tt_inprogress_enter!(key::SummaryCacheKey)::Bool
@@ -397,7 +414,7 @@ function _effects_for_call(
     # on the expanded argument list, then map those effects back to the original
     # `_apply_iterate` argument positions. This avoids spurious "consume" results for
     # Base wrappers like `setindex!` that route through `_apply_iterate`.
-    if f === Core._apply_iterate && cfg.analyze_invokes && length(raw_args) >= 3
+    if f === Core._apply_iterate && length(raw_args) >= 3
         expanded = Any[]
         posmap = Int[]
 
@@ -483,7 +500,7 @@ function _effects_for_call(
         return EffectSummary()
     end
 
-    if f === Core.kwcall && cfg.analyze_invokes
+    if f === Core.kwcall
         tt_kw = _kwcall_tt_from_raw_args(raw_args, ir)
         if tt_kw !== nothing
             if depth < cfg.max_summary_depth
@@ -501,7 +518,7 @@ function _effects_for_call(
         end
     end
 
-    if head === :invoke && cfg.analyze_invokes && (mi !== nothing)
+    if head === :invoke && (mi !== nothing)
         if depth < cfg.max_summary_depth
             s = _summary_for_mi(mi, cfg; depth=depth + 1, budget_state=budget_state)
             if s !== nothing
@@ -514,7 +531,7 @@ function _effects_for_call(
         end
     end
 
-    if head === :call && cfg.analyze_invokes && f === nothing
+    if head === :call && f === nothing
         fexpr = raw_args[1]
         if fexpr isa Core.SSAValue
             tt = _call_tt_from_raw_args(raw_args, ir)
@@ -533,7 +550,7 @@ function _effects_for_call(
         end
     end
 
-    if head === :call && cfg.analyze_invokes && f !== nothing
+    if head === :call && f !== nothing
         tt = _call_tt_from_raw_args(raw_args, ir)
         if tt !== nothing
             if depth < cfg.max_summary_depth
@@ -549,20 +566,16 @@ function _effects_for_call(
         end
     end
 
-    if cfg.unknown_call_policy === :consume
-        consumes = Int[]
-        for p in 1:length(raw_args)
-            v = raw_args[p]
-            h = _handle_index(v, nargs, track_arg, track_ssa)
-            h == 0 && continue
-            Tv = _widenargtype_or_any(v, ir)
-            is_owned_type(Tv) || continue
-            push!(consumes, p)
-        end
-        return EffectSummary(; consumes=consumes)
-    else
-        return EffectSummary()
+    consumes = Int[]
+    for p in 1:length(raw_args)
+        v = raw_args[p]
+        h = _handle_index(v, nargs, track_arg, track_ssa)
+        h == 0 && continue
+        Tv = _widenargtype_or_any(v, ir)
+        is_owned_type(Tv) || continue
+        push!(consumes, p)
     end
+    return EffectSummary(; consumes=consumes)
 end
 
 function _push_arg_aliases!(dest::BitSet, uf::UnionFind, root::Int, nargs::Int, track_arg)
