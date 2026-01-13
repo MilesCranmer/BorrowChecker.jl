@@ -227,13 +227,17 @@ function _check_stmt!(
     kw_vals = (f === Core.kwcall) ? _kwcall_value_exprs(stmt, ir) : nothing
     (kw_vals === nothing || isempty(kw_vals)) && (kw_vals = nothing)
 
+    eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx)
+    moved_positions = _moved_positions_for_eval_order_check(f, raw_args, eff, ir)
+    _check_call_eval_order_moves!(
+        viols, ir, idx, stmt, uf, moved_positions, raw_args, nargs, track_arg, track_ssa
+    )
+
     if _call_safe_under_unknown_consume(
         raw_args, kw_vals, nargs, track_arg, track_ssa, uf, origins, live_during, live_after
     )
         return nothing
     end
-
-    eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx)
 
     out_h = (1 <= idx <= length(track_ssa) && track_ssa[idx]) ? _ssa_handle(nargs, idx) : 0
 
@@ -295,6 +299,72 @@ function _check_stmt!(
             viols, ir, idx, stmt, uf, origins, hv, live_during; context="consume"
         )
         _require_not_used_later!(viols, ir, idx, stmt, uf, origins, hv, live_after)
+    end
+
+    return nothing
+end
+
+function _moved_positions_for_eval_order_check(
+    @nospecialize(f), raw_args, eff::EffectSummary, ir::CC.IRCode
+)::BitSet
+    # For most calls, use the effect summary's consume set.
+    # Special case: tuple construction should not allow using the same owned value
+    # in later elements after it has already been used in an earlier element.
+    if f === Core.tuple
+        # Ignore empty / 1-element tuples (these show up in compiler plumbing, e.g. splat containers).
+        length(raw_args) <= 2 && return BitSet()
+
+        moved = BitSet()
+        for p in 2:length(raw_args)
+            Tv = _widenargtype_or_any(raw_args[p], ir)
+            is_owned_type(Tv) || continue
+            push!(moved, p)
+        end
+        return moved
+    end
+
+    return eff.consumes
+end
+
+function _check_call_eval_order_moves!(
+    viols,
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    uf::UnionFind,
+    moved_positions::BitSet,
+    raw_args,
+    nargs::Int,
+    track_arg,
+    track_ssa,
+)
+    isempty(moved_positions) && return nothing
+
+    for p in moved_positions
+        # raw_args[1] is the function value; treat only user arguments as moved values.
+        p >= 2 || continue
+        p <= length(raw_args) || continue
+
+        vp = raw_args[p]
+        hp = _handle_index(vp, nargs, track_arg, track_ssa)
+        hp == 0 && continue
+
+        rp = _uf_find(uf, hp)
+
+        for q in (p + 1):length(raw_args)
+            deps = _backward_used_handles(raw_args[q], ir, nargs, track_arg, track_ssa)
+            for hq in deps
+                _uf_find(uf, hq) == rp || continue
+                _push_violation!(
+                    viols,
+                    ir,
+                    idx,
+                    stmt,
+                    "call argument uses a value after it was moved by an earlier argument",
+                )
+                return nothing
+            end
+        end
     end
 
     return nothing

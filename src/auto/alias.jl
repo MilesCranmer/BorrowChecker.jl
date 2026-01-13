@@ -208,7 +208,7 @@ function _build_alias_classes!(
                     in_h == 0 && continue
                     if only_h == 0
                         only_h = in_h
-                    else
+                    elseif in_h != only_h
                         only_h = -1
                         break
                     end

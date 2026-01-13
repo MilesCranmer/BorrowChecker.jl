@@ -734,4 +734,40 @@
         end
         @test_throws BorrowCheckError _bc_reinterpret_write_bad()
     end
+
+    @testset "Tuple duplicates aliasing" begin
+        @auto function _bc_return_tuple_copy_order_bad(x)
+            return (x, copy(x))
+        end
+        @test_throws BorrowCheckError _bc_return_tuple_copy_order_bad([1, 2, 3])
+
+        @auto function _bc_return_tuple_copy_order_ok(x)
+            return (copy(x), x)
+        end
+        a, b = _bc_return_tuple_copy_order_ok([1, 2, 3])
+        @test a == b == [1, 2, 3]
+
+        @auto function _bc_return_tuple_duplicates_bad()
+            x = [1, 2, 3]
+            return (x, x)
+        end
+        @test_throws BorrowCheckError _bc_return_tuple_duplicates_bad()
+
+        @auto function _bc_array_literal_duplicates_bad()
+            x = [1, 2, 3]
+            return [x, x]
+        end
+        @test_throws BorrowCheckError _bc_array_literal_duplicates_bad()
+
+        @auto function _bc_array_literal_copy_order_bad(x)
+            return [x, copy(x)]
+        end
+        @test_throws BorrowCheckError _bc_array_literal_copy_order_bad([1, 2, 3])
+
+        @auto function _bc_array_literal_copy_order_ok(x)
+            return [copy(x), x]
+        end
+        ys = _bc_array_literal_copy_order_ok([1, 2, 3])
+        @test ys[1] == ys[2] == [1, 2, 3]
+    end
 end
