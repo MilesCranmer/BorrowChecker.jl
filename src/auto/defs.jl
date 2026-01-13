@@ -107,11 +107,6 @@ function _populate_registry!()
         (Core, :memoryrefreplace!, (), (2,), (4,)),
         (Core, :memoryrefsetonce!, (), (2,), (3,)),
 
-        # Raw pointer ops:
-        # `pointer(x)` returns a raw `Ptr` into `x`'s storage, so its return aliases
-        # `x` (for the purpose of propagating writes like `unsafe_store!`).
-        (Base, :pointer, (2,), (), ()),
-
         # Pointer intrinsics:
         # `pointerset(ptr, val, idx, align)` mutates memory through `ptr` and often
         # appears as an intrinsic (no reflectable IR), so register it explicitly.
