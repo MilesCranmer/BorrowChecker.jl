@@ -696,4 +696,42 @@
 
         @test_throws BorrowCheckError _bc_oneliner_bad()
     end
+
+    @testset "Pointer intrinsics + known issues" begin
+
+        @auto function _bc_pointerset_ok()
+            A = [1, 2, 3]
+            p = pointer(A)
+            unsafe_store!(p, 99, 1)
+            return nothing
+        end
+        @test _bc_pointerset_ok() === nothing
+
+        @auto function _bc_pointer_unsafe_store_regression()
+            A = [1, 2, 3]
+            B = A
+            p = pointer(A)
+            unsafe_store!(p, 99, 1)
+            return B
+        end
+        @test_throws BorrowCheckError _bc_pointer_unsafe_store_regression()
+
+        @auto function _bc_pointerset_alias_bad()
+            A = [1, 2, 3]
+            p = pointer(A)
+            q = p
+            unsafe_store!(p, 99, 1)
+            return q
+        end
+        @test_throws BorrowCheckError _bc_pointerset_alias_bad()
+
+        @auto function _bc_reinterpret_write_bad()
+            A = Int32[1, 2, 3, 4]
+            B = A
+            R = reinterpret(UInt8, A) # shares memory with A
+            R[1] = 0x7f
+            return B
+        end
+        @test_throws BorrowCheckError _bc_reinterpret_write_bad()
+    end
 end
