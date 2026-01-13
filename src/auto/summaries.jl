@@ -415,77 +415,83 @@ function _effects_for_call(
     # `_apply_iterate` argument positions. This avoids spurious "consume" results for
     # Base wrappers like `setindex!` that route through `_apply_iterate`.
     if f === Core._apply_iterate && length(raw_args) >= 3
-        expanded = Any[]
-        posmap = Int[]
-
         # Inner callee
-        push!(expanded, raw_args[3])
-        push!(posmap, 3)
+        inner_f = try
+            CC.singleton_type(CC.argextype(raw_args[3], ir))
+        catch
+            nothing
+        end
+        if inner_f !== nothing
+            expanded_types = Any[typeof(inner_f)]
+            posmap = Int[3]
 
-        # Expand tuple arguments when possible; otherwise treat as a single argument.
-        for j in 4:length(raw_args)
-            argj = raw_args[j]
-            elems = _maybe_tuple_elements(argj, ir)
-            if elems !== nothing
-                for e in elems
-                    push!(expanded, e)
-                    push!(posmap, j)
+            # Expand tuple arguments when possible; otherwise treat as a splat-container
+            # described by its tuple type (when statically known).
+            for j in 4:length(raw_args)
+                argj = raw_args[j]
+                elems = _maybe_tuple_elements(argj, ir)
+                if elems !== nothing
+                    for e in elems
+                        push!(expanded_types, _widenargtype_or_any(e, ir))
+                        push!(posmap, j)
+                    end
+                    continue
                 end
-            else
-                # In `_apply_iterate`, arguments after the callee are typically
-                # splat-containers. An empty tuple contributes no arguments.
+
+                # In `_apply_iterate`, arguments after the callee are typically splat-containers.
+                # If we know this container is a concrete Tuple type, expand its element types
+                # so the inferred callee TT matches the post-splat argument list.
                 Tj = _widenargtype_or_any(argj, ir)
                 if Tj === Tuple{}
                     continue
                 end
-                push!(expanded, argj)
+                dt = Base.unwrap_unionall(Tj)
+                if dt isa DataType && dt.name === Tuple.name
+                    params = dt.parameters
+                    has_vararg = any(p -> p isa Core.TypeofVararg, params)
+                    if !has_vararg
+                        for te in params
+                            te2 = Base.unwrap_unionall(te)
+                            push!(expanded_types, (te2 isa Type) ? te2 : Any)
+                            push!(posmap, j)
+                        end
+                        continue
+                    end
+                end
+
+                # Unknown or non-tuple splat-container: treat as a single argument.
+                push!(expanded_types, Tj)
                 push!(posmap, j)
             end
-        end
 
-        tt = _call_tt_from_raw_args(expanded, ir)
-        s_inner = nothing
-        if tt !== nothing && depth < cfg.max_summary_depth
-            s_inner = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
-        end
-
-        if s_inner === nothing
-            # If IR reflection fails (e.g. no IR entries for an internal builtin),
-            # fall back to any explicitly registered effects for the inner callee.
-            inner_f = try
-                CC.singleton_type(CC.argextype(raw_args[3], ir))
-            catch
-                nothing
+            tt = Core.apply_type(Tuple, expanded_types...)
+            s_inner = _known_effects_get(inner_f)
+            if s_inner === nothing && tt !== nothing && depth < cfg.max_summary_depth
+                s_inner = _summary_for_tt(
+                    tt, cfg; depth=depth + 1, budget_state=budget_state
+                )
             end
-            if inner_f !== nothing
-                s_known = _known_effects_get(inner_f)
-                if s_known !== nothing
-                    s_inner = _filter_consumes_for_call(
-                        inner_f, expanded, s_known, ir, nargs, track_arg, track_ssa
-                    )
+
+            if s_inner !== nothing
+                writes = BitSet()
+                consumes = BitSet()
+                ret_aliases = BitSet()
+                for p in s_inner.writes
+                    (1 <= p <= length(posmap)) || continue
+                    push!(writes, posmap[p])
                 end
+                for p in s_inner.consumes
+                    (1 <= p <= length(posmap)) || continue
+                    push!(consumes, posmap[p])
+                end
+                for p in s_inner.ret_aliases
+                    (1 <= p <= length(posmap)) || continue
+                    push!(ret_aliases, posmap[p])
+                end
+                return EffectSummary(;
+                    writes=writes, consumes=consumes, ret_aliases=ret_aliases
+                )
             end
-        end
-
-        if s_inner !== nothing
-            writes = BitSet()
-            consumes = BitSet()
-            ret_aliases = BitSet()
-            for p in s_inner.writes
-                (1 <= p <= length(posmap)) || continue
-                push!(writes, posmap[p])
-            end
-            for p in s_inner.consumes
-                (1 <= p <= length(posmap)) || continue
-                push!(consumes, posmap[p])
-            end
-            for p in s_inner.ret_aliases
-                (1 <= p <= length(posmap)) || continue
-                push!(ret_aliases, posmap[p])
-            end
-            return EffectSummary(;
-                writes=writes, consumes=consumes, ret_aliases=ret_aliases
-            )
         end
     end
 
