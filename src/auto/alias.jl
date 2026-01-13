@@ -120,14 +120,14 @@ function _ret_alias_positions_for_call(
 )
     alias_args = Int[]
 
-    if f !== nothing && _ret_alias_has(f)
-        style = _ret_alias_get(f)
-        if style === :arg1
-            length(raw_args) >= 2 && push!(alias_args, 2)
-        elseif style === :all
-            _push_all_user_args!(alias_args, raw_args)
+    if f !== nothing
+        eff = _known_effects_get(f)
+        if eff !== nothing
+            for p in eff.ret_aliases
+                push!(alias_args, p)
+            end
+            return alias_args
         end
-        return alias_args
     end
 
     s = _maybe_ret_alias_summary(
