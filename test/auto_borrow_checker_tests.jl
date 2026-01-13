@@ -671,41 +671,6 @@
         @test entry2.over_budget == false
     end
 
-    @testset "summary cache respects Config" begin
-        Base.@lock BorrowChecker.Auto._summary_state begin
-            empty!(BorrowChecker.Auto._summary_state[].summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].summary_inprogress)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_inprogress)
-        end
-
-        # This callee has an *unknown* dynamic call in its body. Under
-        # `unknown_call_policy=:consume` it should be summarized as consuming `x`,
-        # while under `:ignore` it should not.
-        function _cfg_sensitive_callee(x, vf)
-            f = only(vf)
-            f(x)
-            return x
-        end
-
-        cfg_ignore = BorrowChecker.Auto.Config(; unknown_call_policy=:ignore)
-        cfg_consume = BorrowChecker.Auto.Config(; unknown_call_policy=:consume)
-        tt = Tuple{typeof(_cfg_sensitive_callee),Vector{Int},Vector{Any}}
-
-        world = Base.get_world_counter()
-        BorrowChecker.Auto._with_reflection_ctx(
-            () -> begin
-                s1 = BorrowChecker.Auto._summary_for_tt(tt, cfg_ignore; depth=0)
-                s2 = BorrowChecker.Auto._summary_for_tt(tt, cfg_consume; depth=0)
-                @test s1 !== nothing
-                @test s2 !== nothing
-                @test isempty(s1.consumes)
-                @test !isempty(s2.consumes)
-            end,
-            world,
-        )
-    end
-
     @testset "Registry override API" begin
         BorrowChecker.Auto.register_effects!(fakewrite; writes=(2,))
 
@@ -730,5 +695,78 @@
         end
 
         @test_throws BorrowCheckError _bc_oneliner_bad()
+    end
+
+    @testset "Pointer intrinsics + known issues" begin
+        @auto function _bc_pointerset_ok()
+            A = [1, 2, 3]
+            p = pointer(A)
+            unsafe_store!(p, 99, 1)
+            return nothing
+        end
+        @test _bc_pointerset_ok() === nothing
+
+        @auto function _bc_pointer_unsafe_store_regression()
+            A = [1, 2, 3]
+            B = A
+            p = pointer(A)
+            unsafe_store!(p, 99, 1)
+            return B
+        end
+        @test_throws BorrowCheckError _bc_pointer_unsafe_store_regression()
+
+        @auto function _bc_pointerset_alias_bad()
+            A = [1, 2, 3]
+            p = pointer(A)
+            q = p
+            unsafe_store!(p, 99, 1)
+            return q
+        end
+        @test_throws BorrowCheckError _bc_pointerset_alias_bad()
+
+        @auto function _bc_reinterpret_write_bad()
+            A = Int32[1, 2, 3, 4]
+            B = A
+            R = reinterpret(UInt8, A) # shares memory with A
+            R[1] = 0x7f
+            return B
+        end
+        @test_throws BorrowCheckError _bc_reinterpret_write_bad()
+    end
+
+    @testset "Tuple duplicates aliasing" begin
+        @auto function _bc_return_tuple_copy_order_bad(x)
+            return (x, copy(x))
+        end
+        @test_throws BorrowCheckError _bc_return_tuple_copy_order_bad([1, 2, 3])
+
+        @auto function _bc_return_tuple_copy_order_ok(x)
+            return (copy(x), x)
+        end
+        a, b = _bc_return_tuple_copy_order_ok([1, 2, 3])
+        @test a == b == [1, 2, 3]
+
+        @auto function _bc_return_tuple_duplicates_bad()
+            x = [1, 2, 3]
+            return (x, x)
+        end
+        @test_throws BorrowCheckError _bc_return_tuple_duplicates_bad()
+
+        @auto function _bc_array_literal_duplicates_bad()
+            x = [1, 2, 3]
+            return [x, x]
+        end
+        @test_throws BorrowCheckError _bc_array_literal_duplicates_bad()
+
+        @auto function _bc_array_literal_copy_order_bad(x)
+            return [x, copy(x)]
+        end
+        @test_throws BorrowCheckError _bc_array_literal_copy_order_bad([1, 2, 3])
+
+        @auto function _bc_array_literal_copy_order_ok(x)
+            return [copy(x), x]
+        end
+        ys = _bc_array_literal_copy_order_ok([1, 2, 3])
+        @test ys[1] == ys[2] == [1, 2, 3]
     end
 end

@@ -4,6 +4,7 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
 const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
+const _per_task_checked_cache = PerTaskCache{IdDict{Any,UInt}}()
 
 function check_signature(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
@@ -25,16 +26,27 @@ end
 Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
     @nospecialize tt
     world = Base.get_world_counter()
-    cached = false
-    Base.@lock _checked_cache begin
-        cached = (get(_checked_cache[], tt, UInt(0)) == world)
+    task_cache = _per_task_checked_cache[]
+
+    # Fast path: per-task cache (no locking).
+    if get(task_cache, tt, UInt(0)) == world
+        return nothing
     end
-    cached && return nothing
-    check_signature(tt; cfg=cfg, world=world)
+
+    # Slow path: shared cache (locked).
+    #     Lock spans the entire inference so we avoid repeated inference.
     Base.@lock _checked_cache begin
+        if get(_checked_cache[], tt, UInt(0)) == world
+            task_cache[tt] = world
+            return nothing
+        end
+
+        check_signature(tt; cfg=cfg, world=world)
+
         _checked_cache[][tt] = world
+        task_cache[tt] = world
+        return nothing
     end
-    return nothing
 end
 
 # Extract the call expression from a signature (handles where/return-type annotations).

@@ -73,57 +73,6 @@ function _try_repl_history_provider()
     return hp
 end
 
-function _try_repl_source(file::AbstractString)
-    m = match(_REPL_FILE_RE, file)
-    m === nothing && return nothing
-
-    hp = _try_repl_history_provider()
-    hp === nothing && return nothing
-
-    cap = m.captures[1]
-    cap === nothing && return nothing
-    n = parse(Int, cap)
-    n <= 0 && return nothing
-
-    hist = try
-        getproperty(hp, :history)
-    catch
-        return nothing
-    end
-
-    hist isa AbstractVector || return nothing
-    isempty(hist) && return nothing
-
-    try
-        if hasproperty(hp, :start_idx)
-            # Julia's `REPL[n]` filename is based on the number of history entries
-            # added since startup: `n ≈ length(hist.history) - hp.start_idx`.
-            #
-            # So the input that produced `REPL[n]` is typically at index
-            # `hp.start_idx + n` in the history vector (with an off-by-one fallback).
-            start_idx = getproperty(hp, :start_idx)
-            start_idx isa Integer || return nothing
-            for idx in (Int(start_idx) + n, Int(start_idx) + n - 1)
-                (1 <= idx <= length(hist)) || continue
-                src = _repl_hist_entry_content(hist[idx])
-                src === nothing || return src
-            end
-        else
-            # Older / mocked history providers: fall back to direct indexing.
-            for idx in (n, n - 1)
-                (1 <= idx <= length(hist)) || continue
-                src = _repl_hist_entry_content(hist[idx])
-                src === nothing || continue
-                return src
-            end
-        end
-    catch
-        return nothing
-    end
-
-    return nothing
-end
-
 function _try_repl_source_lines(file::AbstractString, line::Int)
     line <= 0 && return nothing
 
