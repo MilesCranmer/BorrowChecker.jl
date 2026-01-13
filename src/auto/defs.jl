@@ -116,9 +116,8 @@ function _populate_registry!()
     for (mod, nm, ret_aliases, writes, consumes) in specs
         isdefined(mod, nm) || continue
         f = getfield(mod, nm)
-        _known_effects_has(f) || register_effects!(
-            f; writes=writes, consumes=consumes, ret_aliases=ret_aliases
-        )
+        _known_effects_has(f) ||
+            register_effects!(f; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     end
 
     return nothing

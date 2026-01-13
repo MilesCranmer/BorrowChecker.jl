@@ -102,25 +102,6 @@ function _summary_state_set_mi!(key::SummaryCacheKey, new_entry::SummaryCacheEnt
     return nothing
 end
 
-# Debug helper for tests: retrieve the current cached TT summary entry (if any)
-# for a given `tt` and `cfg`. This is intentionally not exported.
-function _debug_tt_summary_entry(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
-    return Base.@lock _summary_state begin
-        best_world = UInt(0)
-        best = nothing
-        for (key, entry) in _summary_state[].tt_summary_cache
-            key_tt, key_world, key_cfg = key
-            key_tt === tt || continue
-            key_cfg == cfg || continue
-            if key_world >= best_world
-                best_world = key_world
-                best = entry
-            end
-        end
-        return best
-    end
-end
-
 function _summary_state_tt_inprogress_enter!(key::SummaryCacheKey)::Bool
     reentered = false
     Base.@lock _summary_state begin

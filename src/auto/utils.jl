@@ -20,9 +20,3 @@ function Base.getindex(cache::PerTaskCache{T}) where {T}
         return value
     end
 end
-
-function Base.setindex!(cache::PerTaskCache{T}, value) where {T}
-    tls = Base.task_local_storage()
-    tls[cache] = convert(T, value)
-    return value
-end

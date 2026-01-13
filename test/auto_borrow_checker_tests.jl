@@ -698,7 +698,6 @@
     end
 
     @testset "Pointer intrinsics + known issues" begin
-
         @auto function _bc_pointerset_ok()
             A = [1, 2, 3]
             p = pointer(A)
