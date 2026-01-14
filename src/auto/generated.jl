@@ -1,7 +1,7 @@
 using Core.Compiler
 using Core.IR
 
-struct BCInterpOwner; end
+struct BCInterpOwner end
 Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
     world::UInt = Base.get_world_counter()
     inf_params::Compiler.InferenceParams = Compiler.InferenceParams()
@@ -9,7 +9,7 @@ Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
     inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[]
     codegen_cache::IdDict{CodeInstance,CodeInfo} = IdDict{CodeInstance,CodeInfo}()
 end
-Base.Experimental.@MethodTable BCMT 
+Base.Experimental.@MethodTable BCMT
 
 Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
@@ -25,13 +25,15 @@ function _generated_assert_safe_body(world::UInt, lnn, this, sig)
 
     check_signature(sig; cfg, world) # Do the actual checking
 
-    ci = _expr_to_codeinfo(@__MODULE__(), [Symbol("#self#"), :sig], [], :(return nothing), false)
-    
+    ci = _expr_to_codeinfo(
+        @__MODULE__(), [Symbol("#self#"), :sig], [], :(return nothing), false
+    )
+
     matches = Base._methods_by_ftype(sig, -1, world)
     if !isnothing(matches)
         ci.edges = Any[]
         for match in matches
-            mi = Base.specialize_method(match) 
+            mi = Base.specialize_method(match)
             push!(ci.edges, mi)
         end
     end
@@ -39,13 +41,11 @@ function _generated_assert_safe_body(world::UInt, lnn, this, sig)
 end
 
 function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
-    lam = Expr(:lambda, argnames,
-               Expr(Symbol("scope-block"),
-                    Expr(:block,
-                         Expr(:return,
-                              Expr(:block,
-                                   e,
-                                   )))))
+    lam = Expr(
+        :lambda,
+        argnames,
+        Expr(Symbol("scope-block"), Expr(:block, Expr(:return, Expr(:block, e)))),
+    )
     ex = if spnames === nothing || isempty(spnames)
         lam
     else
@@ -53,17 +53,17 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     end
     ci = Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
     @assert ci isa Core.CodeInfo "Failed to create a CodeInfo from the given expression. This might mean it contains a closure or comprehension?\n Offending expression: $e"
-    ci
+    return ci
 end
 
 function _refresh_generated_assert_safe()
     @eval function _generated_assert_safe(sig)
         $(Expr(:meta, :generated_only))
         $(Expr(:meta, :generated, _generated_assert_safe_body))
+        return nothing
     end
 end
 _refresh_generated_assert_safe()
 
 # Don't recursively borrow check the borrow checking!
 Base.Experimental.@overlay BCMT _generated_assert_safe(sig) = nothing
-

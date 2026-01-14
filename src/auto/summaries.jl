@@ -45,7 +45,7 @@ function _with_reflection_ctx(f::Function, world::UInt)
 end
 
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
-    interp = BCInterp(;world)
+    interp = BCInterp(; world)
     matches = Base._methods_by_ftype(tt, -1, world)
     if isnothing(matches)
         error("No method found matching signature $tt in world $world")

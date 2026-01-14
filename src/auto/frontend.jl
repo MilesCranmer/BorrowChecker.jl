@@ -23,7 +23,9 @@ function check_signature(
     end
 end
 
-Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world=Base.get_world_counter())
+Base.@noinline function __bc_assert_safe__(
+    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world=Base.get_world_counter()
+)
     @nospecialize tt
     task_cache = _per_task_checked_cache[]
 
@@ -100,7 +102,7 @@ function _tt_expr_from_signature(sig)
         r === nothing && continue
         push!(argtyperefs, :($Core.Typeof($r)))
     end
-    return :(Tuple{$Core.Typeof($fval), $(argtyperefs...)})
+    return :(Tuple{$Core.Typeof($fval),$(argtyperefs...)})
 end
 
 function _is_method_definition_lhs(lhs)
