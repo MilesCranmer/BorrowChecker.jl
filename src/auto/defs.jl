@@ -44,19 +44,19 @@ function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
     return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
-const _known_effects = Lockable(IdDict{Any,EffectSummary}())
+const KNOWN_EFFECTS = Lockable(IdDict{Any,EffectSummary}())
 
 @inline function _known_effects_get(@nospecialize(f))
-    return @lock _known_effects get(_known_effects[], f, nothing)
+    return @lock KNOWN_EFFECTS get(KNOWN_EFFECTS[], f, nothing)
 end
 
 @inline function _known_effects_has(@nospecialize(f))::Bool
-    return @lock _known_effects haskey(_known_effects[], f)
+    return @lock KNOWN_EFFECTS haskey(KNOWN_EFFECTS[], f)
 end
 
 function register_effects!(@nospecialize(f); writes=(), consumes=(), ret_aliases=())
-    @lock _known_effects begin
-        dict = _known_effects[]
+    @lock KNOWN_EFFECTS begin
+        dict = KNOWN_EFFECTS[]
         dict[f] = EffectSummary(;
             writes=collect(Int, writes),
             consumes=collect(Int, consumes),
@@ -66,7 +66,7 @@ function register_effects!(@nospecialize(f); writes=(), consumes=(), ret_aliases
     return f
 end
 
-const _registry_inited = Lockable(Ref{Bool}(false))
+const REGISTRY_INITED = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
     _known_effects_has(__bc_bind__) || register_effects!(__bc_bind__; ret_aliases=(2,))
@@ -139,8 +139,8 @@ function _populate_registry!()
 end
 
 function _ensure_registry_initialized()
-    @lock _registry_inited begin
-        r = _registry_inited[]
+    @lock REGISTRY_INITED begin
+        r = REGISTRY_INITED[]
         if !r[]
             _populate_registry!()
             r[] = true

@@ -660,8 +660,8 @@
     @testset "__bc_assert_safe__ thread-safety" begin
         Threads.nthreads() < 2 && return
 
-        Base.@lock BorrowChecker.Auto._checked_cache begin
-            empty!(BorrowChecker.Auto._checked_cache[])
+        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
+            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
         end
 
         fs = [
@@ -710,8 +710,8 @@
         wait(task2)
 
         # Free-for-all: lots of concurrent hits/misses should not throw or deadlock.
-        Base.@lock BorrowChecker.Auto._checked_cache begin
-            empty!(BorrowChecker.Auto._checked_cache[])
+        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
+            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
         end
 
         nworkers = 16
@@ -809,11 +809,11 @@
     end
 
     @testset "summary cache determinism" begin
-        Base.@lock BorrowChecker.Auto._summary_state begin
-            empty!(BorrowChecker.Auto._summary_state[].summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].summary_inprogress)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_inprogress)
+        Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_cache)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_inprogress)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_inprogress)
         end
 
         deep1(x) = x
@@ -826,14 +826,14 @@
         BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
 
         function latest_entry()
-            Base.@lock BorrowChecker.Auto._summary_state begin
+            Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
                 best_key = nothing
-                for k in keys(BorrowChecker.Auto._summary_state[].tt_summary_cache)
+                for k in keys(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
                     (k[1] === tt && k[3] == cfg) || continue
                     (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
                 end
                 best_key === nothing && error("missing cache entry")
-                return BorrowChecker.Auto._summary_state[].tt_summary_cache[best_key]
+                return BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache[best_key]
             end
         end
 

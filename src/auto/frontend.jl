@@ -3,10 +3,10 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
-const _per_task_checked_cache = PerTaskCache{IdDict{Any,UInt}}()
+const CHECKED_CACHE = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
+const PER_TASK_CHECKED_CACHE = PerTaskCache{IdDict{Any,UInt}}()
 
-const _BC_INPROGRESS_WORLD = typemax(UInt)
+const BC_INPROGRESS_WORLD = typemax(UInt)
 
 function _tt_module(tt::Type{<:Tuple})
     try
@@ -149,7 +149,7 @@ Base.@noinline function __bc_assert_safe__(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
     @nospecialize tt
-    task_cache = _per_task_checked_cache[]
+    task_cache = PER_TASK_CHECKED_CACHE[]
 
     # Fast path: per-task cache (no locking).
     if get(task_cache, tt, UInt(0)) == world
@@ -158,24 +158,24 @@ Base.@noinline function __bc_assert_safe__(
 
     # Slow path: shared cache (locked).
     #     Lock spans the entire inference so we avoid repeated inference.
-    Base.@lock _checked_cache begin
-        state = get(_checked_cache[], tt, UInt(0))
+    Base.@lock CHECKED_CACHE begin
+        state = get(CHECKED_CACHE[], tt, UInt(0))
         if state == world
             task_cache[tt] = world
             return nothing
         end
-        if state == _BC_INPROGRESS_WORLD
+        if state == BC_INPROGRESS_WORLD
             return nothing
         end
 
-        _checked_cache[][tt] = _BC_INPROGRESS_WORLD
+        CHECKED_CACHE[][tt] = BC_INPROGRESS_WORLD
         try
             check_signature(tt; cfg=cfg, world=world)
         catch
-            delete!(_checked_cache[], tt)
+            delete!(CHECKED_CACHE[], tt)
             rethrow()
         end
-        _checked_cache[][tt] = world
+        CHECKED_CACHE[][tt] = world
         task_cache[tt] = world
         return nothing
     end
