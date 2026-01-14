@@ -96,13 +96,13 @@ function _tt_expr_from_signature(sig)
     call isa Expr && call.head === :call ||
         error("@auto currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
-    argtyperefs = Any[]
+    args = Expr(:tuple)
     for a in call.args[2:end]
         r = _argref_expr(a)
         r === nothing && continue
-        push!(argtyperefs, :($Core.Typeof($r)))
+        push!(args.args, r)
     end
-    return :(Tuple{$Core.Typeof($fval),$(argtyperefs...)})
+    return :(Tuple{$Core.Typeof($fval), map(Core.Typeof, $args)...})
 end
 
 function _is_method_definition_lhs(lhs)
