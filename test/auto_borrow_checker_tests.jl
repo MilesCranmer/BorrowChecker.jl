@@ -634,6 +634,85 @@
         @test alloc < 200_000
     end
 
+    @testset "__bc_assert_safe__ thread-safety" begin
+        Threads.nthreads() < 2 && return
+
+        Base.@lock BorrowChecker.Auto._checked_cache begin
+            empty!(BorrowChecker.Auto._checked_cache[])
+        end
+
+        fs = [
+            (x::Int) -> x,
+            (x::Int) -> x + 1,
+            (x::Int) -> x + 2,
+            (x::Int) -> x + 3,
+            (x::Int) -> x + 4,
+            (x::Int) -> x + 5,
+            (x::Int) -> x + 6,
+            (x::Int) -> x + 7,
+            (x::Int) -> x + 8,
+            (x::Int) -> x + 9,
+        ]
+        tts = map(f -> Tuple{typeof(f),Int}, fs)
+
+        turn1 = Channel{Int}(1)
+        turn2 = Channel{Int}(1)
+        done = Channel{Int}(1) # idx
+
+        function worker(which::Int)
+            turn = (which == 1) ? turn1 : turn2
+            for _ in 1:length(tts)
+                idx = take!(turn)
+                BorrowChecker.Auto.__bc_assert_safe__(tts[idx])
+                put!(done, idx)
+            end
+            return nothing
+        end
+
+        task1 = Threads.@spawn worker(1)
+        task2 = Threads.@spawn worker(2)
+
+        for i in 1:length(tts)
+            first = isodd(i) ? 1 : 2
+            second = (first == 1) ? 2 : 1
+
+            put!((first == 1) ? turn1 : turn2, i)
+            @test take!(done) == i
+
+            put!((second == 1) ? turn1 : turn2, i)
+            @test take!(done) == i
+        end
+
+        wait(task1)
+        wait(task2)
+
+        # Free-for-all: lots of concurrent hits/misses should not throw or deadlock.
+        Base.@lock BorrowChecker.Auto._checked_cache begin
+            empty!(BorrowChecker.Auto._checked_cache[])
+        end
+
+        nworkers = 16
+        jobs = 60
+        errs = Channel{Any}(nworkers)
+        @sync for _ in 1:nworkers
+            Threads.@spawn begin
+                err = nothing
+                try
+                    for j in 1:jobs
+                        BorrowChecker.Auto.__bc_assert_safe__(tts[(j % length(tts)) + 1])
+                    end
+                catch e
+                    err = e
+                end
+                put!(errs, err)
+            end
+        end
+        for _ in 1:nworkers
+            e = take!(errs)
+            e === nothing || rethrow(e)
+        end
+    end
+
     @testset "summary cache determinism" begin
         Base.@lock BorrowChecker.Auto._summary_state begin
             empty!(BorrowChecker.Auto._summary_state[].summary_cache)
