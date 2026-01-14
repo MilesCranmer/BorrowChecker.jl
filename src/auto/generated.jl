@@ -2,19 +2,12 @@ using Core.Compiler
 using Core.IR
 
 struct BCInterpOwner; end
-struct BCInterp <: Compiler.AbstractInterpreter
-    world::UInt
-    inf_params::Compiler.InferenceParams
-    opt_params::Compiler.OptimizationParams
-    inf_cache::Vector{Compiler.InferenceResult}
-    codegen_cache::IdDict{CodeInstance,CodeInfo}
-    function BCInterp(;
-        world::UInt = Base.get_world_counter(),
-        inf_params::Compiler.InferenceParams = Compiler.InferenceParams(),
-        opt_params::Compiler.OptimizationParams = Compiler.OptimizationParams(),
-        inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[])
-        new(world, inf_params, opt_params, inf_cache, IdDict{CodeInstance,CodeInfo}())
-    end
+Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
+    world::UInt = Base.get_world_counter()
+    inf_params::Compiler.InferenceParams = Compiler.InferenceParams()
+    opt_params::Compiler.OptimizationParams = Compiler.OptimizationParams()
+    inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[]
+    codegen_cache::IdDict{CodeInstance,CodeInfo} = IdDict{CodeInstance,CodeInfo}()
 end
 Base.Experimental.@MethodTable BCMT 
 
