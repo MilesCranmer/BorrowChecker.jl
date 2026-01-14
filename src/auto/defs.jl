@@ -95,6 +95,7 @@ function _populate_registry!()
         (Core, :isa, (), (), ()),
         (Core, :has_free_typevars, (), (), ()),
         (Core, :InexactError, (), (), ()),
+        (Core, :BoundsError, (), (), ()),
         (Core, :throw, (), (), ()),
         (Core, :(===), (), (), ()),
         (Core, :(!==), (), (), ()),
