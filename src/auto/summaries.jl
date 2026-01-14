@@ -47,17 +47,21 @@ end
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     interp = BCInterp(;world)
     matches = Base._methods_by_ftype(tt, -1, world)
-    asts = []
-    for match in matches
-        match = match::Core.MethodMatch
-        (code, ty) = Compiler.typeinf_ircode(interp, match, optimize_until)
-        if code === nothing
-            push!(asts, match.method => Any)
-        else
-            push!(asts, code => ty)
+    if isnothing(matches)
+        error("Something informative")
+    else
+        asts = []
+        for match in matches
+            match = match::Core.MethodMatch
+            (code, ty) = Compiler.typeinf_ircode(interp, match, optimize_until)
+            if code === nothing
+                push!(asts, match.method => Any)
+            else
+                push!(asts, code => ty)
+            end
         end
+        return asts
     end
-    return asts
 end
 
 mutable struct BudgetTracker
