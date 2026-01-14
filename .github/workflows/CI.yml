@@ -37,7 +37,7 @@ jobs:
             arch: x64
             dispatch_doctor: 'enabled'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: "Disable DispatchDoctor if needed"
         if: ${{ matrix.dispatch_doctor == 'disabled' }}
         run: sed -i 's/dispatch_doctor_mode = "error"/dispatch_doctor_mode = "disable"/' test/Project.toml
@@ -88,7 +88,7 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
