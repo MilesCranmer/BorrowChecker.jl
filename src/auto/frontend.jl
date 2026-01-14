@@ -102,7 +102,7 @@ function _tt_expr_from_signature(sig)
         r === nothing && continue
         push!(args.args, r)
     end
-    return :(Tuple{$Core.Typeof($fval), map(Core.Typeof, $args)...})
+    return :(Tuple{$Core.Typeof($fval),map(Core.Typeof, $args)...})
 end
 
 function _is_method_definition_lhs(lhs)

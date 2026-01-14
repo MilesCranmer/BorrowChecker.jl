@@ -41,15 +41,13 @@ function _generated_assert_safe_body(world::UInt, lnn, this, sig)
 end
 
 function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
-    lam = Expr(
-        :lambda,
-        argnames,
-        Expr(Symbol("scope-block"), Expr(:block, Expr(:return, Expr(:block, e)))),
-    )
-    ex = if spnames === nothing || isempty(spnames)
-        lam
+    body = Expr(:block, Expr(:return, Expr(:block, e)))
+    scope = Expr(Symbol("scope-block"), body)
+    lambda = Expr(:lambda, argnames, scope)
+    ex = if isnothing(spnames) || isempty(spnames)
+        lambda
     else
-        Expr(Symbol("with-static-parameters"), lam, spnames...)
+        Expr(Symbol("with-static-parameters"), lambda, spnames...)
     end
     ci = Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
     @assert ci isa Core.CodeInfo "Failed to create a CodeInfo from the given expression. This might mean it contains a closure or comprehension?\n Offending expression: $e"
