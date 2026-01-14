@@ -31,10 +31,10 @@ function _tt_module(tt::Type{<:Tuple})
 end
 
 function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
-    cfg.scope === :all && return true
     m = _tt_module(tt)
     m === nothing && return false
     m === Auto && return false
+    cfg.scope === :all && return true
     if cfg.scope === :none || cfg.scope === :function
         return false
     elseif cfg.scope === :module
@@ -379,7 +379,8 @@ function parse_config_overrides(options, calling_module)
                 max_summary_depth = _parse_cfg_value(v, calling_module)::Int
                 continue
             elseif k === :optimize_until
-                optimize_until = _parse_cfg_value(v, calling_module)::Union{String,Int,Nothing}
+                optimize_until =
+                    _parse_cfg_value(v, calling_module)::Union{String,Int,Nothing}
                 continue
             end
         end
@@ -414,18 +415,19 @@ function _auto(args...; calling_module, source_info=nothing)
         default_ref = GlobalRef(@__MODULE__, :DEFAULT_CONFIG)
 
         scope = overrides.scope === nothing ? :function : (overrides.scope::Symbol)
-        scope ∈ (:function, :module, :user, :all) ||
-            error("invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)")
+        scope ∈ (:function, :module, :user, :all) || error(
+            "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
+        )
         msd = overrides.max_summary_depth
         opt = overrides.optimize_until
 
-        opt_expr = opt === nothing ? :( $default_ref.optimize_until ) : opt
-        msd_expr = msd === nothing ? :( $default_ref.max_summary_depth ) : msd
+        opt_expr = opt === nothing ? :($default_ref.optimize_until) : opt
+        msd_expr = msd === nothing ? :($default_ref.max_summary_depth) : msd
         scope_expr = QuoteNode(scope)
         root_expr =
-            scope === :module ? QuoteNode(calling_module) : :( $default_ref.root_module )
+            scope === :module ? QuoteNode(calling_module) : :($default_ref.root_module)
 
-        :( $cfg_ref($opt_expr, $msd_expr, $scope_expr, $root_expr) )
+        :($cfg_ref($opt_expr, $msd_expr, $scope_expr, $root_expr))
     end
 
     # Function form

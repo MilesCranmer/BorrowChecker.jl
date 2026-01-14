@@ -44,7 +44,48 @@ function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
     return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
+"""
+    ForeigncallEffectSummary
+
+Effect summary for `Expr(:foreigncall, ...)` nodes (lowered `ccall` / `llvmcall`).
+
+Positions are **1-based C-argument positions**, where position 1 corresponds to the first
+actual C argument (`stmt.args[6]`) after the foreigncall metadata.
+
+`writes` / `consumes` are specified as *groups*: each element may be an `Int` (singleton
+group) or an iterable of `Int`s (multi-arg group). Grouping is important for common
+patterns like `(obj, ptr)` argument pairs that must be treated as one logical resource
+for uniqueness.
+"""
+struct ForeigncallEffectSummary
+    write_groups::Vector{BitSet}
+    consume_groups::Vector{BitSet}
+    ret_aliases::BitSet
+end
+
+function _normalize_foreigncall_groups(spec)
+    spec isa Integer && return BitSet[BitSet((Int(spec),))]
+    groups = BitSet[]
+    for g in spec
+        if g isa Integer
+            push!(groups, BitSet((Int(g),)))
+        else
+            push!(groups, BitSet(collect(Int, g)))
+        end
+    end
+    return groups
+end
+
+function ForeigncallEffectSummary(; writes=(), consumes=(), ret_aliases=())
+    return ForeigncallEffectSummary(
+        _normalize_foreigncall_groups(writes),
+        _normalize_foreigncall_groups(consumes),
+        BitSet(collect(Int, ret_aliases)),
+    )
+end
+
 const KNOWN_EFFECTS = Lockable(IdDict{Any,EffectSummary}())
+const KNOWN_FOREIGNCALL_EFFECTS = Lockable(Dict{Symbol,ForeigncallEffectSummary}())
 
 @inline function _known_effects_get(@nospecialize(f))
     return @lock KNOWN_EFFECTS get(KNOWN_EFFECTS[], f, nothing)
@@ -66,6 +107,23 @@ function register_effects!(@nospecialize(f); writes=(), consumes=(), ret_aliases
     return f
 end
 
+@inline function _known_foreigncall_effects_get(name::Symbol)
+    return @lock KNOWN_FOREIGNCALL_EFFECTS get(KNOWN_FOREIGNCALL_EFFECTS[], name, nothing)
+end
+
+@inline function _known_foreigncall_effects_has(name::Symbol)::Bool
+    return @lock KNOWN_FOREIGNCALL_EFFECTS haskey(KNOWN_FOREIGNCALL_EFFECTS[], name)
+end
+
+function register_foreigncall_effects!(name::Symbol; writes=(), consumes=(), ret_aliases=())
+    @lock KNOWN_FOREIGNCALL_EFFECTS begin
+        KNOWN_FOREIGNCALL_EFFECTS[][name] = ForeigncallEffectSummary(;
+            writes=writes, consumes=consumes, ret_aliases=ret_aliases
+        )
+    end
+    return name
+end
+
 const REGISTRY_INITED = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
@@ -79,11 +137,6 @@ function _populate_registry!()
         _known_effects_has(f) || register_effects!(f; ret_aliases=())
     end
 
-    if isdefined(Base, :inferencebarrier)
-        f = Base.inferencebarrier
-        _known_effects_has(f) || register_effects!(f; ret_aliases=(2,))
-    end
-
     # NOTE: For a Rust-like borrow checker, *storing* a tracked value into mutable memory
     # must be treated as an escape/move of that value.
     specs = [
@@ -94,9 +147,17 @@ function _populate_registry!()
         (Core, :Typeof, (), (), ()),
         (Core, :isa, (), (), ()),
         (Core, :has_free_typevars, (), (), ()),
+        (Core, :_typevar, (), (), ()),
+        (Core, :ArgumentError, (), (), ()),
         (Core, :InexactError, (), (), ()),
         (Core, :BoundsError, (), (), ()),
+        # Core builtins/intrinsics that are used throughout Base and may not be reflectable.
+        (Core, :bitcast, (3,), (), ()),
+        (Core, :compilerbarrier, (3,), (), ()),
+        (Core, :_svec_ref, (), (), ()),
+        (Core, :isdefined, (), (), ()),
         (Core, :throw, (), (), ()),
+        (Core, :(<:), (), (), ()),
         (Core, :(===), (), (), ()),
         (Core, :(!==), (), (), ()),
         (Core, :typeassert, (2,), (), ()),
@@ -135,6 +196,20 @@ function _populate_registry!()
         _known_effects_has(f) ||
             register_effects!(f; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
     end
+
+    # Foreigncall effects (lowered `ccall` / `llvmcall`).
+    # Positions are 1-based in the foreigncall C argument list (position 1 == stmt.args[6]).
+    _known_foreigncall_effects_has(:memmove) ||
+        register_foreigncall_effects!(:memmove; writes=(1,), ret_aliases=(1,))
+    _known_foreigncall_effects_has(:memcpy) ||
+        register_foreigncall_effects!(:memcpy; writes=(1,), ret_aliases=(1,))
+    _known_foreigncall_effects_has(:memset) ||
+        register_foreigncall_effects!(:memset; writes=(1,), ret_aliases=(1,))
+
+    # jl_genericmemory_copyto(dest_mem::Any, dest_ptr::Ptr, src_mem::Any, src_ptr::Ptr, n::Int)
+    # Mutates destination represented by the `(dest_mem, dest_ptr)` pair.
+    _known_foreigncall_effects_has(:jl_genericmemory_copyto) ||
+        register_foreigncall_effects!(:jl_genericmemory_copyto; writes=((1, 2),))
 
     return nothing
 end

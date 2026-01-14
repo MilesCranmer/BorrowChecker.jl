@@ -11,6 +11,87 @@ function _call_parts(stmt)
     end
 end
 
+# === foreigncall / ccall helpers ===
+#
+# `ccall` / `llvmcall` lower to `Expr(:foreigncall, ...)`.
+# The first five fields are metadata:
+#   1: callee name / pointer
+#   2: return type
+#   3: argument types (typically a `Core.SimpleVector`, printed as `svec(...)`)
+#   4: number of required args
+#   5: calling convention (`:ccall`, `:llvmcall`, ...)
+# The remaining fields are the C arguments followed by GC roots.
+
+function _foreigncall_nccallargs(argtypes)
+    if argtypes isa Core.SimpleVector
+        return length(argtypes)
+    end
+    if argtypes isa Tuple || argtypes isa AbstractVector
+        return length(argtypes)
+    end
+    if argtypes isa Expr && argtypes.head === :call && !isempty(argtypes.args)
+        f = argtypes.args[1]
+        if f === Core.svec ||
+            f === :svec ||
+            (f isa GlobalRef && f.mod === Core && f.name === :svec)
+            return length(argtypes.args) - 1
+        end
+    end
+    return 0
+end
+
+function _foreigncall_parts(stmt::Expr)
+    @assert stmt.head === :foreigncall
+
+    name_expr = stmt.args[1]
+    name_sym = if name_expr isa QuoteNode
+        name_expr.value isa Symbol ? name_expr.value : nothing
+    elseif name_expr isa Symbol
+        name_expr
+    elseif name_expr isa Expr && name_expr.head === :call && !isempty(name_expr.args)
+        # Library calls are often encoded as `Core.tuple(:name, lib)`; keep just the name.
+        f = name_expr.args[1]
+        if (
+            f === Core.tuple ||
+            f === :tuple ||
+            (f isa GlobalRef && f.mod === Core && f.name === :tuple)
+        ) && length(name_expr.args) >= 2
+            nm = name_expr.args[2]
+            nm isa QuoteNode && nm.value isa Symbol ? nm.value : nothing
+        else
+            nothing
+        end
+    else
+        nothing
+    end
+
+    argtypes = stmt.args[3]
+    nccallargs = _foreigncall_nccallargs(argtypes)
+
+    ccall_start = 6
+    ccall_stop = ccall_start + nccallargs - 1
+    if nccallargs <= 0
+        ccall_args = Any[]
+        gc_roots = stmt.args[ccall_start:end]
+    else
+        ccall_args = stmt.args[ccall_start:ccall_stop]
+        gc_roots = stmt.args[(ccall_stop + 1):end]
+    end
+
+    return name_sym, ccall_args, gc_roots, nccallargs
+end
+
+function _foreigncall_group_used_handles(
+    ccall_args, group::BitSet, ir::CC.IRCode, nargs::Int, track_arg, track_ssa
+)
+    used = BitSet()
+    for p in group
+        (1 <= p <= length(ccall_args)) || continue
+        union!(used, _backward_used_handles(ccall_args[p], ir, nargs, track_arg, track_ssa))
+    end
+    return used
+end
+
 function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return nothing
@@ -242,12 +323,59 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     return Any
 end
 
+function _maybe_const_type_object(fexpr, ir::CC.IRCode)
+    if fexpr isa GlobalRef
+        v = try
+            getfield(fexpr.mod, fexpr.name)
+        catch
+            nothing
+        end
+        return (v isa Type) ? v : nothing
+    end
+    if fexpr isa QuoteNode
+        v = fexpr.value
+        return (v isa Type) ? v : nothing
+    end
+    if fexpr isa Core.SSAValue
+        def = try
+            ir[fexpr][:stmt]
+        catch
+            nothing
+        end
+        def === nothing && return nothing
+        return _maybe_const_type_object(def, ir)
+    end
+    return nothing
+end
+
 function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
     types = Any[]
-    for a in raw_args
+    for (i, a) in enumerate(raw_args)
         t = Any
         try
-            t = CC.widenconst(CC.argextype(a, ir))
+            at = CC.argextype(a, ir)
+            if i == 1
+                fobj = _maybe_const_type_object(a, ir)
+                if fobj !== nothing
+                    t = Type{fobj}
+                else
+                    fval = try
+                        CC.singleton_type(at)
+                    catch
+                        nothing
+                    end
+                    if fval isa Type
+                        # Constructors dispatch on `Type{T}` / `Type{UnionAll(...)}` rather than
+                        # `DataType`, so use the singleton type of the type object when it can be
+                        # resolved.
+                        t = Type{fval}
+                    else
+                        t = CC.widenconst(at)
+                    end
+                end
+            else
+                t = CC.widenconst(at)
+            end
         catch
             t = Any
         end

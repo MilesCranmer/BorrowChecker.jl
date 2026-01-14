@@ -602,10 +602,39 @@ function _summarize_ir_effects(
     for i in 1:nstmts
         stmt = ir[Core.SSAValue(i)][:stmt]
         if stmt isa Expr && stmt.head === :foreigncall
-            uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
-            for hv in uses
-                _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+            name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
+            eff =
+                (name_sym === nothing) ? nothing : _known_foreigncall_effects_get(name_sym)
+
+            if eff === nothing
+                # Unknown foreigncall: treat as write to the C arguments only (ignore GC roots).
+                for v in ccall_args
+                    hs = _backward_used_handles(v, ir, nargs, track_arg, track_ssa)
+                    for hv in hs
+                        _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+                    end
+                end
+                continue
             end
+
+            for grp in eff.write_groups
+                hs = _foreigncall_group_used_handles(
+                    ccall_args, grp, ir, nargs, track_arg, track_ssa
+                )
+                for hv in hs
+                    _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+                end
+            end
+
+            for grp in eff.consume_groups
+                hs = _foreigncall_group_used_handles(
+                    ccall_args, grp, ir, nargs, track_arg, track_ssa
+                )
+                for hv in hs
+                    _push_arg_aliases!(consumes, uf, _uf_find(uf, hv), nargs, track_arg)
+                end
+            end
+
             continue
         end
 

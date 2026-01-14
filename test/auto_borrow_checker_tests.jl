@@ -189,7 +189,9 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        BorrowChecker.Auto.@auto optimize_until = "compact 1" function _bc_macro_opt_optimize_until(x)
+        BorrowChecker.Auto.@auto optimize_until = "compact 1" function _bc_macro_opt_optimize_until(
+            x
+        )
             return x
         end
         @test _bc_macro_opt_optimize_until(2) == 2
@@ -658,7 +660,7 @@
     end
 
     @testset "__bc_assert_safe__ thread-safety" begin
-        Threads.nthreads() < 2 && return
+        Threads.nthreads() < 2 && return nothing
 
         Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
             empty!(BorrowChecker.Auto.CHECKED_CACHE[])
@@ -750,7 +752,7 @@
         end
         @test _bc_scope_outer_norec_ok() == [0, 2, 3]
 
-        @auto scope=:module function _bc_scope_outer_rec_bad()
+        @auto scope = :module function _bc_scope_outer_rec_bad()
             return _bc_scope_inner_bad()
         end
         @test_throws BorrowCheckError _bc_scope_outer_rec_bad()
@@ -783,7 +785,7 @@
     end
 
     @testset "Core._typeof_captured_variable recursion is pure" begin
-        @auto scope=:user function _bc_scope_all_typeof_captured(x)
+        @auto scope = :user function _bc_scope_all_typeof_captured(x)
             return Core._typeof_captured_variable(x)
         end
 
@@ -791,7 +793,7 @@
     end
 
     @testset "scope=:all does not crash on PhiCNode" begin
-        @auto scope=:all _bc_scope_all_sin(x) = sin(x)
+        @auto scope = :all _bc_scope_all_sin(x) = sin(x)
         err = try
             _bc_scope_all_sin(1.0)
             nothing
@@ -804,7 +806,7 @@
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
         # This should throw an `InexactError` at runtime, but borrow checking (including
         # `scope=:user` recursion into Core) should not fail.
-        @auto scope=:user _bc_inexact_int64(x::UInt64) = Int64(x)
+        @auto scope = :user _bc_inexact_int64(x::UInt64) = Int64(x)
         @test_throws InexactError _bc_inexact_int64(typemax(UInt64))
     end
 
@@ -942,5 +944,55 @@
         end
         ys = _bc_array_literal_copy_order_ok([1, 2, 3])
         @test ys[1] == ys[2] == [1, 2, 3]
+    end
+
+    @testset "Known foreigncall effects" begin
+        @testset "jl_genericmemory_copyto writes destination only" begin
+            @auto scope = :all _bc_wrap_in_vec(x) = [x]
+            @test _bc_wrap_in_vec([1, 2, 3]) == [[1, 2, 3]]
+        end
+
+        @testset "BoundsError constructor is treated as pure" begin
+            @auto scope = :all _bc_sin(x) = sin(x)
+            @test _bc_sin(1.0) == sin(1.0)
+        end
+    end
+
+    @testset "Core._typevar does not consume" begin
+        @auto scope = :all _bc_mk_typevar() = (TypeVar(:T, Int); true)
+        @test _bc_mk_typevar()
+    end
+
+    @testset "Known effects registry only uses Core" begin
+        BorrowChecker.Auto._ensure_registry_initialized()
+
+        allowed_auto = Set{Any}([BorrowChecker.Auto.Config, BorrowChecker.Auto.__bc_bind__])
+        if isdefined(BorrowChecker.Auto, :__bc_assert_safe__)
+            push!(allowed_auto, BorrowChecker.Auto.__bc_assert_safe__)
+        end
+
+        bad = Any[]
+        Base.@lock BorrowChecker.Auto.KNOWN_EFFECTS begin
+            for f in keys(BorrowChecker.Auto.KNOWN_EFFECTS[])
+                m = try
+                    parentmodule(f)
+                catch
+                    nothing
+                end
+                # Users can call `register_effects!` on their own functions, so the registry
+                # may contain non-Core entries. This test only enforces that BorrowChecker's
+                # built-in registry does not rely on `Base` definitions.
+                if m === Base
+                    push!(bad, (f, m))
+                    continue
+                end
+                if m === BorrowChecker.Auto && !(f in allowed_auto)
+                    push!(bad, (f, m))
+                    continue
+                end
+            end
+        end
+
+        @test isempty(bad)
     end
 end
