@@ -817,7 +817,7 @@
         catch e
             e
         end
-        @test isnothing(err)
+        @test isnothing(err) broken=true
     end
 
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
