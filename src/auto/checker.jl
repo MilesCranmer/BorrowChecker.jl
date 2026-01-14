@@ -17,18 +17,45 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
         r = blocks[b].stmts
         for idx in r
             stmt = ir[Core.SSAValue(idx)][:stmt]
-            if stmt isa Core.PhiNode || stmt isa Core.PhiCNode
+            if stmt isa Core.PhiNode
                 edges = getfield(stmt, :edges)
                 vals = getfield(stmt, :values)
                 for k in 1:length(edges)
+                    isassigned(vals, k) || continue
                     edge = edges[k]
                     v = vals[k]
                     h = _handle_index(v, nargs, track_arg, track_ssa)
                     h == 0 && continue
-                    pred_bb = 0
                     @assert 1 <= edge <= length(inst2bb) && inst2bb[edge] != 0 "Unexpected IR: PhiNode.edges should contain predecessor terminator statement indices (not block IDs)."
                     pred_bb = inst2bb[edge]
                     push!(phi_edge_use[pred_bb], h)
+                end
+            elseif stmt isa Core.PhiCNode
+                # `PhiCNode` does not store explicit `edges` (unlike `PhiNode`).
+                # Conservatively attribute each value to predecessor blocks.
+                vals = getfield(stmt, :values)
+                preds = blocks[b].preds
+                if length(vals) == length(preds)
+                    for k in 1:length(vals)
+                        isassigned(vals, k) || continue
+                        v = vals[k]
+                        h = _handle_index(v, nargs, track_arg, track_ssa)
+                        h == 0 && continue
+                        pred_bb = preds[k]
+                        (1 <= pred_bb <= nblocks) || continue
+                        push!(phi_edge_use[pred_bb], h)
+                    end
+                else
+                    for k in 1:length(vals)
+                        isassigned(vals, k) || continue
+                        v = vals[k]
+                        h = _handle_index(v, nargs, track_arg, track_ssa)
+                        h == 0 && continue
+                        for pred_bb in preds
+                            (1 <= pred_bb <= nblocks) || continue
+                            push!(phi_edge_use[pred_bb], h)
+                        end
+                    end
                 end
             else
                 break
