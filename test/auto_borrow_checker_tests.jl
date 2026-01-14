@@ -713,6 +713,21 @@
         end
     end
 
+    @testset "isa is pure (does not consume)" begin
+        @auto function _bc_isa_does_not_consume()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            if y isa Vector{Int}
+                y[1] = 0
+                return y
+            else
+                error("unexpected")
+            end
+        end
+
+        @test _bc_isa_does_not_consume() == [0, 2, 3]
+    end
+
     @testset "summary cache determinism" begin
         Base.@lock BorrowChecker.Auto._summary_state begin
             empty!(BorrowChecker.Auto._summary_state[].summary_cache)

@@ -82,6 +82,7 @@ function _populate_registry!()
         (Core, :apply_type, (), (), ()),
         (Core, :typeof, (), (), ()),
         (Core, :_typeof_captured_variable, (), (), ()),
+        (Core, :isa, (), (), ()),
         (Core, :(===), (), (), ()),
         (Core, :(!==), (), (), ()),
         (Core, :typeassert, (2,), (), ()),
