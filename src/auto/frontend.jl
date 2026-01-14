@@ -23,9 +23,8 @@ function check_signature(
     end
 end
 
-Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
+Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world=Base.get_world_counter())
     @nospecialize tt
-    world = Base.get_world_counter()
     task_cache = _per_task_checked_cache[]
 
     # Fast path: per-task cache (no locking).
@@ -95,14 +94,13 @@ function _tt_expr_from_signature(sig)
     call isa Expr && call.head === :call ||
         error("@auto currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
-    argrefs = Any[]
+    argtyperefs = Any[]
     for a in call.args[2:end]
         r = _argref_expr(a)
         r === nothing && continue
-        push!(argrefs, r)
+        push!(argtyperefs, :($Core.Typeof($r)))
     end
-    tup = Expr(:tuple, fval, argrefs...)
-    return :(typeof($tup))
+    return :(Tuple{$Core.Typeof($fval), $(argtyperefs...)})
 end
 
 function _is_method_definition_lhs(lhs)
@@ -201,7 +199,7 @@ end
 
 function _prepend_check_stmt(sig, body)
     tt_expr = _tt_expr_from_signature(sig)
-    assert_ref = GlobalRef(@__MODULE__, :__bc_assert_safe__)
+    assert_ref = GlobalRef(@__MODULE__, :_generated_assert_safe)
     check_stmt = Expr(:call, assert_ref, tt_expr)
 
     body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
