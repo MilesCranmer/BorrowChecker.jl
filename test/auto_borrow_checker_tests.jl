@@ -206,6 +206,25 @@
         @test _bc_auto_disabled() == [0, 2, 3]
     end
 
+    @testset "scope=:module catches unannotated callee with closure alias" begin
+        m = Module(gensym(:BCModuleScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function foo()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+            end,
+        )
+        Core.eval(m, :(BC.@auto scope = :module bar() = foo()))
+
+        @test_throws BorrowCheckError m.bar()
+    end
+
     @testset "macro one-line method parsing: where clause" begin
         BorrowChecker.Auto.@auto _bc_oneliner_where(x::T) where {T} = x
         @test _bc_oneliner_where(1) == 1
