@@ -20,6 +20,12 @@ Base.@kwdef struct Config
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 12
+
+    "Recursively borrow-check callees (call graph) within this scope."
+    scope::Symbol = :function
+
+    "Root module used by `scope=:module`."
+    root_module::Module = Main
 end
 
 const DEFAULT_CONFIG = Config()
@@ -64,6 +70,9 @@ const _registry_inited = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
     _known_effects_has(__bc_bind__) || register_effects!(__bc_bind__; ret_aliases=(2,))
+    # `@auto scope=...` builds a `Config` object at runtime for the prologue check.
+    # This constructor is internal plumbing and should be treated as pure.
+    _known_effects_has(Config) || register_effects!(Config; ret_aliases=())
 
     if isdefined(Auto, :__bc_assert_safe__)
         f = Auto.__bc_assert_safe__
@@ -82,7 +91,11 @@ function _populate_registry!()
         (Core, :apply_type, (), (), ()),
         (Core, :typeof, (), (), ()),
         (Core, :_typeof_captured_variable, (), (), ()),
+        (Core, :Typeof, (), (), ()),
         (Core, :isa, (), (), ()),
+        (Core, :has_free_typevars, (), (), ()),
+        (Core, :InexactError, (), (), ()),
+        (Core, :throw, (), (), ()),
         (Core, :(===), (), (), ()),
         (Core, :(!==), (), (), ()),
         (Core, :typeassert, (2,), (), ()),
@@ -107,6 +120,7 @@ function _populate_registry!()
         (Core, :memoryrefmodify!, (), (2,), (4,)),
         (Core, :memoryrefreplace!, (), (2,), (4,)),
         (Core, :memoryrefsetonce!, (), (2,), (3,)),
+        (Core, :memorynew, (), (), ()),
 
         # Pointer intrinsics:
         # `pointerset(ptr, val, idx, align)` mutates memory through `ptr` and often

@@ -6,6 +6,127 @@ Returns `true` on success; throws `BorrowCheckError` on failure.
 const _checked_cache = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
 const _per_task_checked_cache = PerTaskCache{IdDict{Any,UInt}}()
 
+const _BC_INPROGRESS_WORLD = typemax(UInt)
+
+function _tt_module(tt::Type{<:Tuple})
+    try
+        tt_u = Base.unwrap_unionall(tt)
+        if tt_u isa DataType && !isempty(tt_u.parameters)
+            fT = tt_u.parameters[1]
+            dt = Base.unwrap_unionall(fT)
+            if dt isa DataType
+                m = dt.name.module
+                if dt.name === Base.unwrap_unionall(Type).name && !isempty(dt.parameters)
+                    targ = Base.unwrap_unionall(dt.parameters[1])
+                    if targ isa DataType
+                        m = targ.name.module
+                    end
+                end
+                return m
+            end
+        end
+    catch
+    end
+    return nothing
+end
+
+function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
+    cfg.scope === :all && return true
+    m = _tt_module(tt)
+    m === nothing && return false
+    m === Auto && return false
+    if cfg.scope === :none || cfg.scope === :function
+        return false
+    elseif cfg.scope === :module
+        return m === cfg.root_module
+    elseif cfg.scope === :user
+        # "user" means: don't recursively check Base, but allow Core + other modules.
+        return (m !== Base)
+    end
+    throw(ArgumentError("unknown scope: $(cfg.scope)"))
+end
+
+function _apply_iterate_inner_tt(raw_args, ir::CC.IRCode)
+    length(raw_args) >= 3 || return nothing
+    inner_f = try
+        CC.singleton_type(CC.argextype(raw_args[3], ir))
+    catch
+        nothing
+    end
+    inner_f === nothing && return nothing
+
+    expanded_types = Any[typeof(inner_f)]
+    for j in 4:length(raw_args)
+        argj = raw_args[j]
+        elems = _maybe_tuple_elements(argj, ir)
+        if elems !== nothing
+            for e in elems
+                push!(expanded_types, _widenargtype_or_any(e, ir))
+            end
+            continue
+        end
+
+        Tj = _widenargtype_or_any(argj, ir)
+        Tj === Tuple{} && continue
+        dt = Base.unwrap_unionall(Tj)
+        if dt isa DataType && dt.name === Tuple.name
+            params = dt.parameters
+            has_vararg = any(p -> p isa Core.TypeofVararg, params)
+            if !has_vararg
+                for te in params
+                    te2 = Base.unwrap_unionall(te)
+                    push!(expanded_types, (te2 isa Type) ? te2 : Any)
+                end
+                continue
+            end
+        end
+
+        push!(expanded_types, Tj)
+    end
+
+    try
+        return Core.apply_type(Tuple, expanded_types...)
+    catch
+        return nothing
+    end
+end
+
+function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
+    (cfg.scope === :none || cfg.scope === :function) && return nothing
+
+    nstmts = length(ir.stmts)
+    for i in 1:nstmts
+        stmt = ir[Core.SSAValue(i)][:stmt]
+        head, mi, raw_args = _call_parts(stmt)
+        raw_args === nothing && continue
+
+        f = _resolve_callee(stmt, ir)
+        f === __bc_bind__ && continue
+        f === __bc_assert_safe__ && continue
+
+        tt = if f === Core._apply_iterate
+            _apply_iterate_inner_tt(raw_args, ir)
+        elseif f === Core.kwcall
+            _kwcall_tt_from_raw_args(raw_args, ir)
+        elseif head === :invoke && mi !== nothing
+            try
+                mi.specTypes
+            catch
+                nothing
+            end
+        else
+            _call_tt_from_raw_args(raw_args, ir)
+        end
+        tt === nothing && continue
+        tt isa Type{<:Tuple} || continue
+        _scope_allows_tt(tt, cfg) || continue
+
+        __bc_assert_safe__(tt; cfg=cfg, world=world)
+    end
+
+    return nothing
+end
+
 function check_signature(
     tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
 )
@@ -17,15 +138,17 @@ function check_signature(
             ir = entry.first
             ir isa CC.IRCode || continue
             append!(viols, check_ir(ir, cfg))
+            _check_ir_callees!(ir, cfg, world)
         end
         isempty(viols) || throw(BorrowCheckError(tt, viols))
         return true
     end
 end
 
-Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG)
+Base.@noinline function __bc_assert_safe__(
+    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
+)
     @nospecialize tt
-    world = Base.get_world_counter()
     task_cache = _per_task_checked_cache[]
 
     # Fast path: per-task cache (no locking).
@@ -36,13 +159,22 @@ Base.@noinline function __bc_assert_safe__(tt::Type{<:Tuple}; cfg::Config=DEFAUL
     # Slow path: shared cache (locked).
     #     Lock spans the entire inference so we avoid repeated inference.
     Base.@lock _checked_cache begin
-        if get(_checked_cache[], tt, UInt(0)) == world
+        state = get(_checked_cache[], tt, UInt(0))
+        if state == world
             task_cache[tt] = world
             return nothing
         end
+        if state == _BC_INPROGRESS_WORLD
+            return nothing
+        end
 
-        check_signature(tt; cfg=cfg, world=world)
-
+        _checked_cache[][tt] = _BC_INPROGRESS_WORLD
+        try
+            check_signature(tt; cfg=cfg, world=world)
+        catch
+            delete!(_checked_cache[], tt)
+            rethrow()
+        end
         _checked_cache[][tt] = world
         task_cache[tt] = world
         return nothing
@@ -199,14 +331,120 @@ function _instrument_assignments(ex)
     return Expr(ex.head, map(_instrument_assignments, ex.args)...)
 end
 
-function _prepend_check_stmt(sig, body)
+function _prepend_check_stmt(sig, body; cfg_expr=nothing)
     tt_expr = _tt_expr_from_signature(sig)
     assert_ref = GlobalRef(@__MODULE__, :__bc_assert_safe__)
-    check_stmt = Expr(:call, assert_ref, tt_expr)
+    check_stmt = if cfg_expr === nothing
+        Expr(:call, assert_ref, tt_expr)
+    else
+        Expr(:call, assert_ref, Expr(:parameters, Expr(:kw, :cfg, cfg_expr)), tt_expr)
+    end
 
     body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
     new_body = Expr(:block, check_stmt, body_block.args...)
     return _instrument_assignments(new_body)
+end
+
+function _parse_cfg_value(x, calling_module)
+    if x isa QuoteNode
+        return x.value
+    elseif x isa Expr
+        return Core.eval(calling_module, x)
+    else
+        return x
+    end
+end
+
+"""
+Parse `@auto` macro options into `Config` field overrides.
+
+Returns a named tuple with `nothing` meaning "use default":
+`(; scope, max_summary_depth, optimize_until)`.
+"""
+function parse_config_overrides(options, calling_module)
+    scope = nothing
+    max_summary_depth = nothing
+    optimize_until = nothing
+
+    for option in options
+        if option isa Expr &&
+            length(option.args) == 2 &&
+            (option.head === :(=) || option.head === :kw)
+            k = option.args[1]
+            v = option.args[2]
+            if k === :scope
+                scope = _parse_cfg_value(v, calling_module)::Symbol
+                continue
+            elseif k === :max_summary_depth
+                max_summary_depth = _parse_cfg_value(v, calling_module)::Int
+                continue
+            elseif k === :optimize_until
+                optimize_until = _parse_cfg_value(v, calling_module)::Union{String,Int,Nothing}
+                continue
+            end
+        end
+        error(
+            "@auto only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`; got: $option",
+        )
+    end
+
+    return (; scope, max_summary_depth, optimize_until)
+end
+
+function _auto(args...; calling_module, source_info=nothing)
+    _ = source_info
+
+    ex = args[end]
+    is_borrow_checker_enabled(calling_module) || return ex
+
+    raw_options = args[begin:(end - 1)]
+    overrides = parse_config_overrides(raw_options, calling_module)
+
+    if overrides.scope === :none
+        return ex
+    end
+
+    cfg_expr = if isempty(raw_options)
+        nothing
+    else
+        cfg_ref = GlobalRef(@__MODULE__, :Config)
+        # Avoid keyword construction here: it lowers through `Core.kwcall`, and when
+        # `scope` recursion includes Core we end up recursively checking `kwcall`'s
+        # plumbing instead of user code.
+        default_ref = GlobalRef(@__MODULE__, :DEFAULT_CONFIG)
+
+        scope = overrides.scope === nothing ? :function : (overrides.scope::Symbol)
+        scope ∈ (:function, :module, :user, :all) ||
+            error("invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)")
+        msd = overrides.max_summary_depth
+        opt = overrides.optimize_until
+
+        opt_expr = opt === nothing ? :( $default_ref.optimize_until ) : opt
+        msd_expr = msd === nothing ? :( $default_ref.max_summary_depth ) : msd
+        scope_expr = QuoteNode(scope)
+        root_expr =
+            scope === :module ? QuoteNode(calling_module) : :( $default_ref.root_module )
+
+        :( $cfg_ref($opt_expr, $msd_expr, $scope_expr, $root_expr) )
+    end
+
+    # Function form
+    if ex isa Expr && ex.head === :function
+        sig = ex.args[1]
+        body = ex.args[2]
+        inst_body = _prepend_check_stmt(sig, body; cfg_expr=cfg_expr)
+        return Expr(:function, sig, inst_body)
+    end
+
+    # One-line method form: f(args...) = body
+    if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
+        sig = ex.args[1]
+        body = ex.args[2]
+        inst_body = _prepend_check_stmt(sig, body; cfg_expr=cfg_expr)
+        return Expr(:function, sig, inst_body)
+    end
+
+    return error("@auto must wrap a function/method definition")
 end
 
 """
@@ -226,24 +464,6 @@ calls are fast. On failure it throws `BorrowCheckError` with best-effort source 
     false positives. It is intended for development and testing, and does not guarantee
     memory safety.
 """
-macro auto(ex)
-    is_borrow_checker_enabled(__module__) || return esc(ex)
-
-    # Function form
-    if ex isa Expr && ex.head === :function
-        sig = ex.args[1]
-        body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body)
-        return esc(Expr(:function, sig, inst_body))
-    end
-
-    # One-line method form: f(args...) = body
-    if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
-        sig = ex.args[1]
-        body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body)
-        return esc(Expr(:function, sig, inst_body))
-    end
-
-    return error("@auto must wrap a function/method definition")
+macro auto(args...)
+    return esc(_auto(args...; calling_module=__module__, source_info=__source__))
 end

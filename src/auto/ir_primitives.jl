@@ -84,11 +84,10 @@ end
 function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T === Union{} && return false
     T === Any && return true
-    if T isa Union
-        return any(tt, Base.uniontypes(T))
-    end
+    T isa Union && return any(tt, Base.uniontypes(T))
     T isa Type || return true
     T === Symbol && return false
+    T <: Module && return false
 
     _is_nonowning_ref_type(T) && return false
 

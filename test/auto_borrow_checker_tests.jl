@@ -183,6 +183,29 @@
         end))
     end
 
+    @testset "macro option parsing: Config overrides" begin
+        BorrowChecker.Auto.@auto max_summary_depth = 1 function _bc_macro_opt_max_depth(x)
+            return x
+        end
+        @test _bc_macro_opt_max_depth(1) == 1
+
+        BorrowChecker.Auto.@auto optimize_until = "compact 1" function _bc_macro_opt_optimize_until(x)
+            return x
+        end
+        @test _bc_macro_opt_optimize_until(2) == 2
+    end
+
+    @testset "scope=:none disables @auto" begin
+        # This would normally fail borrow checking due to aliasing + mutation.
+        BorrowChecker.Auto.@auto scope = :none function _bc_auto_disabled()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            x[1] = 0
+            return y
+        end
+        @test _bc_auto_disabled() == [0, 2, 3]
+    end
+
     @testset "macro one-line method parsing: where clause" begin
         BorrowChecker.Auto.@auto _bc_oneliner_where(x::T) where {T} = x
         @test _bc_oneliner_where(1) == 1
@@ -713,6 +736,37 @@
         end
     end
 
+    @testset "@auto scope=:module recursive callees" begin
+        # Without recursion, this outer method doesn't observe the inner violation.
+        Base.@noinline function _bc_scope_inner_bad()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            x[1] = 0
+            return y
+        end
+
+        @auto function _bc_scope_outer_norec_ok()
+            return _bc_scope_inner_bad()
+        end
+        @test _bc_scope_outer_norec_ok() == [0, 2, 3]
+
+        @auto scope=:module function _bc_scope_outer_rec_bad()
+            return _bc_scope_inner_bad()
+        end
+        @test_throws BorrowCheckError _bc_scope_outer_rec_bad()
+    end
+
+    @testset "modules are not owned (avoid spurious consumes)" begin
+        @auto function _bc_module_not_owned()
+            m = Base
+            g = Base.inferencebarrier(identity)
+            g(m) # unknown/dynamic call site should NOT consume `m`
+            return getproperty(m, :Math)
+        end
+
+        @test _bc_module_not_owned() === Base.Math
+    end
+
     @testset "isa is pure (does not consume)" begin
         @auto function _bc_isa_does_not_consume()
             x = [1, 2, 3]
@@ -726,6 +780,32 @@
         end
 
         @test _bc_isa_does_not_consume() == [0, 2, 3]
+    end
+
+    @testset "Core._typeof_captured_variable recursion is pure" begin
+        @auto scope=:user function _bc_scope_all_typeof_captured(x)
+            return Core._typeof_captured_variable(x)
+        end
+
+        @test _bc_scope_all_typeof_captured(1) === Int
+    end
+
+    @testset "scope=:all does not crash on PhiCNode" begin
+        @auto scope=:all _bc_scope_all_sin(x) = sin(x)
+        err = try
+            _bc_scope_all_sin(1.0)
+            nothing
+        catch e
+            e
+        end
+        @test !(err isa FieldError) && !(err isa UndefRefError)
+    end
+
+    @testset "Core.throw_inexacterror does not BorrowCheckError" begin
+        # This should throw an `InexactError` at runtime, but borrow checking (including
+        # `scope=:user` recursion into Core) should not fail.
+        @auto scope=:user _bc_inexact_int64(x::UInt64) = Int64(x)
+        @test_throws InexactError _bc_inexact_int64(typemax(UInt64))
     end
 
     @testset "summary cache determinism" begin
