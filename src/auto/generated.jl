@@ -56,13 +56,14 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     return ci
 end
 
+#! format: off
 function _refresh_generated_assert_safe()
     @eval function _generated_assert_safe(sig)
         $(Expr(:meta, :generated_only))
         $(Expr(:meta, :generated, _generated_assert_safe_body))
-        return nothing
     end
 end
+#! format: on
 _refresh_generated_assert_safe()
 
 # Don't recursively borrow check the borrow checking!
