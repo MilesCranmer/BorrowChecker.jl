@@ -189,9 +189,9 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        BorrowChecker.Auto.@auto optimize_until = "compact 1" function _bc_macro_opt_optimize_until(x)
-            return x
-        end
+        BorrowChecker.Auto.@auto(
+            optimize_until = "compact 1", _bc_macro_opt_optimize_until(x) = x
+        )
         @test _bc_macro_opt_optimize_until(2) == 2
     end
 
@@ -677,7 +677,7 @@
     end
 
     @testset "__bc_assert_safe__ thread-safety" begin
-        Threads.nthreads() < 2 && return
+        Threads.nthreads() < 2 && return nothing
 
         Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
             empty!(BorrowChecker.Auto.CHECKED_CACHE[])
@@ -769,7 +769,7 @@
         end
         @test _bc_scope_outer_norec_ok() == [0, 2, 3]
 
-        @auto scope=:module function _bc_scope_outer_rec_bad()
+        @auto scope = :module function _bc_scope_outer_rec_bad()
             return _bc_scope_inner_bad()
         end
         @test_throws BorrowCheckError _bc_scope_outer_rec_bad()
@@ -802,7 +802,7 @@
     end
 
     @testset "Core._typeof_captured_variable recursion is pure" begin
-        @auto scope=:user function _bc_scope_all_typeof_captured(x)
+        @auto scope = :user function _bc_scope_all_typeof_captured(x)
             return Core._typeof_captured_variable(x)
         end
 
@@ -810,20 +810,20 @@
     end
 
     @testset "scope=:all does not crash on PhiCNode" begin
-        @auto scope=:all _bc_scope_all_sin(x) = sin(x)
+        @auto scope = :all _bc_scope_all_sin(x) = sin(x)
         err = try
             _bc_scope_all_sin(1.0)
             nothing
         catch e
             e
         end
-        @test !(err isa FieldError) && !(err isa UndefRefError)
+        @test isnothing(err)
     end
 
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
         # This should throw an `InexactError` at runtime, but borrow checking (including
         # `scope=:user` recursion into Core) should not fail.
-        @auto scope=:user _bc_inexact_int64(x::UInt64) = Int64(x)
+        @auto scope = :user _bc_inexact_int64(x::UInt64) = Int64(x)
         @test_throws InexactError _bc_inexact_int64(typemax(UInt64))
     end
 
