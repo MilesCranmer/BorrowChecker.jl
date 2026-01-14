@@ -124,7 +124,11 @@
         @auto function _bc_varargs_signature(xs...)
             return 0
         end
-        @test true
+        @test _bc_varargs_signature() == 0
+        @test _bc_varargs_signature(1) == 0
+        @test _bc_varargs_signature(1, 2) == 0
+    end
+
     end
 
     @testset "macro signature parsing: default args" begin
