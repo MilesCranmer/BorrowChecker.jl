@@ -189,11 +189,9 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        BorrowChecker.Auto.@auto optimize_until = "compact 1" function _bc_macro_opt_optimize_until(
-            x
+        BorrowChecker.Auto.@auto(
+            optimize_until = "compact 1", _bc_macro_opt_optimize_until(x) = x
         )
-            return x
-        end
         @test _bc_macro_opt_optimize_until(2) == 2
     end
 
@@ -206,6 +204,25 @@
             return y
         end
         @test _bc_auto_disabled() == [0, 2, 3]
+    end
+
+    @testset "scope=:module catches unannotated callee with closure alias" begin
+        m = Module(gensym(:BCModuleScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function foo()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+            end,
+        )
+        Core.eval(m, :(BC.@auto scope = :module bar() = foo()))
+
+        @test_throws BorrowCheckError m.bar()
     end
 
     @testset "macro one-line method parsing: where clause" begin
@@ -800,7 +817,7 @@
         catch e
             e
         end
-        @test !(err isa FieldError) && !(err isa UndefRefError)
+        @test isnothing(err)
     end
 
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
