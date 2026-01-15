@@ -13,6 +13,10 @@ end
 const CHECKED_CACHE = Lockable(IdDict{Any,Tuple{UInt,CheckedCacheSig}}()) # Type{Tuple...} => (world, sig)
 const PER_TASK_CHECKED_CACHE = PerTaskCache{IdDict{Any,Tuple{UInt,CheckedCacheSig}}}()
 
+# Marker for "currently being checked". Prevents infinite recursion when `scope`
+# triggers re-entrant borrow-checking of the same specialization.
+const BC_INPROGRESS_WORLD = typemax(UInt)
+
 function _tt_module(tt::Type{<:Tuple})
     try
         tt_u = Base.unwrap_unionall(tt)
@@ -36,8 +40,10 @@ function _tt_module(tt::Type{<:Tuple})
 end
 
 function _scope_allows_module(m::Module, cfg::Config)::Bool
-    cfg.scope === :all && return true
+    # Never recursively borrow-check BorrowChecker itself.
     m === Auto && return false
+
+    cfg.scope === :all && return true
     if cfg.scope === :none || cfg.scope === :function
         return false
     elseif cfg.scope === :module
@@ -47,6 +53,12 @@ function _scope_allows_module(m::Module, cfg::Config)::Bool
         return (m !== Base)
     end
     throw(ArgumentError("unknown scope: $(cfg.scope)"))
+end
+
+function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
+    m = _tt_module(tt)
+    m === nothing && return false
+    return _scope_allows_module(m, cfg)
 end
 
 function _callsite_method_module(i::Int, head, mi, ir::CC.IRCode)
@@ -218,11 +230,16 @@ Base.@noinline function __bc_assert_safe__(
                 task_cache[tt] = state
                 return nothing
             end
+            if world0 == BC_INPROGRESS_WORLD && sig0 == sig
+                return nothing
+            end
         end
 
+        dict[tt] = (BC_INPROGRESS_WORLD, sig)
         try
             check_signature(tt; cfg=cfg, world=world)
         catch
+            delete!(dict, tt)
             rethrow()
         end
         new_state = (world, sig)

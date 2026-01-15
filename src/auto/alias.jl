@@ -190,6 +190,19 @@ function _build_alias_classes!(
             continue
         end
 
+        if stmt isa Expr && stmt.head === :foreigncall
+            name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
+            eff =
+                (name_sym === nothing) ? nothing : _known_foreigncall_effects_get(name_sym)
+            eff === nothing && continue
+            for p in eff.ret_aliases
+                (1 <= p <= length(ccall_args)) || continue
+                in_h = _handle_index(ccall_args[p], nargs, track_arg, track_ssa)
+                _uf_union!(uf, out_h, in_h)
+            end
+            continue
+        end
+
         if stmt isa Expr && (stmt.head === :call || stmt.head === :invoke)
             raw_args = (stmt.head === :invoke) ? stmt.args[2:end] : stmt.args
             f = _resolve_callee(stmt, ir)
@@ -244,6 +257,7 @@ end
 function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     nstmts = length(ir.stmts)
     origins = collect(1:(nargs + nstmts))
+    closure_field_origins = Dict{Symbol,Int}()
 
     for idx in 1:nstmts
         track_ssa[idx] || continue
@@ -262,13 +276,72 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
             continue
         end
 
+        if stmt isa Expr && stmt.head === :foreigncall
+            name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
+            eff = if name_sym === nothing
+                nothing
+            else
+                _known_foreigncall_effects_get(name_sym)
+            end
+            if eff !== nothing && !isempty(eff.ret_aliases)
+                for p in eff.ret_aliases
+                    (1 <= p <= length(ccall_args)) || continue
+                    hsrc = _handle_index(ccall_args[p], nargs, track_arg, track_ssa)
+                    hsrc == 0 && continue
+                    origins[hdef] = origins[hsrc]
+                    break
+                end
+                origins[hdef] != hdef && continue
+            end
+        end
+
         if stmt isa Expr && (stmt.head === :call || stmt.head === :invoke)
+            head, _mi, raw_args = _call_parts(stmt)
             f = _resolve_callee(stmt, ir)
+
+            # Compiler-generated closures repeatedly `getfield` captured environment
+            # fields from the callable object (`_1`). Treat those as the same binding
+            # origin so they don't spuriously look like multiple live bindings.
+            if f === Core.getfield && raw_args !== nothing && length(raw_args) >= 3
+                recv = _canonical_ref(raw_args[2], ir)
+                fld = raw_args[3]
+                fldsym = fld isa QuoteNode ? fld.value : fld
+                if recv isa Core.Argument && recv.n == 1 && fldsym isa Symbol
+                    origins[hdef] = get!(closure_field_origins, fldsym, hdef)
+                    continue
+                end
+            end
+
             if f === __bc_bind__ ||
                 (isdefined(Base, :inferencebarrier) && f === Base.inferencebarrier)
                 # Binding barriers are treated as producing a fresh identity for tracking.
                 origins[hdef] = hdef
                 continue
+            end
+
+            # Common field/projection patterns in Base:
+            # `getproperty(x, :fld)` behaves like a pure projection and should not create a
+            # fresh binding origin for tracking purposes.
+            if raw_args !== nothing && f === Base.getproperty && length(raw_args) >= 3
+                hsrc = _handle_index(raw_args[2], nargs, track_arg, track_ssa)
+                hsrc != 0 && (origins[hdef] = origins[hsrc])
+                origins[hdef] != hdef && continue
+            end
+
+            # If this statement produces an alias of an existing handle (per ret-alias
+            # analysis), propagate binding origin from that input handle.
+            if raw_args !== nothing && f !== nothing
+                eff = _known_effects_get(f)
+                if eff !== nothing && !isempty(eff.ret_aliases)
+                    for p in eff.ret_aliases
+                        (1 <= p <= length(raw_args)) || continue
+                        hsrc = _handle_index(raw_args[p], nargs, track_arg, track_ssa)
+                        hsrc == 0 && continue
+                        origins[hdef] = origins[hsrc]
+                        break
+                    end
+                    origins[hdef] != hdef && continue
+                end
             end
         end
 
