@@ -8,14 +8,14 @@ function _default_optimize_until()
             s = String(nm)
             occursin("COMPACT", s) && occursin("1", s) && return s
         end
-        return isempty(CC.ALL_PASS_NAMES) ? nothing : String(CC.ALL_PASS_NAMES[end])
+        return isempty(CC.ALL_PASS_NAMES) ? "compact 1" : String(CC.ALL_PASS_NAMES[end])
     end
     return "compact 1"
 end
 
 Base.@kwdef struct Config
     "Which compiler pass to stop at when fetching IR (`Base.code_ircode_by_type`)."
-    optimize_until::Union{String,Int,Nothing} = _default_optimize_until()
+    optimize_until::String = _default_optimize_until()
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 12

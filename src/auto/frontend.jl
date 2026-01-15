@@ -3,7 +3,7 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const CheckedCacheSig = Tuple{Union{String,Int,Nothing},Int,Symbol}
+const CheckedCacheSig = Tuple{String,Int,Symbol}
 
 @inline function _checked_cache_sig(cfg::Config)
     # Intentionally ignores `root_module`: we cache only based on the checking policy.
@@ -290,7 +290,7 @@ function _argref_expr(arg)
     end
 end
 
-function _tt_expr_from_signature(sig)
+function _tt_expr_from_signature(sig, cfg_tag)
     call = _sig_call(sig)
     call isa Expr && call.head === :call ||
         error("@auto currently supports standard function signatures")
@@ -301,7 +301,7 @@ function _tt_expr_from_signature(sig)
         r === nothing && continue
         push!(args.args, r)
     end
-    return :(Tuple{$Core.Typeof($fval),map(Core.Typeof, $args)...})
+    return :(Tuple{$cfg_tag,$Core.Typeof($fval),map(Core.Typeof, $args)...})
 end
 
 function _is_method_definition_lhs(lhs)
@@ -329,7 +329,7 @@ function _lambda_arglist(args_expr)
     end
 end
 
-function _instrument_lambda(ex::Expr)
+function _instrument_lambda(ex::Expr, cfg_tag)
     @assert ex.head === :(->)
     args_expr = ex.args[1]
     body = ex.args[2]
@@ -337,12 +337,12 @@ function _instrument_lambda(ex::Expr)
     fname = gensym(:__bc_lambda__)
     arglist = _lambda_arglist(args_expr)
     sig = Expr(:call, fname, arglist...)
-    inst_body = _prepend_check_stmt(sig, body)
+    inst_body = _prepend_check_stmt(sig, body, cfg_tag)
     fdef = Expr(:function, sig, inst_body)
     return Expr(:block, fdef, fname)
 end
 
-function _instrument_assignments(ex)
+function _instrument_assignments(ex, cfg_tag)
     ex isa Expr || return ex
 
     if ex.head === :quote || ex.head === :inert
@@ -352,12 +352,12 @@ function _instrument_assignments(ex)
     if ex.head === :function
         sig = ex.args[1]
         body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body)
+        inst_body = _prepend_check_stmt(sig, body, cfg_tag)
         return Expr(:function, sig, inst_body)
     end
 
     if ex.head === :(->)
-        return _instrument_lambda(ex)
+        return _instrument_lambda(ex, cfg_tag)
     end
 
     if ex.head === :(=) && length(ex.args) == 2
@@ -365,11 +365,11 @@ function _instrument_assignments(ex)
         if _is_method_definition_lhs(lhs)
             sig = lhs
             body = rhs
-            inst_body = _prepend_check_stmt(sig, body)
+            inst_body = _prepend_check_stmt(sig, body, cfg_tag)
             return Expr(:function, sig, inst_body)
         end
-        lhs2 = _instrument_assignments(lhs)
-        rhs2 = _instrument_assignments(rhs)
+        lhs2 = _instrument_assignments(lhs, cfg_tag)
+        rhs2 = _instrument_assignments(rhs, cfg_tag)
 
         # If the RHS is an instrumented lambda block, don't wrap it in `__bc_bind__`.
         # Wrapping forces the value to `Any` and breaks call resolution, which makes
@@ -395,21 +395,17 @@ function _instrument_assignments(ex)
     end
 
     # Recurse
-    return Expr(ex.head, map(_instrument_assignments, ex.args)...)
+    return Expr(ex.head, map(a -> _instrument_assignments(a, cfg_tag), ex.args)...)
 end
 
-function _prepend_check_stmt(sig, body; cfg_expr=nothing)
-    tt_expr = _tt_expr_from_signature(sig)
-    assert_ref = GlobalRef(@__MODULE__, :__bc_assert_safe__)
-    check_stmt = if cfg_expr === nothing
-        Expr(:call, assert_ref, tt_expr)
-    else
-        Expr(:call, assert_ref, Expr(:parameters, Expr(:kw, :cfg, cfg_expr)), tt_expr)
-    end
+function _prepend_check_stmt(sig, body, cfg_tag)
+    tt_expr = _tt_expr_from_signature(sig, cfg_tag)
+    assert_ref = GlobalRef(@__MODULE__, :_generated_assert_safe)
+    check_stmt = Expr(:call, assert_ref, tt_expr)
 
     body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
     new_body = Expr(:block, check_stmt, body_block.args...)
-    return _instrument_assignments(new_body)
+    return _instrument_assignments(new_body, cfg_tag)
 end
 
 function _parse_cfg_value(x, calling_module)
@@ -446,8 +442,7 @@ function parse_config_overrides(options, calling_module)
                 max_summary_depth = _parse_cfg_value(v, calling_module)::Int
                 continue
             elseif k === :optimize_until
-                optimize_until =
-                    _parse_cfg_value(v, calling_module)::Union{String,Int,Nothing}
+                optimize_until = _parse_cfg_value(v, calling_module)::String
                 continue
             end
         end
@@ -472,36 +467,32 @@ function _auto(args...; calling_module, source_info=nothing)
         return ex
     end
 
-    cfg_expr = if isempty(raw_options)
-        nothing
-    else
-        cfg_ref = GlobalRef(@__MODULE__, :Config)
-        # Avoid keyword construction here: it lowers through `Core.kwcall`, and when
-        # `scope` recursion includes Core we end up recursively checking `kwcall`'s
-        # plumbing instead of user code.
-        default_ref = GlobalRef(@__MODULE__, :DEFAULT_CONFIG)
-
-        scope = overrides.scope === nothing ? :function : (overrides.scope::Symbol)
-        scope ∈ (:function, :module, :user, :all) || error(
-            "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
-        )
+    cfg_tag = let
+        scope = overrides.scope === nothing ? nothing : (overrides.scope::Symbol)
+        if scope !== nothing
+            scope ∈ (:function, :module, :user, :all) || error(
+                "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
+            )
+        end
         msd = overrides.max_summary_depth
         opt = overrides.optimize_until
+        opt_sym = (opt === nothing) ? nothing : Symbol(opt::String)
 
-        opt_expr = opt === nothing ? :($default_ref.optimize_until) : opt
-        msd_expr = msd === nothing ? :($default_ref.max_summary_depth) : msd
-        scope_expr = QuoteNode(scope)
-        root_expr =
-            scope === :module ? QuoteNode(calling_module) : :($default_ref.root_module)
-
-        :($cfg_ref($opt_expr, $msd_expr, $scope_expr, $root_expr))
+        tag_ref = GlobalRef(@__MODULE__, :GeneratedCfgTag)
+        Expr(
+            :curly,
+            tag_ref,
+            scope === nothing ? nothing : QuoteNode(scope),
+            msd === nothing ? nothing : msd,
+            opt_sym === nothing ? nothing : QuoteNode(opt_sym),
+        )
     end
 
     # Function form
     if ex isa Expr && ex.head === :function
         sig = ex.args[1]
         body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body; cfg_expr=cfg_expr)
+        inst_body = _prepend_check_stmt(sig, body, cfg_tag)
         return Expr(:function, sig, inst_body)
     end
 
@@ -509,7 +500,7 @@ function _auto(args...; calling_module, source_info=nothing)
     if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
         sig = ex.args[1]
         body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body; cfg_expr=cfg_expr)
+        inst_body = _prepend_check_stmt(sig, body, cfg_tag)
         return Expr(:function, sig, inst_body)
     end
 

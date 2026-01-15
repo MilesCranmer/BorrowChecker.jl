@@ -11,6 +11,8 @@ Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
 end
 Base.Experimental.@MethodTable BCMT
 
+struct GeneratedCfgTag{S,MSD,OPT} end
+
 Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
 Compiler.get_inference_world(interp::BCInterp) = interp.world
@@ -19,17 +21,66 @@ Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
+@inline function _is_generated_cfg_tag_type(@nospecialize(x))::Bool
+    dt = Base.unwrap_unionall(x)
+    return dt isa DataType && dt.name === Base.unwrap_unionall(GeneratedCfgTag).name
+end
+
+function _cfg_from_tag(tag, tt::Type{<:Tuple}, world::UInt)
+    tag = Base.unwrap_unionall(tag)
+    @assert tag isa DataType
+
+    scope = tag.parameters[1]
+    max_summary_depth = tag.parameters[2]
+    optimize_until = tag.parameters[3]
+
+    cfg0 = DEFAULT_CONFIG
+    scope = something(scope, cfg0.scope)
+    max_summary_depth = something(max_summary_depth, cfg0.max_summary_depth)
+    optimize_until = something(optimize_until, cfg0.optimize_until)
+
+    root_module = if scope === :module
+        matches = Base._methods_by_ftype(tt, -1, world)
+        if isnothing(matches) || isempty(matches)
+            cfg0.root_module
+        else
+            (matches[1]::Core.MethodMatch).method.module
+        end
+    else
+        cfg0.root_module
+    end
+
+    return Config(optimize_until, max_summary_depth, scope, root_module)
+end
+
+function _tt_cfg_from_sig(sig::DataType, world::UInt)
+    # `sig` is a type like:
+    #   Tuple{GeneratedCfgTag{...}, typeof(f), typeof(x), ...}
+    tt = try
+        Core.apply_type(Tuple, sig.parameters[2:end]...)
+    catch
+        sig
+    end
+    tt isa Type{<:Tuple} || return sig, DEFAULT_CONFIG
+    return tt, _cfg_from_tag(sig.parameters[1], tt, world)
+end
+
 function _generated_assert_safe_body(world::UInt, lnn, this, sig)
     sig = sig.parameters[1]
-    cfg = DEFAULT_CONFIG
 
-    check_signature(sig; cfg, world) # Do the actual checking
+    tt, cfg = if sig isa DataType && !isempty(sig.parameters) && _is_generated_cfg_tag_type(sig.parameters[1])
+        _tt_cfg_from_sig(sig, world)
+    else
+        sig, DEFAULT_CONFIG
+    end
+
+    check_signature(tt; cfg, world) # Do the actual checking
 
     ci = _expr_to_codeinfo(
         @__MODULE__(), [Symbol("#self#"), :sig], [], :(return nothing), false
     )
 
-    matches = Base._methods_by_ftype(sig, -1, world)
+    matches = Base._methods_by_ftype(tt, -1, world)
     if !isnothing(matches)
         ci.edges = Any[]
         for match in matches

@@ -24,15 +24,10 @@ function _reflection_world(default::UInt=Base.get_world_counter())
     return (ctx === nothing) ? default : ctx.world
 end
 
-function _reflection_interp()
-    ctx = _reflection_ctx()
-    return (ctx === nothing) ? nothing : ctx.interp
-end
-
 function _with_reflection_ctx(f::Function, world::UInt)
     tls = Base.task_local_storage()
     old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
-    tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=CC.NativeInterpreter(world))
+    tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=BCInterp(; world))
     try
         return f()
     finally
@@ -45,13 +40,45 @@ function _with_reflection_ctx(f::Function, world::UInt)
 end
 
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
-    interp = @something(_reflection_interp(), CC.NativeInterpreter(world))
-    return Base.code_ircode_by_type(
-        tt;
-        optimize_until=optimize_until,
-        world=world,
-        interp=interp,
-    )
+    interp = BCInterp(; world)
+    matches = Base._methods_by_ftype(tt, -1, world)
+    if isnothing(matches)
+        error("No method found matching signature $tt in world $world")
+    end
+    optimize_until = _normalize_optimize_until_for_ir(optimize_until)
+    asts = Pair{Any,Any}[]
+    for match in matches
+        match = match::Core.MethodMatch
+        (code, ty) = CC.typeinf_ircode(interp, match, optimize_until)
+        if code === nothing
+            push!(asts, match.method => Any)
+        else
+            push!(asts, code => ty)
+        end
+    end
+    return asts
+end
+
+function _normalize_optimize_until_for_ir(optimize_until)
+    optimize_until isa String || return optimize_until
+    isdefined(CC, :ALL_PASS_NAMES) || return optimize_until
+
+    for nm in CC.ALL_PASS_NAMES
+        s = String(nm)
+        s == optimize_until && return s
+    end
+
+    @inline function _norm(s::AbstractString)
+        return replace(lowercase(String(s)), r"[^a-z0-9]+" => "")
+    end
+
+    optn = _norm(optimize_until)
+    for nm in CC.ALL_PASS_NAMES
+        s = String(nm)
+        endswith(_norm(s), optn) && return s
+    end
+
+    return optimize_until
 end
 
 mutable struct BudgetTracker
