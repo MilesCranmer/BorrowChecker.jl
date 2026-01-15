@@ -186,8 +186,9 @@ function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
 end
 
 function check_signature(
-    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
+    tt::Type{<:Tuple}; cfg::Config=Config(), world::UInt=Base.get_world_counter()
 )
+    @nospecialize tt
     _ensure_registry_initialized()
     return _with_reflection_ctx(world) do
         codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
@@ -204,7 +205,7 @@ function check_signature(
 end
 
 Base.@noinline function __bc_assert_safe__(
-    tt::Type{<:Tuple}; cfg::Config=DEFAULT_CONFIG, world::UInt=Base.get_world_counter()
+    tt::Type{<:Tuple}; cfg::Config=Config(), world::UInt=Base.get_world_counter()
 )
     @nospecialize tt
     task_cache = PER_TASK_CHECKED_CACHE[]
@@ -421,14 +422,13 @@ end
 """
 Parse `@auto` macro options into `Config` field overrides.
 
-Returns a named tuple with `nothing` meaning "use default":
-`(; scope, max_summary_depth, optimize_until)`.
+Returns a fully-specified `Config`.
 """
-function parse_config_overrides(options, calling_module)
-    scope = nothing
-    max_summary_depth = nothing
-    optimize_until = nothing
-
+function parse_config(options, calling_module)::Config
+    cfg0 = Config()
+    scope = cfg0.scope
+    max_summary_depth = cfg0.max_summary_depth
+    optimize_until = cfg0.optimize_until
     for option in options
         if option isa Expr &&
             length(option.args) == 2 &&
@@ -451,7 +451,12 @@ function parse_config_overrides(options, calling_module)
         )
     end
 
-    return (; scope, max_summary_depth, optimize_until)
+    scope ∈ (:none, :function, :module, :user, :all) || error(
+        "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
+    )
+
+    root_module = (scope === :module) ? calling_module : cfg0.root_module
+    return Config(optimize_until, max_summary_depth, scope, root_module)
 end
 
 function _auto(args...; calling_module, source_info=nothing)
@@ -461,30 +466,19 @@ function _auto(args...; calling_module, source_info=nothing)
     is_borrow_checker_enabled(calling_module) || return ex
 
     raw_options = args[begin:(end - 1)]
-    overrides = parse_config_overrides(raw_options, calling_module)
-
-    if overrides.scope === :none
+    cfg = parse_config(raw_options, calling_module)
+    if cfg.scope === :none
         return ex
     end
 
     cfg_tag = let
-        scope = overrides.scope === nothing ? nothing : (overrides.scope::Symbol)
-        if scope !== nothing
-            scope ∈ (:function, :module, :user, :all) || error(
-                "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
-            )
-        end
-        msd = overrides.max_summary_depth
-        opt = overrides.optimize_until
-        opt_sym = (opt === nothing) ? nothing : Symbol(opt::String)
-
         tag_ref = GlobalRef(@__MODULE__, :GeneratedCfgTag)
         Expr(
             :curly,
             tag_ref,
-            scope === nothing ? nothing : QuoteNode(scope),
-            msd === nothing ? nothing : msd,
-            opt_sym === nothing ? nothing : QuoteNode(opt_sym),
+            QuoteNode(cfg.scope),
+            cfg.max_summary_depth,
+            QuoteNode(Symbol(cfg.optimize_until)),
         )
     end
 

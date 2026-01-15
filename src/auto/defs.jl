@@ -27,8 +27,6 @@ Base.@kwdef struct Config
     root_module::Module = Main
 end
 
-const DEFAULT_CONFIG = Config()
-
 @inline __bc_bind__(x) =
     isdefined(Base, :inferencebarrier) ? (Base.inferencebarrier(x)::typeof(x)) : x
 

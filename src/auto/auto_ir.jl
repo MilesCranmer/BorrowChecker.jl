@@ -1,5 +1,5 @@
 export Config,
-    DEFAULT_CONFIG, BorrowCheckError, register_effects!, register_foreigncall_effects!
+    BorrowCheckError, register_effects!, register_foreigncall_effects!
 
 import Core.Compiler
 const CC = Core.Compiler
@@ -14,3 +14,5 @@ include("summaries.jl")
 include("alias.jl")
 include("checker.jl")
 include("frontend.jl")
+
+_refresh_generated_assert_safe()

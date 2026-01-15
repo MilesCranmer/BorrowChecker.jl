@@ -25,6 +25,7 @@ function _reflection_world(default::UInt=Base.get_world_counter())
 end
 
 function _with_reflection_ctx(f::Function, world::UInt)
+    @nospecialize f
     tls = Base.task_local_storage()
     old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
     tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=BCInterp(; world))

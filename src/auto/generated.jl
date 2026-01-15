@@ -21,39 +21,32 @@ Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
-@inline function _is_generated_cfg_tag_type(@nospecialize(x))::Bool
-    dt = Base.unwrap_unionall(x)
-    return dt isa DataType && dt.name === Base.unwrap_unionall(GeneratedCfgTag).name
-end
-
-function _cfg_from_tag(tag, tt::Type{<:Tuple}, world::UInt)
-    tag = Base.unwrap_unionall(tag)
-    @assert tag isa DataType
-
-    scope = tag.parameters[1]
-    max_summary_depth = tag.parameters[2]
-    optimize_until = tag.parameters[3]
-
-    cfg0 = DEFAULT_CONFIG
-    scope = something(scope, cfg0.scope)
-    max_summary_depth = something(max_summary_depth, cfg0.max_summary_depth)
-    optimize_until = something(optimize_until, cfg0.optimize_until)
+function _cfg_from_tag(
+    ::Type{GeneratedCfgTag{S,MSD,OPT}},
+    tt::Type{<:Tuple},
+    world::UInt,
+) where {S,MSD,OPT}
+    @nospecialize tt
+    scope = S::Symbol
+    max_summary_depth = MSD::Int
+    optimize_until = String(OPT::Symbol)
 
     root_module = if scope === :module
         matches = Base._methods_by_ftype(tt, -1, world)
         if isnothing(matches) || isempty(matches)
-            cfg0.root_module
+            Main
         else
             (matches[1]::Core.MethodMatch).method.module
         end
     else
-        cfg0.root_module
+        Main
     end
 
     return Config(optimize_until, max_summary_depth, scope, root_module)
 end
 
 function _tt_cfg_from_sig(sig::DataType, world::UInt)
+    @nospecialize sig
     # `sig` is a type like:
     #   Tuple{GeneratedCfgTag{...}, typeof(f), typeof(x), ...}
     tt = try
@@ -61,18 +54,15 @@ function _tt_cfg_from_sig(sig::DataType, world::UInt)
     catch
         sig
     end
-    tt isa Type{<:Tuple} || return sig, DEFAULT_CONFIG
-    return tt, _cfg_from_tag(sig.parameters[1], tt, world)
+    tt isa Type{<:Tuple} ||
+        error("_generated_assert_safe expected a config-tagged Tuple type; got $sig")
+    return tt, _cfg_from_tag(sig.parameters[1]::Type{<:GeneratedCfgTag}, tt, world)
 end
 
 function _generated_assert_safe_body(world::UInt, lnn, this, sig)
     sig = sig.parameters[1]
 
-    tt, cfg = if sig isa DataType && !isempty(sig.parameters) && _is_generated_cfg_tag_type(sig.parameters[1])
-        _tt_cfg_from_sig(sig, world)
-    else
-        sig, DEFAULT_CONFIG
-    end
+    tt, cfg = _tt_cfg_from_sig(sig, world)
 
     check_signature(tt; cfg, world) # Do the actual checking
 
@@ -107,13 +97,16 @@ end
 
 #! format: off
 function _refresh_generated_assert_safe()
-    @eval function _generated_assert_safe(sig)
+    @eval function _generated_assert_safe(sig::Type{<:Tuple{<:GeneratedCfgTag,Vararg{Any}}})
         $(Expr(:meta, :generated_only))
         $(Expr(:meta, :generated, _generated_assert_safe_body))
     end
+
+    # Don't recursively borrow check the borrow checking!
+    @eval Base.Experimental.@overlay BCMT _generated_assert_safe(sig) = nothing
 end
 #! format: on
-_refresh_generated_assert_safe()
-
-# Don't recursively borrow check the borrow checking!
-Base.Experimental.@overlay BCMT _generated_assert_safe(sig) = nothing
+#
+# NOTE: `check_signature` is defined in `frontend.jl`, and Julia 1.12+ is stricter
+# about calling "too-new" methods from generated-function contexts. We therefore
+# delay defining `_generated_assert_safe` until after `frontend.jl` is loaded.
