@@ -6,6 +6,7 @@ CurrentModule = BorrowChecker
 
 `@auto` is an experimental, compiler-IR-based borrow checker intended as a **development tripwire** for ordinary Julia code.
 On function entry it borrow-checks the current specialization and caches the result so subsequent calls are fast.
+The cache key includes the *active `@auto` options* (so e.g. a later call with `scope=:module` will not be skipped just because `scope=:function` previously checked the same specialization).
 
 !!! warning
     `@auto` is highly compiler-dependent. Expect false positives and false negatives.
@@ -39,6 +40,9 @@ Controls whether the checker recursively borrow-checks callees (call-graph trave
 - `scope=:user`: recursively check callees, but **ignore `Base`** (still allows `Core`).
 - `scope=:all`: recursively check callees across all modules (very aggressive; expect more work/edge cases).
 
+!!! note
+    For `scope=:module` / `scope=:user`, callees are filtered by the **defining module of the resolved method** (so user-defined extensions of `Base` functions are still treated as “in-module” when appropriate).
+
 Example:
 
 ```julia
@@ -66,6 +70,8 @@ Controls which compiler pass to stop at when fetching IR via `Base.code_ircode_b
     return g(x)
 end
 ```
+
+Pass names vary across Julia versions; `@auto` normalizes common spellings like `"compact 1"` / `"compact_1"` when possible.
 
 ## Registry Overrides (advanced)
 

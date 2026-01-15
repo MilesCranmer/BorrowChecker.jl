@@ -64,6 +64,16 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 > [!WARNING]
 > This macro is highly experimental and compiler-dependent. There are likely bugs and false positives. It is intended for development and testing, and does not guarantee memory safety.
 
+### Options
+
+`@auto` supports a few options that are compiled into a `BorrowChecker.Auto.Config`:
+
+- `scope` (default `:function`): whether to recursively borrow-check callees (`:none`, `:function`, `:module`, `:user`, `:all`).
+- `max_summary_depth` (default `12`): recursion depth limit for effect summarization when effects cannot be directly resolved.
+- `optimize_until` (default varies): which compiler pass to stop at when fetching IR (`Base.code_ircode_by_type`).
+
+The `@auto` checked-cache is keyed by specialization *and these options*, so checking a function once under `scope=:function` will not incorrectly skip a later recursive check under `scope=:module` / `:all`.
+
 `@auto` is meant to be a *drop-in tripwire* for existing code:
 
 - **Aliasing violations**: mutating a value while another live binding may observe that mutation.
