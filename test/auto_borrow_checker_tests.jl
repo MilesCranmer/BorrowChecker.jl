@@ -206,6 +206,32 @@
         @test _bc_auto_disabled() == [0, 2, 3]
     end
 
+    @testset "checked-cache respects cfg (scope affects recursion)" begin
+        # Repro: if `f` is checked once with `scope=:function`, then later recursion into `f`
+        # under `scope=:module` must not be skipped due to a tt/world-only cache key.
+        m = Module(gensym(:BCCacheCfg))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function inner_bad()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :function f() = inner_bad()
+                BC.@auto scope = :module g() = f()
+            end,
+        )
+
+        # Warm the checked-cache for `f` under scope=:function (no recursion).
+        @test m.f()() == [1, 2, 3, 4]
+        # Now `g`'s recursive checking should re-check `f` under scope=:module and fail.
+        @test_throws BorrowCheckError m.g()
+    end
+
     @testset "scope=:module catches unannotated callee with closure alias" begin
         m = Module(gensym(:BCModuleScope))
         Core.eval(m, :(import BorrowChecker as BC))
@@ -223,6 +249,30 @@
         Core.eval(m, :(BC.@auto scope = :module bar() = foo()))
 
         @test_throws BorrowCheckError m.bar()
+    end
+
+    @testset "scope=:module recurses into Base extension methods" begin
+        # Repro: methods defined in the current module for Base functions (e.g. getindex)
+        # should be considered "in-module" for `scope=:module` recursion.
+        m = Module(gensym(:BCBaseExtScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                struct T end
+
+                function Base.getindex(::T)
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :module outer() = (T())[]
+            end,
+        )
+
+        @test_throws BorrowCheckError m.outer()
     end
 
     @testset "macro one-line method parsing: where clause" begin

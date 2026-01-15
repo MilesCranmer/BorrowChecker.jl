@@ -47,7 +47,10 @@ end
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     interp = @something(_reflection_interp(), CC.NativeInterpreter(world))
     return Base.code_ircode_by_type(
-        tt; optimize_until=optimize_until, world=world, interp=interp
+        tt;
+        optimize_until=_normalize_optimize_until(optimize_until),
+        world=world,
+        interp=interp,
     )
 end
 

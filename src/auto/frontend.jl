@@ -3,10 +3,15 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const CHECKED_CACHE = Lockable(IdDict{Any,UInt}())  # Type{Tuple...} => world
-const PER_TASK_CHECKED_CACHE = PerTaskCache{IdDict{Any,UInt}}()
+const CheckedCacheSig = Tuple{Union{String,Int,Nothing},Int,Symbol}
 
-const BC_INPROGRESS_WORLD = typemax(UInt)
+@inline function _checked_cache_sig(cfg::Config)
+    # Intentionally ignores `root_module`: we cache only based on the checking policy.
+    return (cfg.optimize_until, cfg.max_summary_depth, cfg.scope)::CheckedCacheSig
+end
+
+const CHECKED_CACHE = Lockable(IdDict{Any,Tuple{UInt,CheckedCacheSig}}()) # Type{Tuple...} => (world, sig)
+const PER_TASK_CHECKED_CACHE = PerTaskCache{IdDict{Any,Tuple{UInt,CheckedCacheSig}}}()
 
 function _tt_module(tt::Type{<:Tuple})
     try
@@ -30,10 +35,8 @@ function _tt_module(tt::Type{<:Tuple})
     return nothing
 end
 
-function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
+function _scope_allows_module(m::Module, cfg::Config)::Bool
     cfg.scope === :all && return true
-    m = _tt_module(tt)
-    m === nothing && return false
     m === Auto && return false
     if cfg.scope === :none || cfg.scope === :function
         return false
@@ -44,6 +47,44 @@ function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
         return (m !== Base)
     end
     throw(ArgumentError("unknown scope: $(cfg.scope)"))
+end
+
+function _callsite_method_module(i::Int, head, mi, ir::CC.IRCode)
+    if head === :invoke && mi !== nothing
+        try
+            return getfield(getfield(mi, :def), :module)
+        catch
+        end
+        return nothing
+    end
+
+    info = try
+        ir[Core.SSAValue(i)][:info]
+    catch
+        nothing
+    end
+    try
+        info === nothing && return nothing
+
+        callinfo = if hasproperty(info, :call)
+            getproperty(info, :call)
+        else
+            info
+        end
+
+        hasproperty(callinfo, :results) || return nothing
+        lr = getproperty(callinfo, :results)
+        hasproperty(lr, :matches) || return nothing
+        matches = getproperty(lr, :matches)
+        length(matches) == 1 || return nothing
+        mm = matches[1]
+        hasproperty(mm, :method) || return nothing
+        meth = getproperty(mm, :method)
+        hasproperty(meth, :module) || return nothing
+        return getproperty(meth, :module)
+    catch
+        return nothing
+    end
 end
 
 function _apply_iterate_inner_tt(raw_args, ir::CC.IRCode)
@@ -119,7 +160,12 @@ function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
         end
         tt === nothing && continue
         tt isa Type{<:Tuple} || continue
-        _scope_allows_tt(tt, cfg) || continue
+        m = _callsite_method_module(i, head, mi, ir)
+        if m === nothing
+            m = _tt_module(tt)
+            m === nothing && continue
+        end
+        _scope_allows_module(m, cfg) || continue
 
         __bc_assert_safe__(tt; cfg=cfg, world=world)
     end
@@ -150,33 +196,38 @@ Base.@noinline function __bc_assert_safe__(
 )
     @nospecialize tt
     task_cache = PER_TASK_CHECKED_CACHE[]
+    sig = _checked_cache_sig(cfg)
 
     # Fast path: per-task cache (no locking).
-    if get(task_cache, tt, UInt(0)) == world
-        return nothing
+    state = get(task_cache, tt, nothing)
+    if state !== nothing
+        world0, sig0 = state
+        if world0 == world && sig0 == sig
+            return nothing
+        end
     end
 
     # Slow path: shared cache (locked).
     #     Lock spans the entire inference so we avoid repeated inference.
     Base.@lock CHECKED_CACHE begin
-        state = get(CHECKED_CACHE[], tt, UInt(0))
-        if state == world
-            task_cache[tt] = world
-            return nothing
-        end
-        if state == BC_INPROGRESS_WORLD
-            return nothing
+        dict = CHECKED_CACHE[]
+        state = get(dict, tt, nothing)
+        if state !== nothing
+            world0, sig0 = state
+            if world0 == world && sig0 == sig
+                task_cache[tt] = state
+                return nothing
+            end
         end
 
-        CHECKED_CACHE[][tt] = BC_INPROGRESS_WORLD
         try
             check_signature(tt; cfg=cfg, world=world)
         catch
-            delete!(CHECKED_CACHE[], tt)
             rethrow()
         end
-        CHECKED_CACHE[][tt] = world
-        task_cache[tt] = world
+        new_state = (world, sig)
+        dict[tt] = new_state
+        task_cache[tt] = new_state
         return nothing
     end
 end
