@@ -7,6 +7,11 @@
 
     Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
 
+    BorrowChecker.Auto._ensure_registry_initialized()
+    const BC_BUILTIN_EFFECT_KEYS = Base.@lock BorrowChecker.Auto.KNOWN_EFFECTS begin
+        collect(keys(BorrowChecker.Auto.KNOWN_EFFECTS[]))
+    end
+
     mutable struct Box
         x::Int
     end
@@ -207,6 +212,32 @@
         @test _bc_auto_disabled() == [0, 2, 3]
     end
 
+    @testset "checked-cache respects cfg (scope affects recursion)" begin
+        # Repro: if `f` is checked once with `scope=:function`, then later recursion into `f`
+        # under `scope=:module` must not be skipped due to a tt/world-only cache key.
+        m = Module(gensym(:BCCacheCfg))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function inner_bad()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :function f() = inner_bad()
+                BC.@auto scope = :module g() = f()
+            end,
+        )
+
+        # Warm the checked-cache for `f` under scope=:function (no recursion).
+        @test m.f()() == [1, 2, 3, 4]
+        # Now `g`'s recursive checking should re-check `f` under scope=:module and fail.
+        @test_throws BorrowCheckError m.g()
+    end
+
     @testset "scope=:module catches unannotated callee with closure alias" begin
         m = Module(gensym(:BCModuleScope))
         Core.eval(m, :(import BorrowChecker as BC))
@@ -224,6 +255,30 @@
         Core.eval(m, :(BC.@auto scope = :module bar() = foo()))
 
         @test_throws BorrowCheckError m.bar()
+    end
+
+    @testset "scope=:module recurses into Base extension methods" begin
+        # Repro: methods defined in the current module for Base functions (e.g. getindex)
+        # should be considered "in-module" for `scope=:module` recursion.
+        m = Module(gensym(:BCBaseExtScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                struct T end
+
+                function Base.getindex(::T)
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :module outer() = (T())[]
+            end,
+        )
+
+        @test_throws BorrowCheckError m.outer()
     end
 
     @testset "macro one-line method parsing: where clause" begin
@@ -1071,33 +1126,25 @@
     end
 
     @testset "Known effects registry only uses Core" begin
-        BorrowChecker.Auto._ensure_registry_initialized()
-
         allowed_auto = Set{Any}([BorrowChecker.Auto.Config, BorrowChecker.Auto.__bc_bind__])
         if isdefined(BorrowChecker.Auto, :__bc_assert_safe__)
             push!(allowed_auto, BorrowChecker.Auto.__bc_assert_safe__)
         end
 
         bad = Any[]
-        Base.@lock BorrowChecker.Auto.KNOWN_EFFECTS begin
-            for f in keys(BorrowChecker.Auto.KNOWN_EFFECTS[])
-                m = try
-                    parentmodule(f)
-                catch
-                    nothing
-                end
-                # Users can call `register_effects!` on their own functions, so the registry
-                # may contain non-Core entries. This test only enforces that BorrowChecker's
-                # built-in registry does not rely on `Base` definitions.
-                if m === Base
-                    push!(bad, (f, m))
-                    continue
-                end
-                if m === BorrowChecker.Auto && !(f in allowed_auto)
-                    push!(bad, (f, m))
-                    continue
-                end
+        for f in BC_BUILTIN_EFFECT_KEYS
+            m = try
+                parentmodule(f)
+            catch
+                nothing
             end
+
+            if m === BorrowChecker.Auto
+                (f in allowed_auto) || push!(bad, (f, m))
+                continue
+            end
+
+            (m === Core || m === Core.Intrinsics) || push!(bad, (f, m))
         end
 
         @test isempty(bad)

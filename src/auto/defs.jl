@@ -1,17 +1,14 @@
 function _default_optimize_until()
-    return if isdefined(CC, :ALL_PASS_NAMES)
-        let idx = findfirst(
-                nm -> any(
-                    p -> occursin(p, lowercase(String(nm))),
-                    ("compact_1", "compact 1", "compact1"),
-                ),
-                CC.ALL_PASS_NAMES,
-            )
-            idx === nothing ? "compact 1" : CC.ALL_PASS_NAMES[idx]
+    if isdefined(CC, :ALL_PASS_NAMES)
+        for nm in CC.ALL_PASS_NAMES
+            endswith(nm, "COMPACT_1") && return nm
         end
-    else
-        "compact 1"
+        for nm in CC.ALL_PASS_NAMES
+            occursin("COMPACT", nm) && occursin("1", nm) && return nm
+        end
+        return isempty(CC.ALL_PASS_NAMES) ? nothing : CC.ALL_PASS_NAMES[end]
     end
+    return "compact 1"
 end
 
 Base.@kwdef struct Config
@@ -211,9 +208,14 @@ function _populate_registry!()
         (:jl_genericmemory_copyto, (), ((1, 2),), ()),
 
         # Read-only foreigncalls used throughout Base.
+        (:jl_object_id, (), (), ()),
+        (:jl_type_hash, (), (), ()),
+        (:jl_type_unionall, (), (), ()),
         (:jl_eqtable_get, (), (), ()),
         (:jl_eqtable_nextind, (), (), ()),
+        (:jl_get_fieldtypes, (), (), ()),
         (:jl_field_index, (), (), ()),
+        (:jl_gc_new_weakref_th, (), (), ()),
         (:jl_value_ptr, (), (), ()),
     ]
 
