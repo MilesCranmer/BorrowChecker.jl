@@ -8,7 +8,7 @@ function _default_optimize_until()
             s = String(nm)
             occursin("COMPACT", s) && occursin("1", s) && return s
         end
-        return isempty(CC.ALL_PASS_NAMES) ? "compact 1" : String(CC.ALL_PASS_NAMES[end])
+        return String(CC.ALL_PASS_NAMES[begin + 2])  # best-effort guess for new compiler pass name
     end
     return "compact 1"
 end
