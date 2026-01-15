@@ -196,7 +196,7 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        opt = BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until
+        opt = BorrowChecker.Auto.Config().optimize_until
         @eval BorrowChecker.Auto.@auto(
             optimize_until = $opt, _bc_macro_opt_optimize_until(x) = x
         )
@@ -291,6 +291,38 @@
     @testset "macro one-line method parsing: return type" begin
         BorrowChecker.Auto.@auto _bc_oneliner_ret(x)::Int = x
         @test _bc_oneliner_ret(1) == 1
+    end
+
+    @testset "LLVM for trivial @auto is minimal" begin
+        # Regression: `@auto` should do its work at compile time and not leave any
+        # borrow-checker call in the optimized LLVM for simple code.
+        using InteractiveUtils: code_llvm
+
+        m = Module(gensym(:BCLLVM))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(m, :(f_plain(x::Int) = x))
+        Core.eval(m, :(BC.@auto f_auto(x::Int) = x))
+
+        f_plain = getfield(m, :f_plain)
+        f_auto = getfield(m, :f_auto)
+
+        function normalize_llvm_name(ll::AbstractString)
+            ll = replace(ll, r"; Function Signature:.*\n" => "; Function Signature: FUN\n")
+            m = match(r"define[^\n]*(@[^\(]+)\(", ll)
+            m === nothing && return ll
+            return replace(ll, m.captures[1] => "@FUN")
+        end
+
+        ll_plain = normalize_llvm_name(
+            sprint(io -> code_llvm(io, f_plain, Tuple{Int}; raw=false, debuginfo=:none)),
+        )
+        ll_auto = normalize_llvm_name(
+            sprint(io -> code_llvm(io, f_auto, Tuple{Int}; raw=false, debuginfo=:none)),
+        )
+
+        @test ll_auto == ll_plain
+        @test !occursin("_generated_assert_safe", ll_auto)
+        @test !occursin("BorrowChecker", ll_auto)
     end
 
     @testset "lambda arglist: single argument" begin
