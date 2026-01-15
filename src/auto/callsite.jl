@@ -16,8 +16,6 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     raw_args === nothing && return nothing
     fexpr = raw_args[1]
 
-    fexpr isa Core.Argument && return nothing
-
     try
         ft = CC.argextype(fexpr, ir)
         return CC.singleton_type(ft)

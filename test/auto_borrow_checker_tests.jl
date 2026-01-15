@@ -183,6 +183,98 @@
         end))
     end
 
+    @testset "macro option parsing: Config overrides" begin
+        BorrowChecker.Auto.@auto max_summary_depth = 1 function _bc_macro_opt_max_depth(x)
+            return x
+        end
+        @test _bc_macro_opt_max_depth(1) == 1
+
+        BorrowChecker.Auto.@auto(
+            optimize_until = "compact 1", _bc_macro_opt_optimize_until(x) = x
+        )
+        @test _bc_macro_opt_optimize_until(2) == 2
+    end
+
+    @testset "scope=:none disables @auto" begin
+        # This would normally fail borrow checking due to aliasing + mutation.
+        BorrowChecker.Auto.@auto scope = :none function _bc_auto_disabled()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            x[1] = 0
+            return y
+        end
+        @test _bc_auto_disabled() == [0, 2, 3]
+    end
+
+    @testset "checked-cache respects cfg (scope affects recursion)" begin
+        # Repro: if `f` is checked once with `scope=:function`, then later recursion into `f`
+        # under `scope=:module` must not be skipped due to a tt/world-only cache key.
+        m = Module(gensym(:BCCacheCfg))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function inner_bad()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :function f() = inner_bad()
+                BC.@auto scope = :module g() = f()
+            end,
+        )
+
+        # Warm the checked-cache for `f` under scope=:function (no recursion).
+        @test m.f()() == [1, 2, 3, 4]
+        # Now `g`'s recursive checking should re-check `f` under scope=:module and fail.
+        @test_throws BorrowCheckError m.g()
+    end
+
+    @testset "scope=:module catches unannotated callee with closure alias" begin
+        m = Module(gensym(:BCModuleScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                function foo()
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+            end,
+        )
+        Core.eval(m, :(BC.@auto scope = :module bar() = foo()))
+
+        @test_throws BorrowCheckError m.bar()
+    end
+
+    @testset "scope=:module recurses into Base extension methods" begin
+        # Repro: methods defined in the current module for Base functions (e.g. getindex)
+        # should be considered "in-module" for `scope=:module` recursion.
+        m = Module(gensym(:BCBaseExtScope))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                struct T end
+
+                function Base.getindex(::T)
+                    x = [1, 2, 3]
+                    f = () -> x
+                    push!(x, 4)
+                    return f
+                end
+
+                BC.@auto scope = :module outer() = (T())[]
+            end,
+        )
+
+        @test_throws BorrowCheckError m.outer()
+    end
+
     @testset "macro one-line method parsing: where clause" begin
         BorrowChecker.Auto.@auto _bc_oneliner_where(x::T) where {T} = x
         @test _bc_oneliner_where(1) == 1
@@ -634,12 +726,163 @@
         @test alloc < 200_000
     end
 
+    @testset "__bc_assert_safe__ thread-safety" begin
+        Threads.nthreads() < 2 && return nothing
+
+        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
+            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+        end
+
+        fs = [
+            (x::Int) -> x,
+            (x::Int) -> x + 1,
+            (x::Int) -> x + 2,
+            (x::Int) -> x + 3,
+            (x::Int) -> x + 4,
+            (x::Int) -> x + 5,
+            (x::Int) -> x + 6,
+            (x::Int) -> x + 7,
+            (x::Int) -> x + 8,
+            (x::Int) -> x + 9,
+        ]
+        tts = map(f -> Tuple{typeof(f),Int}, fs)
+
+        turn1 = Channel{Int}(1)
+        turn2 = Channel{Int}(1)
+        done = Channel{Int}(1) # idx
+
+        function worker(which::Int)
+            turn = (which == 1) ? turn1 : turn2
+            for _ in 1:length(tts)
+                idx = take!(turn)
+                BorrowChecker.Auto.__bc_assert_safe__(tts[idx])
+                put!(done, idx)
+            end
+            return nothing
+        end
+
+        task1 = Threads.@spawn worker(1)
+        task2 = Threads.@spawn worker(2)
+
+        for i in 1:length(tts)
+            first = isodd(i) ? 1 : 2
+            second = (first == 1) ? 2 : 1
+
+            put!((first == 1) ? turn1 : turn2, i)
+            @test take!(done) == i
+
+            put!((second == 1) ? turn1 : turn2, i)
+            @test take!(done) == i
+        end
+
+        wait(task1)
+        wait(task2)
+
+        # Free-for-all: lots of concurrent hits/misses should not throw or deadlock.
+        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
+            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+        end
+
+        nworkers = 16
+        jobs = 60
+        errs = Channel{Any}(nworkers)
+        @sync for _ in 1:nworkers
+            Threads.@spawn begin
+                err = nothing
+                try
+                    for j in 1:jobs
+                        BorrowChecker.Auto.__bc_assert_safe__(tts[(j % length(tts)) + 1])
+                    end
+                catch e
+                    err = e
+                end
+                put!(errs, err)
+            end
+        end
+        for _ in 1:nworkers
+            e = take!(errs)
+            e === nothing || rethrow(e)
+        end
+    end
+
+    @testset "@auto scope=:module recursive callees" begin
+        # Without recursion, this outer method doesn't observe the inner violation.
+        Base.@noinline function _bc_scope_inner_bad()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            x[1] = 0
+            return y
+        end
+
+        @auto function _bc_scope_outer_norec_ok()
+            return _bc_scope_inner_bad()
+        end
+        @test _bc_scope_outer_norec_ok() == [0, 2, 3]
+
+        @auto scope = :module function _bc_scope_outer_rec_bad()
+            return _bc_scope_inner_bad()
+        end
+        @test_throws BorrowCheckError _bc_scope_outer_rec_bad()
+    end
+
+    @testset "modules are not owned (avoid spurious consumes)" begin
+        @auto function _bc_module_not_owned()
+            m = Base
+            g = Base.inferencebarrier(identity)
+            g(m) # unknown/dynamic call site should NOT consume `m`
+            return getproperty(m, :Math)
+        end
+
+        @test _bc_module_not_owned() === Base.Math
+    end
+
+    @testset "isa is pure (does not consume)" begin
+        @auto function _bc_isa_does_not_consume()
+            x = [1, 2, 3]
+            y = fakewrite(x)
+            if y isa Vector{Int}
+                y[1] = 0
+                return y
+            else
+                error("unexpected")
+            end
+        end
+
+        @test _bc_isa_does_not_consume() == [0, 2, 3]
+    end
+
+    @testset "Core._typeof_captured_variable recursion is pure" begin
+        @auto scope = :user function _bc_scope_all_typeof_captured(x)
+            return Core._typeof_captured_variable(x)
+        end
+
+        @test _bc_scope_all_typeof_captured(1) === Int
+    end
+
+    @testset "scope=:all does not crash on PhiCNode" begin
+        @auto scope = :all _bc_scope_all_sin(x) = sin(x)
+        err = try
+            _bc_scope_all_sin(1.0)
+            nothing
+        catch e
+            e
+        end
+        @test isnothing(err) broken=true
+    end
+
+    @testset "Core.throw_inexacterror does not BorrowCheckError" begin
+        # This should throw an `InexactError` at runtime, but borrow checking (including
+        # `scope=:user` recursion into Core) should not fail.
+        @auto scope = :user _bc_inexact_int64(x::UInt64) = Int64(x)
+        @test_throws InexactError _bc_inexact_int64(typemax(UInt64))
+    end
+
     @testset "summary cache determinism" begin
-        Base.@lock BorrowChecker.Auto._summary_state begin
-            empty!(BorrowChecker.Auto._summary_state[].summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_cache)
-            empty!(BorrowChecker.Auto._summary_state[].summary_inprogress)
-            empty!(BorrowChecker.Auto._summary_state[].tt_summary_inprogress)
+        Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_cache)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_inprogress)
+            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_inprogress)
         end
 
         deep1(x) = x
@@ -652,14 +895,14 @@
         BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
 
         function latest_entry()
-            Base.@lock BorrowChecker.Auto._summary_state begin
+            Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
                 best_key = nothing
-                for k in keys(BorrowChecker.Auto._summary_state[].tt_summary_cache)
+                for k in keys(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
                     (k[1] === tt && k[3] == cfg) || continue
                     (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
                 end
                 best_key === nothing && error("missing cache entry")
-                return BorrowChecker.Auto._summary_state[].tt_summary_cache[best_key]
+                return BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache[best_key]
             end
         end
 

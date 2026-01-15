@@ -1,17 +1,21 @@
-function _default_optimize_until()
-    return if isdefined(CC, :ALL_PASS_NAMES)
-        let idx = findfirst(
-                nm -> any(
-                    p -> occursin(p, lowercase(String(nm))),
-                    ("compact_1", "compact 1", "compact1"),
-                ),
-                CC.ALL_PASS_NAMES,
-            )
-            idx === nothing ? "compact 1" : CC.ALL_PASS_NAMES[idx]
-        end
-    else
-        "compact 1"
+@inline function _optimize_until_norm(s::AbstractString)
+    return replace(lowercase(String(s)), r"[^a-z0-9]+" => "")
+end
+
+@inline function _normalize_optimize_until(opt::String)
+    if isdefined(CC, :ALL_PASS_NAMES)
+        optn = _optimize_until_norm(opt)
+        idx = findfirst(nm -> endswith(_optimize_until_norm(String(nm)), optn), CC.ALL_PASS_NAMES)
+        idx === nothing && return opt
+        return String(CC.ALL_PASS_NAMES[idx])
     end
+    return opt
+end
+@inline _normalize_optimize_until(opt) = opt
+
+function _default_optimize_until()
+    isdefined(CC, :ALL_PASS_NAMES) && return _normalize_optimize_until("compact 1")
+    return "compact 1"
 end
 
 Base.@kwdef struct Config
@@ -20,6 +24,12 @@ Base.@kwdef struct Config
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 12
+
+    "Recursively borrow-check callees (call graph) within this scope."
+    scope::Symbol = :function
+
+    "Root module used by `scope=:module`."
+    root_module::Module = Main
 end
 
 const DEFAULT_CONFIG = Config()
@@ -38,19 +48,19 @@ function EffectSummary(; writes=Int[], consumes=Int[], ret_aliases=Int[])
     return EffectSummary(BitSet(writes), BitSet(consumes), BitSet(ret_aliases))
 end
 
-const _known_effects = Lockable(IdDict{Any,EffectSummary}())
+const KNOWN_EFFECTS = Lockable(IdDict{Any,EffectSummary}())
 
 @inline function _known_effects_get(@nospecialize(f))
-    return @lock _known_effects get(_known_effects[], f, nothing)
+    return @lock KNOWN_EFFECTS get(KNOWN_EFFECTS[], f, nothing)
 end
 
 @inline function _known_effects_has(@nospecialize(f))::Bool
-    return @lock _known_effects haskey(_known_effects[], f)
+    return @lock KNOWN_EFFECTS haskey(KNOWN_EFFECTS[], f)
 end
 
 function register_effects!(@nospecialize(f); writes=(), consumes=(), ret_aliases=())
-    @lock _known_effects begin
-        dict = _known_effects[]
+    @lock KNOWN_EFFECTS begin
+        dict = KNOWN_EFFECTS[]
         dict[f] = EffectSummary(;
             writes=collect(Int, writes),
             consumes=collect(Int, consumes),
@@ -60,10 +70,13 @@ function register_effects!(@nospecialize(f); writes=(), consumes=(), ret_aliases
     return f
 end
 
-const _registry_inited = Lockable(Ref{Bool}(false))
+const REGISTRY_INITED = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
     _known_effects_has(__bc_bind__) || register_effects!(__bc_bind__; ret_aliases=(2,))
+    # `@auto scope=...` builds a `Config` object at runtime for the prologue check.
+    # This constructor is internal plumbing and should be treated as pure.
+    _known_effects_has(Config) || register_effects!(Config; ret_aliases=())
 
     if isdefined(Auto, :__bc_assert_safe__)
         f = Auto.__bc_assert_safe__
@@ -82,6 +95,12 @@ function _populate_registry!()
         (Core, :apply_type, (), (), ()),
         (Core, :typeof, (), (), ()),
         (Core, :_typeof_captured_variable, (), (), ()),
+        (Core, :Typeof, (), (), ()),
+        (Core, :isa, (), (), ()),
+        (Core, :has_free_typevars, (), (), ()),
+        (Core, :InexactError, (), (), ()),
+        (Core, :BoundsError, (), (), ()),
+        (Core, :throw, (), (), ()),
         (Core, :(===), (), (), ()),
         (Core, :(!==), (), (), ()),
         (Core, :typeassert, (2,), (), ()),
@@ -106,6 +125,7 @@ function _populate_registry!()
         (Core, :memoryrefmodify!, (), (2,), (4,)),
         (Core, :memoryrefreplace!, (), (2,), (4,)),
         (Core, :memoryrefsetonce!, (), (2,), (3,)),
+        (Core, :memorynew, (), (), ()),
 
         # Pointer intrinsics:
         # `pointerset(ptr, val, idx, align)` mutates memory through `ptr` and often
@@ -124,8 +144,8 @@ function _populate_registry!()
 end
 
 function _ensure_registry_initialized()
-    @lock _registry_inited begin
-        r = _registry_inited[]
+    @lock REGISTRY_INITED begin
+        r = REGISTRY_INITED[]
         if !r[]
             _populate_registry!()
             r[] = true
