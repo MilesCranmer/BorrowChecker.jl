@@ -48,7 +48,7 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     interp = @something(_reflection_interp(), CC.NativeInterpreter(world))
     return Base.code_ircode_by_type(
         tt;
-        optimize_until=_normalize_optimize_until(optimize_until),
+        optimize_until=optimize_until,
         world=world,
         interp=interp,
     )
@@ -556,8 +556,16 @@ function _effects_for_call(
         end
     end
 
+    # If we have a call to a `Type` (constructor/conversion) but cannot obtain reflectable
+    # IR for it (e.g. builtin struct constructors), treat it as pure w.r.t. inputs.
+    if head === :call && f !== nothing && f isa Type
+        return EffectSummary()
+    end
+
     consumes = Int[]
-    for p in 1:length(raw_args)
+    # `raw_args[1]` is the function value. Calling a function does not (by itself)
+    # consume/move the function object, so treat only user arguments as candidates.
+    for p in 2:length(raw_args)
         v = raw_args[p]
         h = _handle_index(v, nargs, track_arg, track_ssa)
         h == 0 && continue
@@ -605,10 +613,39 @@ function _summarize_ir_effects(
     for i in 1:nstmts
         stmt = ir[Core.SSAValue(i)][:stmt]
         if stmt isa Expr && stmt.head === :foreigncall
-            uses = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
-            for hv in uses
-                _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+            name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
+            eff =
+                (name_sym === nothing) ? nothing : _known_foreigncall_effects_get(name_sym)
+
+            if eff === nothing
+                # Unknown foreigncall: treat as write to the C arguments only (ignore GC roots).
+                for v in ccall_args
+                    hs = _backward_used_handles(v, ir, nargs, track_arg, track_ssa)
+                    for hv in hs
+                        _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+                    end
+                end
+                continue
             end
+
+            for grp in eff.write_groups
+                hs = _foreigncall_group_used_handles(
+                    ccall_args, grp, ir, nargs, track_arg, track_ssa
+                )
+                for hv in hs
+                    _push_arg_aliases!(writes, uf, _uf_find(uf, hv), nargs, track_arg)
+                end
+            end
+
+            for grp in eff.consume_groups
+                hs = _foreigncall_group_used_handles(
+                    ccall_args, grp, ir, nargs, track_arg, track_ssa
+                )
+                for hv in hs
+                    _push_arg_aliases!(consumes, uf, _uf_find(uf, hv), nargs, track_arg)
+                end
+            end
+
             continue
         end
 

@@ -11,6 +11,118 @@ function _call_parts(stmt)
     end
 end
 
+# === foreigncall / ccall helpers ===
+#
+# `ccall` / `llvmcall` lower to `Expr(:foreigncall, ...)`.
+# The first five fields are metadata:
+#   1: callee name / pointer
+#   2: return type
+#   3: argument types (typically a `Core.SimpleVector`, printed as `svec(...)`)
+#   4: number of required args
+#   5: calling convention (`:ccall`, `:llvmcall`, ...)
+# The remaining fields are the C arguments followed by GC roots.
+
+function _foreigncall_nccallargs(argtypes)
+    argtypes isa QuoteNode && (argtypes = argtypes.value)
+    if argtypes isa Core.SimpleVector
+        return length(argtypes)
+    end
+    if argtypes isa Tuple || argtypes isa AbstractVector
+        return length(argtypes)
+    end
+    if argtypes isa Expr && argtypes.head === :call && !isempty(argtypes.args)
+        f = argtypes.args[1]
+        if f === Core.svec ||
+            f === :svec ||
+            (f isa GlobalRef && f.mod === Core && f.name === :svec)
+            return length(argtypes.args) - 1
+        end
+    end
+    return 0
+end
+
+function _foreigncall_name_symbol(@nospecialize(name_expr))
+    _sym_from_tuple(@nospecialize(v)) =
+        (v isa Symbol) ? v :
+        (v isa Tuple && !isempty(v)) ? _sym_from_tuple(v[1]) :
+        nothing
+
+    if name_expr isa QuoteNode
+        v = name_expr.value
+        # Julia lowers `ccall` names in several formats depending on version, e.g.
+        # - `QuoteNode(:jl_foo)`
+        # - `QuoteNode((:jl_foo, "libc"))`
+        # - `QuoteNode(((:jl_foo,),))` (nested tuples on newer nightlies)
+        return _sym_from_tuple(v)
+    end
+    if name_expr isa Symbol
+        return name_expr
+    end
+    if name_expr isa Tuple
+        return _sym_from_tuple(name_expr)
+    end
+    if name_expr isa Expr && name_expr.head === :tuple && !isempty(name_expr.args)
+        return _foreigncall_name_symbol(name_expr.args[1])
+    end
+    if name_expr isa Expr && name_expr.head === :call && !isempty(name_expr.args)
+        # Library calls are often encoded as `Core.tuple(:name, lib)`; keep just the name.
+        f = name_expr.args[1]
+        if (
+            f === Core.tuple ||
+            f === :tuple ||
+            (f isa GlobalRef && f.mod === Core && f.name === :tuple)
+        ) && length(name_expr.args) >= 2
+            return _foreigncall_name_symbol(name_expr.args[2])
+        end
+    end
+    return nothing
+end
+
+function _foreigncall_parts(stmt::Expr)
+    @assert stmt.head === :foreigncall
+
+    name_sym = _foreigncall_name_symbol(stmt.args[1])
+
+    argtypes = stmt.args[3]
+    nccallargs = _foreigncall_nccallargs(argtypes)
+
+    ccall_start = 6
+    nrem = max(length(stmt.args) - (ccall_start - 1), 0)
+
+    # If we can't parse `argtypes`, fall back conservatively: treat *all* remaining fields
+    # as C arguments rather than silently dropping them as GC roots.
+    if nccallargs <= 0
+        nreq = stmt.args[4]
+        if nreq isa Integer && nreq > 0
+            nccallargs = Int(nreq)
+        else
+            nccallargs = nrem
+        end
+    end
+
+    nccallargs = max(min(nccallargs, nrem), 0)
+    if nccallargs == 0 || ccall_start > length(stmt.args)
+        return name_sym, Any[], Any[], 0
+    end
+
+    ccall_stop = min(ccall_start + nccallargs - 1, length(stmt.args))
+    ccall_args = stmt.args[ccall_start:ccall_stop]
+    gc_roots = (ccall_stop < length(stmt.args)) ? stmt.args[(ccall_stop + 1):end] : Any[]
+
+    return name_sym, ccall_args, gc_roots, nccallargs
+end
+
+function _foreigncall_group_used_handles(
+    ccall_args, group::BitSet, ir::CC.IRCode, nargs::Int, track_arg, track_ssa
+)
+    used = BitSet()
+    for p in group
+        (1 <= p <= length(ccall_args)) || continue
+        union!(used, _backward_used_handles(ccall_args[p], ir, nargs, track_arg, track_ssa))
+    end
+    return used
+end
+
 function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return nothing
@@ -242,12 +354,59 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     return Any
 end
 
+function _maybe_const_type_object(fexpr, ir::CC.IRCode)
+    if fexpr isa GlobalRef
+        v = try
+            getfield(fexpr.mod, fexpr.name)
+        catch
+            nothing
+        end
+        return (v isa Type) ? v : nothing
+    end
+    if fexpr isa QuoteNode
+        v = fexpr.value
+        return (v isa Type) ? v : nothing
+    end
+    if fexpr isa Core.SSAValue
+        def = try
+            ir[fexpr][:stmt]
+        catch
+            nothing
+        end
+        def === nothing && return nothing
+        return _maybe_const_type_object(def, ir)
+    end
+    return nothing
+end
+
 function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
     types = Any[]
-    for a in raw_args
+    for (i, a) in enumerate(raw_args)
         t = Any
         try
-            t = CC.widenconst(CC.argextype(a, ir))
+            at = CC.argextype(a, ir)
+            if i == 1
+                fobj = _maybe_const_type_object(a, ir)
+                if fobj !== nothing
+                    t = Type{fobj}
+                else
+                    fval = try
+                        CC.singleton_type(at)
+                    catch
+                        nothing
+                    end
+                    if fval isa Type
+                        # Constructors dispatch on `Type{T}` / `Type{UnionAll(...)}` rather than
+                        # `DataType`, so use the singleton type of the type object when it can be
+                        # resolved.
+                        t = Type{fval}
+                    else
+                        t = CC.widenconst(at)
+                    end
+                end
+            else
+                t = CC.widenconst(at)
+            end
         catch
             t = Any
         end

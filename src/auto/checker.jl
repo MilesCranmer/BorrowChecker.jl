@@ -237,13 +237,76 @@ function _check_stmt!(
     live_during::BitSet,
 )
     if stmt isa Expr && stmt.head === :foreigncall
-        used = _used_handles(stmt, ir, nargs, track_arg, track_ssa)
-        for hv in used
-            hv == 0 && continue
-            _require_unique!(
-                viols, ir, idx, stmt, uf, origins, hv, live_during; context="write"
-            )
+        name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
+        eff = (name_sym === nothing) ? nothing : _known_foreigncall_effects_get(name_sym)
+
+        out_h =
+            (1 <= idx <= length(track_ssa) && track_ssa[idx]) ? _ssa_handle(nargs, idx) : 0
+
+        # Enforce uniqueness for each alias-root touched by `group_handles`,
+        # but allow any binding origins that arise within the same group.
+        function require_unique_group!(group_handles::BitSet; context::String)
+            roots_allowed = Dict{Int,BitSet}()
+            reps = Dict{Int,Int}()
+
+            for hv in group_handles
+                hv == 0 && continue
+                hroot = _uf_find(uf, hv)
+                allowed = get!(roots_allowed, hroot, BitSet())
+                push!(allowed, origins[hv])
+                reps[hroot] = get(reps, hroot, hv)
+            end
+
+            for (hroot, allowed) in roots_allowed
+                for h2 in live_during
+                    (h2 == out_h) && continue
+                    (h2 == 1) && continue
+                    if _uf_find(uf, h2) == hroot && !(origins[h2] in allowed)
+                        _push_violation!(
+                            viols,
+                            ir,
+                            idx,
+                            stmt,
+                            "cannot perform $context: value is aliased by another live binding",
+                        )
+                        return reps
+                    end
+                end
+            end
+
+            return reps
         end
+
+        # Unknown foreigncall: keep old conservative behavior.
+        if eff === nothing
+            # Treat as write to the C arguments only (ignore GC roots), but allow redundant
+            # `(obj, ptr, ...)` argument representations to coexist within the call.
+            hs_all = BitSet()
+            for v in ccall_args
+                hs = _backward_used_handles(v, ir, nargs, track_arg, track_ssa)
+                union!(hs_all, hs)
+            end
+            require_unique_group!(hs_all; context="write")
+            return nothing
+        end
+
+        for grp in eff.write_groups
+            hs = _foreigncall_group_used_handles(
+                ccall_args, grp, ir, nargs, track_arg, track_ssa
+            )
+            require_unique_group!(hs; context="write")
+        end
+
+        for grp in eff.consume_groups
+            hs = _foreigncall_group_used_handles(
+                ccall_args, grp, ir, nargs, track_arg, track_ssa
+            )
+            reps = require_unique_group!(hs; context="consume")
+            for (_, rep) in reps
+                _require_not_used_later!(viols, ir, idx, stmt, uf, origins, rep, live_after)
+            end
+        end
+
         return nothing
     end
 
@@ -412,7 +475,7 @@ function _require_unique!(
     rv = _uf_find(uf, hv)
     ohv = origins[hv]
     for h2 in live_during
-        (h2 == hv || h2 == ignore_h) && continue
+        (h2 == hv || h2 == ignore_h || h2 == 1) && continue
         if _uf_find(uf, h2) == rv && origins[h2] != ohv
             _push_violation!(
                 viols,
