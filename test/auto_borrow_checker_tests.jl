@@ -129,7 +129,9 @@
         @auto function _bc_varargs_signature(xs...)
             return 0
         end
-        @test true
+        @test _bc_varargs_signature() == 0
+        @test _bc_varargs_signature(1) == 0
+        @test _bc_varargs_signature(1, 2) == 0
     end
 
     @testset "macro signature parsing: default args" begin
@@ -194,7 +196,7 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        opt = BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until
+        opt = BorrowChecker.Auto.Config().optimize_until
         @eval BorrowChecker.Auto.@auto(
             optimize_until = $opt, _bc_macro_opt_optimize_until(x) = x
         )

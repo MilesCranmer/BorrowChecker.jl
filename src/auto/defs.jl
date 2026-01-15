@@ -1,18 +1,21 @@
 function _default_optimize_until()
     if isdefined(CC, :ALL_PASS_NAMES)
         for nm in CC.ALL_PASS_NAMES
-            endswith(nm, "COMPACT_1") && return nm
+            s = String(nm)
+            endswith(s, "COMPACT_1") && return s
         end
         for nm in CC.ALL_PASS_NAMES
-            occursin("COMPACT", nm) && occursin("1", nm) && return nm
+            s = String(nm)
+            occursin("COMPACT", s) && occursin("1", s) && return s
         end
+        return String(CC.ALL_PASS_NAMES[begin + 2])  # best-effort guess for new compiler pass name
     end
     return "compact 1"
 end
 
 Base.@kwdef struct Config
     "Which compiler pass to stop at when fetching IR (`Base.code_ircode_by_type`)."
-    optimize_until::Union{String,Int,Nothing} = _default_optimize_until()
+    optimize_until::String = _default_optimize_until()
 
     "Max depth for recursive effect summarization."
     max_summary_depth::Int = 12
@@ -23,8 +26,6 @@ Base.@kwdef struct Config
     "Root module used by `scope=:module`."
     root_module::Module = Main
 end
-
-const DEFAULT_CONFIG = Config()
 
 @inline __bc_bind__(x) =
     isdefined(Base, :inferencebarrier) ? (Base.inferencebarrier(x)::typeof(x)) : x
