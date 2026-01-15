@@ -553,8 +553,16 @@ function _effects_for_call(
         end
     end
 
+    # If we have a call to a `Type` (constructor/conversion) but cannot obtain reflectable
+    # IR for it (e.g. builtin struct constructors), treat it as pure w.r.t. inputs.
+    if head === :call && f !== nothing && f isa Type
+        return EffectSummary()
+    end
+
     consumes = Int[]
-    for p in 1:length(raw_args)
+    # `raw_args[1]` is the function value. Calling a function does not (by itself)
+    # consume/move the function object, so treat only user arguments as candidates.
+    for p in 2:length(raw_args)
         v = raw_args[p]
         h = _handle_index(v, nargs, track_arg, track_ssa)
         h == 0 && continue

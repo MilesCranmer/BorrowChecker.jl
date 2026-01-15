@@ -23,6 +23,7 @@ end
 # The remaining fields are the C arguments followed by GC roots.
 
 function _foreigncall_nccallargs(argtypes)
+    argtypes isa QuoteNode && (argtypes = argtypes.value)
     if argtypes isa Core.SimpleVector
         return length(argtypes)
     end
@@ -40,15 +41,30 @@ function _foreigncall_nccallargs(argtypes)
     return 0
 end
 
-function _foreigncall_parts(stmt::Expr)
-    @assert stmt.head === :foreigncall
+function _foreigncall_name_symbol(@nospecialize(name_expr))
+    _sym_from_tuple(@nospecialize(v)) =
+        (v isa Symbol) ? v :
+        (v isa Tuple && !isempty(v)) ? _sym_from_tuple(v[1]) :
+        nothing
 
-    name_expr = stmt.args[1]
-    name_sym = if name_expr isa QuoteNode
-        name_expr.value isa Symbol ? name_expr.value : nothing
-    elseif name_expr isa Symbol
-        name_expr
-    elseif name_expr isa Expr && name_expr.head === :call && !isempty(name_expr.args)
+    if name_expr isa QuoteNode
+        v = name_expr.value
+        # Julia lowers `ccall` names in several formats depending on version, e.g.
+        # - `QuoteNode(:jl_foo)`
+        # - `QuoteNode((:jl_foo, "libc"))`
+        # - `QuoteNode(((:jl_foo,),))` (nested tuples on newer nightlies)
+        return _sym_from_tuple(v)
+    end
+    if name_expr isa Symbol
+        return name_expr
+    end
+    if name_expr isa Tuple
+        return _sym_from_tuple(name_expr)
+    end
+    if name_expr isa Expr && name_expr.head === :tuple && !isempty(name_expr.args)
+        return _foreigncall_name_symbol(name_expr.args[1])
+    end
+    if name_expr isa Expr && name_expr.head === :call && !isempty(name_expr.args)
         # Library calls are often encoded as `Core.tuple(:name, lib)`; keep just the name.
         f = name_expr.args[1]
         if (
@@ -56,27 +72,42 @@ function _foreigncall_parts(stmt::Expr)
             f === :tuple ||
             (f isa GlobalRef && f.mod === Core && f.name === :tuple)
         ) && length(name_expr.args) >= 2
-            nm = name_expr.args[2]
-            nm isa QuoteNode && nm.value isa Symbol ? nm.value : nothing
-        else
-            nothing
+            return _foreigncall_name_symbol(name_expr.args[2])
         end
-    else
-        nothing
     end
+    return nothing
+end
+
+function _foreigncall_parts(stmt::Expr)
+    @assert stmt.head === :foreigncall
+
+    name_sym = _foreigncall_name_symbol(stmt.args[1])
 
     argtypes = stmt.args[3]
     nccallargs = _foreigncall_nccallargs(argtypes)
 
     ccall_start = 6
-    ccall_stop = ccall_start + nccallargs - 1
+    nrem = max(length(stmt.args) - (ccall_start - 1), 0)
+
+    # If we can't parse `argtypes`, fall back conservatively: treat *all* remaining fields
+    # as C arguments rather than silently dropping them as GC roots.
     if nccallargs <= 0
-        ccall_args = Any[]
-        gc_roots = stmt.args[ccall_start:end]
-    else
-        ccall_args = stmt.args[ccall_start:ccall_stop]
-        gc_roots = stmt.args[(ccall_stop + 1):end]
+        nreq = stmt.args[4]
+        if nreq isa Integer && nreq > 0
+            nccallargs = Int(nreq)
+        else
+            nccallargs = nrem
+        end
     end
+
+    nccallargs = max(min(nccallargs, nrem), 0)
+    if nccallargs == 0 || ccall_start > length(stmt.args)
+        return name_sym, Any[], Any[], 0
+    end
+
+    ccall_stop = min(ccall_start + nccallargs - 1, length(stmt.args))
+    ccall_args = stmt.args[ccall_start:ccall_stop]
+    gc_roots = (ccall_stop < length(stmt.args)) ? stmt.args[(ccall_stop + 1):end] : Any[]
 
     return name_sym, ccall_args, gc_roots, nccallargs
 end

@@ -260,6 +260,7 @@ function _check_stmt!(
             for (hroot, allowed) in roots_allowed
                 for h2 in live_during
                     (h2 == out_h) && continue
+                    (h2 == 1) && continue
                     if _uf_find(uf, h2) == hroot && !(origins[h2] in allowed)
                         _push_violation!(
                             viols,

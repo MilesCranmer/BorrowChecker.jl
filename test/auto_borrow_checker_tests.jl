@@ -189,8 +189,9 @@
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        BorrowChecker.Auto.@auto(
-            optimize_until = "compact 1", _bc_macro_opt_optimize_until(x) = x
+        opt = BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until
+        @eval BorrowChecker.Auto.@auto(
+            optimize_until = $opt, _bc_macro_opt_optimize_until(x) = x
         )
         @test _bc_macro_opt_optimize_until(2) == 2
     end
@@ -978,6 +979,95 @@
     @testset "Core._typevar does not consume" begin
         @auto scope = :all _bc_mk_typevar() = (TypeVar(:T, Int); true)
         @test _bc_mk_typevar()
+    end
+
+    @testset "read-only Base foreigncalls" begin
+        @testset "jl_object_id" begin
+            @auto scope = :all function _bc_objectid_alias_ok(x)
+                y = x
+                objectid(x)
+                return x === y
+            end
+            v = Any[1]
+            @test _bc_objectid_alias_ok(v)
+        end
+
+        @testset "jl_type_hash" begin
+            @auto scope = :all function _bc_hash_type_alias_ok(T)
+                S = T
+                hash(T)
+                return T === S
+            end
+            @test _bc_hash_type_alias_ok(Int)
+        end
+
+        @testset "jl_type_unionall" begin
+            @auto scope = :all function _bc_unionall_typearg_alias_ok(t)
+                u = t
+                UnionAll(TypeVar(:T), t)
+                return t === u
+            end
+            @test _bc_unionall_typearg_alias_ok(Int)
+        end
+
+        @testset "jl_eqtable_get" begin
+            @auto scope = :all function _bc_iddict_get_alias_ok(d, k)
+                d2 = d
+                get(d, k, nothing)
+                return d === d2
+            end
+            key = Any[1]
+            d = IdDict{Any,Any}(key => 2)
+            @test _bc_iddict_get_alias_ok(d, key)
+        end
+
+        @testset "jl_eqtable_nextind (via iterate)" begin
+            @auto scope = :all function _bc_iddict_iterate_alias_ok(d)
+                d2 = d
+                iterate(d)
+                return d === d2
+            end
+            d = IdDict{Any,Any}(Any[1] => 2)
+            @test _bc_iddict_iterate_alias_ok(d)
+        end
+
+        @testset "jl_get_fieldtypes" begin
+            @auto scope = :all function _bc_fieldtypes_alias_ok(T)
+                S = T
+                fieldtypes(T)
+                return T === S
+            end
+            @test _bc_fieldtypes_alias_ok(ComplexF64)
+        end
+
+        @testset "jl_field_index" begin
+            @auto scope = :all function _bc_fieldindex_alias_ok(T)
+                S = T
+                Base.fieldindex(T, :re, true)
+                return T === S
+            end
+            @test _bc_fieldindex_alias_ok(ComplexF64)
+        end
+
+        @testset "jl_gc_new_weakref_th" begin
+            @auto scope = :all function _bc_weakref_alias_ok(x)
+                y = x
+                WeakRef(x)
+                return x === y
+            end
+            v = Any[1]
+            @test _bc_weakref_alias_ok(v)
+        end
+
+        @testset "jl_value_ptr" begin
+            @auto scope = :all function _bc_ptr_from_objref_alias_ok(x)
+                y = x
+                pointer_from_objref(x)
+                return x === y
+            end
+            v = Any[1]
+            @test _bc_ptr_from_objref_alias_ok(v)
+        end
     end
 
     @testset "Known effects registry only uses Core" begin

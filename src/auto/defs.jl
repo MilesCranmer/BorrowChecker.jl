@@ -77,6 +77,7 @@ function _normalize_foreigncall_groups(spec)
 end
 
 function ForeigncallEffectSummary(; writes=(), consumes=(), ret_aliases=())
+    ret_aliases isa Integer && (ret_aliases = (Int(ret_aliases),))
     return ForeigncallEffectSummary(
         _normalize_foreigncall_groups(writes),
         _normalize_foreigncall_groups(consumes),
@@ -155,6 +156,7 @@ function _populate_registry!()
         (Core, :bitcast, (3,), (), ()),
         (Core, :compilerbarrier, (3,), (), ()),
         (Core, :_svec_ref, (), (), ()),
+        (Core, :_svec_len, (), (), ()),
         (Core, :isdefined, (), (), ()),
         (Core, :throw, (), (), ()),
         (Core, :(<:), (), (), ()),
@@ -199,17 +201,26 @@ function _populate_registry!()
 
     # Foreigncall effects (lowered `ccall` / `llvmcall`).
     # Positions are 1-based in the foreigncall C argument list (position 1 == stmt.args[6]).
-    _known_foreigncall_effects_has(:memmove) ||
-        register_foreigncall_effects!(:memmove; writes=(1,), ret_aliases=(1,))
-    _known_foreigncall_effects_has(:memcpy) ||
-        register_foreigncall_effects!(:memcpy; writes=(1,), ret_aliases=(1,))
-    _known_foreigncall_effects_has(:memset) ||
-        register_foreigncall_effects!(:memset; writes=(1,), ret_aliases=(1,))
+    foreigncall_specs = [
+        (:memmove, (1,), (1,), ()),
+        (:memcpy, (1,), (1,), ()),
+        (:memset, (1,), (1,), ()),
 
-    # jl_genericmemory_copyto(dest_mem::Any, dest_ptr::Ptr, src_mem::Any, src_ptr::Ptr, n::Int)
-    # Mutates destination represented by the `(dest_mem, dest_ptr)` pair.
-    _known_foreigncall_effects_has(:jl_genericmemory_copyto) ||
-        register_foreigncall_effects!(:jl_genericmemory_copyto; writes=((1, 2),))
+        # Mutates destination represented by the `(dest_mem, dest_ptr)` pair in:
+        #     jl_genericmemory_copyto(dest_mem::Any, dest_ptr::Ptr, src_mem::Any, src_ptr::Ptr, n::Int)
+        (:jl_genericmemory_copyto, (), ((1, 2),), ()),
+
+        # Read-only foreigncalls used throughout Base.
+        (:jl_eqtable_get, (), (), ()),
+        (:jl_eqtable_nextind, (), (), ()),
+        (:jl_field_index, (), (), ()),
+        (:jl_value_ptr, (), (), ()),
+    ]
+
+    for (nm, ret_aliases, writes, consumes) in foreigncall_specs
+        _known_foreigncall_effects_has(nm) ||
+            register_foreigncall_effects!(nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+    end
 
     return nothing
 end
