@@ -84,11 +84,10 @@ end
 function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T === Union{} && return false
     T === Any && return true
-    if T isa Union
-        return any(tt, Base.uniontypes(T))
-    end
+    T isa Union && return any(tt, Base.uniontypes(T))
     T isa Type || return true
     T === Symbol && return false
+    T <: Module && return false
 
     _is_nonowning_ref_type(T) && return false
 
@@ -289,14 +288,30 @@ end
 
 function _collect_used_handles!(s::BitSet, x, nargs::Int, track_arg, track_ssa)
     if x isa Core.PhiNode
-        for v in _phi_values(x)
-            _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+        vals = _phi_values(x)
+        if vals isa AbstractArray
+            for k in eachindex(vals)
+                isassigned(vals, k) || continue
+                _collect_used_handles!(s, vals[k], nargs, track_arg, track_ssa)
+            end
+        else
+            for v in vals
+                _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+            end
         end
         return nothing
     end
     if isdefined(Core, :PhiCNode) && x isa Core.PhiCNode
-        for v in _phi_values(x)
-            _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+        vals = _phi_values(x)
+        if vals isa AbstractArray
+            for k in eachindex(vals)
+                isassigned(vals, k) || continue
+                _collect_used_handles!(s, vals[k], nargs, track_arg, track_ssa)
+            end
+        else
+            for v in vals
+                _collect_used_handles!(s, v, nargs, track_arg, track_ssa)
+            end
         end
         return nothing
     end

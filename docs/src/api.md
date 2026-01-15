@@ -33,6 +33,12 @@ Mutex
 BorrowChecker.@spawn
 ```
 
+## IR Borrow Checker
+
+```@docs
+BorrowChecker.Auto.@auto
+```
+
 ## Types
 
 ```@docs

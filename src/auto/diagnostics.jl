@@ -16,7 +16,7 @@ struct CachedFileLines
     lines::Vector{String}
 end
 
-const _srcfile_cache = Lockable(Dict{String,CachedFileLines}())
+const SRCFILE_CACHE = Lockable(Dict{String,CachedFileLines}())
 
 @inline function _lineinfo_file_line(li)
     file = try
@@ -32,8 +32,8 @@ const _srcfile_cache = Lockable(Dict{String,CachedFileLines}())
     return file, line
 end
 
-const _REPL_FILE_RE = r"^REPL\[(\d+)\]$"
-const _REPL_LINEMARK_RE = r"^\s*#=\s*REPL\[\d+\]:\d+\s*=#\s*$"
+const REPL_FILE_RE = r"^REPL\[(\d+)\]$"
+const REPL_LINEMARK_RE = r"^\s*#=\s*REPL\[\d+\]:\d+\s*=#\s*$"
 
 function _repl_hist_entry_content(entry)
     entry isa AbstractString && return String(entry)
@@ -76,7 +76,7 @@ end
 function _try_repl_source_lines(file::AbstractString, line::Int)
     line <= 0 && return nothing
 
-    m = match(_REPL_FILE_RE, file)
+    m = match(REPL_FILE_RE, file)
     m === nothing && return nothing
 
     hp = _try_repl_history_provider()
@@ -103,7 +103,7 @@ function _try_repl_source_lines(file::AbstractString, line::Int)
         (1 <= line <= length(lines)) || return nothing
         l = strip(lines[line])
         isempty(l) && return nothing
-        occursin(_REPL_LINEMARK_RE, l) && return nothing
+        occursin(REPL_LINEMARK_RE, l) && return nothing
         return lines
     end
 
@@ -173,8 +173,8 @@ function _read_file_lines(file::String)
     mtime = Float64(st.mtime)
     size = Int64(st.size)
 
-    @lock _srcfile_cache begin
-        cache = _srcfile_cache[]
+    @lock SRCFILE_CACHE begin
+        cache = SRCFILE_CACHE[]
         entry = get(cache, file, nothing)
         if entry !== nothing && entry.mtime == mtime && entry.size == size
             return entry.lines

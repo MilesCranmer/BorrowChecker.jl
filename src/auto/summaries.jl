@@ -4,19 +4,19 @@ struct SummaryCacheEntry
     over_budget::Bool
 end
 
-const SummaryCacheKey = Tuple{Any,UInt,Config}
+const SUMMARY_CACHE_KEY = Tuple{Any,UInt,Config}
 
-const _summary_state = Lockable((
-    summary_cache=Dict{SummaryCacheKey,SummaryCacheEntry}(),
-    tt_summary_cache=Dict{SummaryCacheKey,SummaryCacheEntry}(),
-    summary_inprogress=Set{SummaryCacheKey}(),
-    tt_summary_inprogress=Set{SummaryCacheKey}(),
+const SUMMARY_STATE = Lockable((
+    summary_cache=Dict{SUMMARY_CACHE_KEY,SummaryCacheEntry}(),
+    tt_summary_cache=Dict{SUMMARY_CACHE_KEY,SummaryCacheEntry}(),
+    summary_inprogress=Set{SUMMARY_CACHE_KEY}(),
+    tt_summary_inprogress=Set{SUMMARY_CACHE_KEY}(),
 ))
 
-const _TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
+const TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
 
 function _reflection_ctx()
-    return get(Base.task_local_storage(), _TLS_REFLECTION_CTX_KEY, nothing)
+    return get(Base.task_local_storage(), TLS_REFLECTION_CTX_KEY, nothing)
 end
 
 function _reflection_world(default::UInt=Base.get_world_counter())
@@ -31,37 +31,27 @@ end
 
 function _with_reflection_ctx(f::Function, world::UInt)
     tls = Base.task_local_storage()
-    old = get(tls, _TLS_REFLECTION_CTX_KEY, nothing)
-    tls[_TLS_REFLECTION_CTX_KEY] = (; world=world, interp=CC.NativeInterpreter(world))
+    old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
+    tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=CC.NativeInterpreter(world))
     try
         return f()
     finally
         if old === nothing
-            pop!(tls, _TLS_REFLECTION_CTX_KEY, nothing)
+            pop!(tls, TLS_REFLECTION_CTX_KEY, nothing)
         else
-            (tls[_TLS_REFLECTION_CTX_KEY] = old)
+            (tls[TLS_REFLECTION_CTX_KEY] = old)
         end
     end
 end
 
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
-    interp = BCInterp(; world)
-    matches = Base._methods_by_ftype(tt, -1, world)
-    if isnothing(matches)
-        error("No method found matching signature $tt in world $world")
-    else
-        asts = []
-        for match in matches
-            match = match::Core.MethodMatch
-            (code, ty) = Compiler.typeinf_ircode(interp, match, optimize_until)
-            if code === nothing
-                push!(asts, match.method => Any)
-            else
-                push!(asts, code => ty)
-            end
-        end
-        return asts
-    end
+    interp = @something(_reflection_interp(), CC.NativeInterpreter(world))
+    return Base.code_ircode_by_type(
+        tt;
+        optimize_until=_normalize_optimize_until(optimize_until),
+        world=world,
+        interp=interp,
+    )
 end
 
 mutable struct BudgetTracker
@@ -85,66 +75,66 @@ function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
     return (new.depth < old.depth) ? new : old
 end
 
-function _summary_state_get_tt(key::SummaryCacheKey)
-    Base.@lock _summary_state begin
-        return get(_summary_state[].tt_summary_cache, key, nothing)
+function _summary_state_get_tt(key::SUMMARY_CACHE_KEY)
+    Base.@lock SUMMARY_STATE begin
+        return get(SUMMARY_STATE[].tt_summary_cache, key, nothing)
     end
 end
 
-function _summary_state_get_mi(key::SummaryCacheKey)
-    Base.@lock _summary_state begin
-        return get(_summary_state[].summary_cache, key, nothing)
+function _summary_state_get_mi(key::SUMMARY_CACHE_KEY)
+    Base.@lock SUMMARY_STATE begin
+        return get(SUMMARY_STATE[].summary_cache, key, nothing)
     end
 end
 
-function _summary_state_set_tt!(key::SummaryCacheKey, new_entry::SummaryCacheEntry)
-    Base.@lock _summary_state begin
-        cache = _summary_state[].tt_summary_cache
+function _summary_state_set_tt!(key::SUMMARY_CACHE_KEY, new_entry::SummaryCacheEntry)
+    Base.@lock SUMMARY_STATE begin
+        cache = SUMMARY_STATE[].tt_summary_cache
         old = get(cache, key, nothing)
         cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
     end
     return nothing
 end
 
-function _summary_state_set_mi!(key::SummaryCacheKey, new_entry::SummaryCacheEntry)
-    Base.@lock _summary_state begin
-        cache = _summary_state[].summary_cache
+function _summary_state_set_mi!(key::SUMMARY_CACHE_KEY, new_entry::SummaryCacheEntry)
+    Base.@lock SUMMARY_STATE begin
+        cache = SUMMARY_STATE[].summary_cache
         old = get(cache, key, nothing)
         cache[key] = (old === nothing) ? new_entry : _choose_summary_entry(old, new_entry)
     end
     return nothing
 end
 
-function _summary_state_tt_inprogress_enter!(key::SummaryCacheKey)::Bool
+function _summary_state_tt_inprogress_enter!(key::SUMMARY_CACHE_KEY)::Bool
     reentered = false
-    Base.@lock _summary_state begin
-        inprog = _summary_state[].tt_summary_inprogress
+    Base.@lock SUMMARY_STATE begin
+        inprog = SUMMARY_STATE[].tt_summary_inprogress
         reentered = (key in inprog)
         reentered || push!(inprog, key)
     end
     return reentered
 end
 
-function _summary_state_tt_inprogress_exit!(key::SummaryCacheKey)
-    Base.@lock _summary_state begin
-        delete!(_summary_state[].tt_summary_inprogress, key)
+function _summary_state_tt_inprogress_exit!(key::SUMMARY_CACHE_KEY)
+    Base.@lock SUMMARY_STATE begin
+        delete!(SUMMARY_STATE[].tt_summary_inprogress, key)
     end
     return nothing
 end
 
-function _summary_state_mi_inprogress_enter!(key::SummaryCacheKey)::Bool
+function _summary_state_mi_inprogress_enter!(key::SUMMARY_CACHE_KEY)::Bool
     reentered = false
-    Base.@lock _summary_state begin
-        inprog = _summary_state[].summary_inprogress
+    Base.@lock SUMMARY_STATE begin
+        inprog = SUMMARY_STATE[].summary_inprogress
         reentered = (key in inprog)
         reentered || push!(inprog, key)
     end
     return reentered
 end
 
-function _summary_state_mi_inprogress_exit!(key::SummaryCacheKey)
-    Base.@lock _summary_state begin
-        delete!(_summary_state[].summary_inprogress, key)
+function _summary_state_mi_inprogress_exit!(key::SUMMARY_CACHE_KEY)
+    Base.@lock SUMMARY_STATE begin
+        delete!(SUMMARY_STATE[].summary_inprogress, key)
     end
     return nothing
 end
