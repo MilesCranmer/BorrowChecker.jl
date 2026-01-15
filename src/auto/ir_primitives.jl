@@ -88,6 +88,9 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T isa Type || return true
     T === Symbol && return false
     T <: Module && return false
+    # Type objects (`DataType`, `UnionAll`, `TypeVar`, ...) are globally shared and
+    # should not participate in ownership/move rules.
+    T <: Type && return false
 
     _is_nonowning_ref_type(T) && return false
 
