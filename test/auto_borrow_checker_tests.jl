@@ -128,7 +128,7 @@
         @test _bc_varargs_signature(1) == 0
         @test _bc_varargs_signature(1, 2) == 0
     end
- 
+
     @testset "macro signature parsing: default args" begin
         @auto function _bc_default_arg_signature(x=1)
             return x + 1
@@ -869,7 +869,7 @@
         catch e
             e
         end
-        @test isnothing(err) broken=true
+        @test isnothing(err) broken = true
     end
 
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin

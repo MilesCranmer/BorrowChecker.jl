@@ -5,7 +5,9 @@ end
 @inline function _normalize_optimize_until(opt::String)
     if isdefined(CC, :ALL_PASS_NAMES)
         optn = _optimize_until_norm(opt)
-        idx = findfirst(nm -> endswith(_optimize_until_norm(String(nm)), optn), CC.ALL_PASS_NAMES)
+        idx = findfirst(
+            nm -> endswith(_optimize_until_norm(String(nm)), optn), CC.ALL_PASS_NAMES
+        )
         idx === nothing && return opt
         return String(CC.ALL_PASS_NAMES[idx])
     end
