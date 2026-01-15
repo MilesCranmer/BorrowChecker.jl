@@ -6,7 +6,6 @@ function _default_optimize_until()
         for nm in CC.ALL_PASS_NAMES
             occursin("COMPACT", nm) && occursin("1", nm) && return nm
         end
-        return isempty(CC.ALL_PASS_NAMES) ? nothing : CC.ALL_PASS_NAMES[end]
     end
     return "compact 1"
 end
