@@ -788,6 +788,50 @@
         @test _bc_dict_key_copy_ok() == [1, 2, 3]
     end
 
+    @testset "Tasks are shareable handles (do not trigger move/escape errors)" begin
+        @auto function _bc_async_handle_ok()
+            t = @async 1
+            return fetch(t)
+        end
+
+        @test _bc_async_handle_ok() == 1
+
+        @auto function _bc_async_copy_after_spawn_bad()
+            x = [1, 2, 3]
+            t = @async begin
+                push!(x, 4)
+                return sum(x)
+            end
+            y = copy(x)  # unsafe: task may mutate `x` before this copy happens
+            return fetch(t), y
+        end
+
+        @test_throws BorrowCheckError _bc_async_copy_after_spawn_bad()
+
+        @auto function _bc_async_copy_before_spawn_ok()
+            x = [1, 2, 3]
+            y = copy(x)
+            t = @async begin
+                push!(x, 4)
+                return sum(x)
+            end
+            return fetch(t), y
+        end
+
+        @test _bc_async_copy_before_spawn_ok() == (10, [1, 2, 3])
+    end
+
+    @testset "Atomics are shareable handles (aliasing is allowed)" begin
+        @auto function _bc_atomic_alias_ok()
+            a = Threads.Atomic{Int}(0)
+            b = a
+            Threads.atomic_add!(a, 1)
+            return b[]
+        end
+
+        @test _bc_atomic_alias_ok() == 1
+    end
+
     @testset "__bc_assert_safe__ short-circuits on cache hit" begin
         local_f(x) = x
         tt = Tuple{typeof(local_f),Int}

@@ -187,6 +187,10 @@ function _populate_registry!()
         # `pointerset(ptr, val, idx, align)` mutates memory through `ptr` and often
         # appears as an intrinsic (no reflectable IR), so register it explicitly.
         (Core.Intrinsics, :pointerset, (2,), (2,), ()),
+
+        # Misc:
+        # `Task(f)` needs special handling because it relies on unsafe operations internally.
+        (Base, :Task, (), (), (2,)),
     ]
 
     for (mod, nm, ret_aliases, writes, consumes) in specs
