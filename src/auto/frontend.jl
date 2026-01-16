@@ -293,7 +293,7 @@ function _argref_expr(arg)
     elseif arg isa Expr && arg.head === :(::)
         return arg.args[1]
     elseif arg isa Expr && arg.head === :kw
-        return arg.args[1]
+        return _argref_expr(arg.args[1])
     elseif arg isa Expr && arg.head === :...
         inner = _argref_expr(arg.args[1])
         return Expr(:..., inner)
@@ -310,13 +310,32 @@ function _tt_expr_from_signature(sig, cfg_tag)
     call isa Expr && call.head === :call ||
         error("@auto currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
-    args = Expr(:tuple)
+
+    params = Any[cfg_tag, :(Core.Typeof($fval))]
     for a in call.args[2:end]
+        # Anonymous typed arguments appear as `(::T)` or `(::T=default)` in the AST.
+        # These do not have a runtime value binding, so we cannot take `Core.Typeof` of them.
+        if a isa Expr && a.head === :kw
+            a = a.args[1]
+        end
+
+        if a isa Expr && a.head === :(::) && length(a.args) == 1
+            push!(params, a.args[1])
+            continue
+        end
+
         r = _argref_expr(a)
         r === nothing && continue
-        push!(args.args, r)
+
+        if r isa Expr && r.head === :...
+            t = Expr(:tuple, r)
+            push!(params, Expr(:..., :(map(Core.Typeof, $t))))
+        else
+            push!(params, :(Core.Typeof($r)))
+        end
     end
-    return :(Tuple{$cfg_tag,$Core.Typeof($fval),map(Core.Typeof, $args)...})
+
+    return Expr(:curly, :Tuple, params...)
 end
 
 function _is_method_definition_lhs(lhs)

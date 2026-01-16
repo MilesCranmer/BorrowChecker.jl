@@ -150,6 +150,15 @@
         @test _bc_keyword_only_signature(; x=1, y=2) == 3
     end
 
+    @testset "macro signature parsing: anonymous typed arg" begin
+        @auto function _bc_anon_typed_arg_signature(x, ::Type{T}=Int) where {T}
+            return T
+        end
+
+        @test _bc_anon_typed_arg_signature(1) == Int
+        @test _bc_anon_typed_arg_signature(1, Float64) == Float64
+    end
+
     @testset "macro signature parsing: destructuring arg" begin
         @auto function _bc_destructure_signature((a, b))
             return a + b
@@ -182,6 +191,28 @@
         end
 
         @test Base.identity(_BCAutoDotT()) isa _BCAutoDotT
+    end
+
+    @testset "@auto known effects: eachindex should not consume/escape" begin
+        @auto function _bc_eachindex_ok(refs, constants)
+            for i in eachindex(refs, constants)
+                refs[i] = constants[i]
+            end
+            return refs
+        end
+
+        @test _bc_eachindex_ok([1, 2, 3], [4, 5, 6]) == [4, 5, 6]
+    end
+
+    @testset "@auto known effects: copy should not consume" begin
+        @auto function _bc_copy_call_ok(x)
+            y = copy(x)
+            return (x, y)
+        end
+
+        (x, y) = _bc_copy_call_ok([1, 2, 3])
+        @test x == [1, 2, 3]
+        @test y == [1, 2, 3]
     end
 
     @testset "macro rejects non-function inputs" begin

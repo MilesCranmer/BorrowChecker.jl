@@ -132,8 +132,19 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
         ft = CC.argextype(fexpr, ir)
         return CC.singleton_type(ft)
     catch
-        return nothing
     end
+
+    # Some calls remain "dynamic" in IR because the callee is a mutable global binding
+    # (e.g. `Main.eachindex`), even though at runtime it usually points to a concrete
+    # function value like `Base.eachindex`. For `@auto`, resolve such callees from the
+    # current binding to avoid spurious "unknown call" conservatism.
+    if fexpr isa GlobalRef
+        try
+            return getfield(fexpr.mod, fexpr.name)
+        catch
+        end
+    end
+    return nothing
 end
 
 function _unwrap_unionall_datatype(@nospecialize(x))
@@ -402,6 +413,22 @@ function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
                         t = Type{fval}
                     else
                         t = CC.widenconst(at)
+                    end
+                end
+
+                # If inference can't resolve the callee type (often because it's a mutable global
+                # binding like `Main.eachindex`), fall back to the current runtime binding so we can
+                # still reflect and summarize the call.
+                if t === Any && a isa GlobalRef
+                    v = try
+                        getfield(a.mod, a.name)
+                    catch
+                        nothing
+                    end
+                    if v isa Type
+                        t = Type{v}
+                    elseif v !== nothing
+                        t = Core.Typeof(v)
                     end
                 end
             else

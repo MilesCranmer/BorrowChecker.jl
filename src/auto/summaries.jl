@@ -46,6 +46,30 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     if isnothing(matches)
         error("No method found matching signature $tt in world $world")
     end
+
+    # For concrete call signatures, `Base._methods_by_ftype` can still return multiple
+    # applicable methods (e.g. both `f(::Any, ::Any)` and `f(::Any, ::Symbol)` for
+    # `Tuple{typeof(f), T, Symbol}`). At runtime dispatch will pick the most-specific
+    # method; unioning effects across all matches can introduce large, spurious
+    # conservatism (common for `getproperty`, keyword wrappers, etc.).
+    #
+    # When the tuple type is concrete enough, keep only the most-specific match.
+    matches = let tt_u = Base.unwrap_unionall(tt)
+        if tt_u isa DataType
+            params = tt_u.parameters
+            concrete = true
+            for p in params
+                if p === Any || p isa Union || p isa Core.TypeVar || p isa Core.TypeofVararg
+                    concrete = false
+                    break
+                end
+            end
+            concrete ? (matches[1:1]) : matches
+        else
+            matches
+        end
+    end
+
     optimize_until = _normalize_optimize_until_for_ir(optimize_until)
     asts = Pair{Any,Any}[]
     for match in matches
@@ -421,6 +445,25 @@ function _effects_for_call(
         return EffectSummary()
     end
 
+    # Treat most `Type(...)` calls (constructors/conversions) as pure with respect to
+    # ownership: constructing a new object that (may) hold references to inputs should
+    # create aliases, not "move"/consume the inputs.
+    #
+    # Exception: callable objects (subtypes of `Function`) model captured environments
+    # (closures/functors) that can escape and outlive the current scope, so keep the
+    # normal conservative behavior for those.
+    if head === :call && f isa Type
+        # If a `Type(...)` call has explicit known effects (e.g. `Task(f)`), honor them.
+        if _known_effects_get(f) === nothing
+            is_functor = try
+                f <: Function
+            catch
+                false
+            end
+            is_functor || return EffectSummary()
+        end
+    end
+
     # `_apply_iterate` is Core plumbing used for splatting/varargs and some wrappers.
     # Treat it as a transparent call wrapper: infer effects for the callee (`raw_args[3]`)
     # on the expanded argument list, then map those effects back to the original
@@ -432,6 +475,13 @@ function _effects_for_call(
             CC.singleton_type(CC.argextype(raw_args[3], ir))
         catch
             nothing
+        end
+        if inner_f === nothing && raw_args[3] isa GlobalRef
+            inner_f = try
+                getfield(raw_args[3].mod, raw_args[3].name)
+            catch
+                nothing
+            end
         end
         if inner_f !== nothing
             expanded_types = Any[typeof(inner_f)]
@@ -582,12 +632,6 @@ function _effects_for_call(
                 _mark_budget_hit!(budget_state)
             end
         end
-    end
-
-    # If we have a call to a `Type` (constructor/conversion) but cannot obtain reflectable
-    # IR for it (e.g. builtin struct constructors), treat it as pure w.r.t. inputs.
-    if head === :call && f !== nothing && f isa Type
-        return EffectSummary()
     end
 
     consumes = Int[]

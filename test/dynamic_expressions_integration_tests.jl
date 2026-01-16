@@ -21,5 +21,16 @@
         end
 
         @test_throws BorrowCheckError bat(x1 + x2 * 3.2)
+
+        # MWE: `copy(::Expression)` currently triggers a spurious "consume" violation when
+        # analyzed under `@auto` (likely via the compiler-generated keyword wrapper).
+        # This should not be a move/escape: `copy` is expected to produce a fresh object.
+        BorrowChecker.Auto.@auto bc_copy_ok(ex) = copy(ex)
+        @test_broken try
+            bc_copy_ok(x1)
+            true
+        catch e
+            !(e isa BorrowCheckError)
+        end
     end
 end
