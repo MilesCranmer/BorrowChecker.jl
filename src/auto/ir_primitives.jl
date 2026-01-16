@@ -2,6 +2,28 @@ Base.@kwdef struct TypeTracker
     seen::Base.IdSet{Any} = Base.IdSet{Any}()
 end
 
+"""
+    _is_shareable_handle_type(T) -> Bool
+
+Return `true` for types that behave like shareable concurrency handles.
+
+These values routinely escape into globally-reachable runtime state (e.g. scheduler
+queues) as an implementation detail, while remaining safe to use via additional
+aliases held by user code. They should not participate in `@auto`'s Rust-like
+ownership/move rules.
+"""
+function _is_shareable_handle_type(@nospecialize(T))::Bool
+    # Task handles are stored in the scheduler run queues by `@async`/`schedule`.
+    (T <: Task) && return true
+
+    # Atomics provide synchronized interior mutability and are intended to be aliased.
+    if isdefined(Base, :Threads) && isdefined(Base.Threads, :Atomic)
+        (T <: Base.Threads.Atomic) && return true
+    end
+
+    return false
+end
+
 function (tt::TypeTracker)(@nospecialize(T))::Bool
     T === Union{} && return false
     T === Any && return true
@@ -10,6 +32,7 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     end
     T isa Type || return true
     T === Symbol && return false
+    _is_shareable_handle_type(T) && return false
 
     if T <: Ptr
         return true
@@ -91,6 +114,8 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     # Type objects (`DataType`, `UnionAll`, `TypeVar`, ...) are globally shared and
     # should not participate in ownership/move rules.
     T <: Type && return false
+
+    _is_shareable_handle_type(T) && return false
 
     _is_nonowning_ref_type(T) && return false
 
