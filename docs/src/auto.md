@@ -37,7 +37,7 @@ Controls whether the checker recursively borrow-checks callees (call-graph trave
 - `scope=:none`: disable `@auto` entirely (no IR borrow-checking).
 - `scope=:function` (default): check only the annotated method.
 - `scope=:module`: recursively check callees whose defining module matches the module where `@auto` is used.
-- `scope=:user`: recursively check callees, but **ignore `Base`** (still allows `Core`).
+- `scope=:user`: recursively check callees, but **ignore `Core` and `Base`** (including their submodules).
 - `scope=:all`: recursively check callees across all modules (very aggressive; expect more work/edge cases).
 
 !!! note

@@ -39,6 +39,20 @@ function _tt_module(tt::Type{<:Tuple})
     return nothing
 end
 
+function _module_is_under(m::Module, root::Module)::Bool
+    mm = m
+    while true
+        mm === root && return true
+        parent = try
+            Base.parentmodule(mm)
+        catch
+            return false
+        end
+        parent === mm && return false
+        mm = parent
+    end
+end
+
 function _scope_allows_module(m::Module, cfg::Config)::Bool
     # Never recursively borrow-check BorrowChecker itself.
     m === Auto && return false
@@ -49,8 +63,8 @@ function _scope_allows_module(m::Module, cfg::Config)::Bool
     elseif cfg.scope === :module
         return m === cfg.root_module
     elseif cfg.scope === :user
-        # "user" means: don't recursively check Base, but allow Core + other modules.
-        return (m !== Base)
+        # "user" means: only recurse into user code (no Core/Base, including submodules).
+        return !(_module_is_under(m, Base) || _module_is_under(m, Core))
     end
     throw(ArgumentError("unknown scope: $(cfg.scope)"))
 end
@@ -512,6 +526,43 @@ Automatically borrow-check a function (best-effort).
 
 On function entry, it checks the current specialization and caches the result so future
 calls are fast. On failure it throws `BorrowCheckError` with best-effort source context.
+
+## Options
+
+Options are parsed by the macro and compiled into a `BorrowChecker.Auto.Config` (and are
+part of the checked-cache key).
+
+- `scope` (default: `:function`): controls whether the checker recursively borrow-checks
+  callees (call-graph traversal).
+  - `:none`: disable `@auto` entirely (no IR borrow-checking; returns the original definition).
+  - `:function`: check only the annotated method.
+  - `:module`: recursively check callees whose defining module matches the module where `@auto` is used.
+  - `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
+  - `:all`: recursively check callees across all modules (very aggressive).
+- `max_summary_depth` (default: `12`): limits recursive effect summarization depth used
+  when the checker cannot directly resolve effects.
+
+Examples:
+
+```julia
+BorrowChecker.@auto scope=:module function f(x)
+    g(x)
+end
+
+BorrowChecker.@auto max_summary_depth=4 optimize_until="compact 1" function h(x)
+    g(x)
+end
+```
+
+# Extended help
+
+### `optimize_until`
+
+`optimize_until` (default: `BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until`) controls
+which compiler pass to stop at when fetching IR via `Base.code_ircode_by_type`.
+
+Pass names vary across Julia versions; `@auto` tries to normalize common spellings like
+`"compact 1"` / `"compact_1"` when possible.
 
 !!! warning
     This macro is highly experimental and compiler-dependent. There are likely bugs and
