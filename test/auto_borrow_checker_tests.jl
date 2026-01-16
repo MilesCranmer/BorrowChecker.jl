@@ -214,6 +214,71 @@
         @test _bc_auto_disabled() == [0, 2, 3]
     end
 
+    @testset "callable structs: good/bad for mutable/immutable" begin
+        mutable struct _BCMutCallable
+            n::Int
+        end
+        (f::_BCMutCallable)() = (f.n += 1; f.n)
+        (f::_BCMutCallable)(::Val{:peek}) = f.n
+
+        struct _BCImmCallable
+            v::Vector{Int}
+        end
+        (f::_BCImmCallable)() = (f.v[1] += 1; f.v[1])
+        (f::_BCImmCallable)(::Val{:peek}) = f.v
+
+        # Mutable functor: updated when called => should error if an alias is live.
+        @auto function _bc_mut_callable_bad()
+            f = _BCMutCallable(0)
+            g = f
+            f()
+            return g.n
+        end
+        @test_throws BorrowCheckError _bc_mut_callable_bad()
+
+        # Mutable functor: read-only call => should be OK even with an alias.
+        @auto function _bc_mut_callable_good()
+            f = _BCMutCallable(0)
+            g = f
+            f(Val(:peek))
+            return g.n
+        end
+        @test _bc_mut_callable_good() == 0
+
+        # Immutable functor: can still mutate reachable state (e.g. a Vector field).
+        @auto function _bc_imm_callable_bad()
+            f = _BCImmCallable([0])
+            g = f
+            f()
+            return g.v
+        end
+        @test_throws BorrowCheckError _bc_imm_callable_bad()
+
+        # Immutable functor: read-only call should be OK even with an alias.
+        @auto function _bc_imm_callable_good()
+            f = _BCImmCallable([0])
+            g = f
+            f(Val(:peek))
+            return g.v
+        end
+        @test _bc_imm_callable_good() == [0]
+    end
+
+    @testset "@generated callee mutation is detected" begin
+        Base.@noinline @generated function _bc_gen_my_push!(x, v)
+            return :(Base.push!(x, v))
+        end
+
+        @auto function _bc_generated_mutation_bad()
+            x = [1, 2, 3]
+            y = x
+            _bc_gen_my_push!(x, 4)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_generated_mutation_bad()
+    end
+
     @testset "checked-cache respects cfg (scope affects recursion)" begin
         # Repro: if `f` is checked once with `scope=:function`, then later recursion into `f`
         # under `scope=:module` must not be skipped due to a tt/world-only cache key.
@@ -859,12 +924,18 @@
         @test _bc_isa_does_not_consume() == [0, 2, 3]
     end
 
-    @testset "Core._typeof_captured_variable recursion is pure" begin
-        @auto scope = :user function _bc_scope_all_typeof_captured(x)
-            return Core._typeof_captured_variable(x)
-        end
+    @testset "scope=:user excludes Core/Base recursion" begin
+        cfg = BorrowChecker.Auto.Config(; scope=:user)
+        @test BorrowChecker.Auto._scope_allows_module(Core, cfg) == false
+        @test BorrowChecker.Auto._scope_allows_module(Base, cfg) == false
+        @test BorrowChecker.Auto._scope_allows_module(Main, cfg) == true
 
-        @test _bc_scope_all_typeof_captured(1) === Int
+        @static if isdefined(Core, :Compiler)
+            @test BorrowChecker.Auto._scope_allows_module(Core.Compiler, cfg) == false
+        end
+        @static if isdefined(Base, :Iterators)
+            @test BorrowChecker.Auto._scope_allows_module(Base.Iterators, cfg) == false
+        end
     end
 
     @testset "scope=:all does not crash on PhiCNode" begin
@@ -880,7 +951,7 @@
 
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
         # This should throw an `InexactError` at runtime, but borrow checking (including
-        # `scope=:user` recursion into Core) should not fail.
+        # recursive checking of user code) should not fail.
         @auto scope = :user _bc_inexact_int64(x::UInt64) = Int64(x)
         @test_throws InexactError _bc_inexact_int64(typemax(UInt64))
     end

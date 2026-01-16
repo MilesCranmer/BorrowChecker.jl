@@ -72,6 +72,14 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 - `max_summary_depth` (default `12`): recursion depth limit for effect summarization when effects cannot be directly resolved.
 - `optimize_until` (default varies): which compiler pass to stop at when fetching IR (`Base.code_ircode_by_type`).
 
+`scope` meanings:
+
+- `:none`: disable `@auto` entirely.
+- `:function`: check only the annotated method.
+- `:module`: recursively check callees defined in the module where `@auto` is used.
+- `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
+- `:all`: recursively check callees across all modules (very aggressive).
+
 The `@auto` checked-cache is keyed by specialization *and these options*, so checking a function once under `scope=:function` will not incorrectly skip a later recursive check under `scope=:module` / `:all`.
 
 `@auto` is meant to be a *drop-in tripwire* for existing code:
