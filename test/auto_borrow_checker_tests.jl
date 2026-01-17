@@ -268,6 +268,21 @@
         end
     end
 
+    @testset "known failure: Array{Int,l}(x) with value l" begin
+        @auto scope = :function function _bc_array_value_dim_ctor(x)
+            l = 1
+            return Array{Int,l}(x)
+        end
+
+        @test_broken begin
+            try
+                _bc_array_value_dim_ctor([1]) == [1]
+            catch
+                false
+            end
+        end
+    end
+
     @testset "@auto assignment instrumentation: store should not create fresh origins" begin
         mutable struct _BCProjectionS
             a::Vector{Int}

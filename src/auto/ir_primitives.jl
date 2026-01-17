@@ -38,6 +38,7 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
         return true
     end
     if T <: AbstractArray
+        # TODO: This skips immutable array types even when false. For example, a range.
         return true
     end
     if isdefined(Base, :RefValue) && (T <: Base.RefValue)
