@@ -42,10 +42,15 @@ function _foreigncall_nccallargs(argtypes)
 end
 
 function _foreigncall_name_symbol(@nospecialize(name_expr))
-    _sym_from_tuple(@nospecialize(v)) =
-        (v isa Symbol) ? v :
-        (v isa Tuple && !isempty(v)) ? _sym_from_tuple(v[1]) :
-        nothing
+    function _sym_from_tuple(@nospecialize(v))
+        return if (v isa Symbol)
+            v
+        elseif (v isa Tuple && !isempty(v))
+            _sym_from_tuple(v[1])
+        else
+            nothing
+        end
+    end
 
     if name_expr isa QuoteNode
         v = name_expr.value

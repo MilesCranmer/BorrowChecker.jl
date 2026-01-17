@@ -22,9 +22,7 @@ Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
 function _cfg_from_tag(
-    ::Type{GeneratedCfgTag{S,MSD,OPT}},
-    tt::Type{<:Tuple},
-    world::UInt,
+    ::Type{GeneratedCfgTag{S,MSD,OPT}}, tt::Type{<:Tuple}, world::UInt
 ) where {S,MSD,OPT}
     @nospecialize tt
     scope = S::Symbol

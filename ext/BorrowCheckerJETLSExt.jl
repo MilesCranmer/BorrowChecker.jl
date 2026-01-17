@@ -1,13 +1,7 @@
-__precompile__(false)
-
 module BorrowCheckerJETLSExt
 
-import BorrowChecker
-
-const _JETLS_PKGID = Base.PkgId(Base.UUID("a3b70258-0602-4ee2-b5a6-54c2470400db"), "JETLS")
-const _JETLS = get(Base.loaded_modules, _JETLS_PKGID, nothing)
-_JETLS === nothing && error("BorrowCheckerJETLSExt requires JETLS to be loaded")
-const JETLS = _JETLS
+using BorrowChecker: BorrowChecker
+using JETLS: JETLS
 
 const BORROW_CHECK_CODE = "inference/borrow-check-error"
 
@@ -62,26 +56,23 @@ function _violation_uri_and_range(v::BorrowChecker.Auto.BorrowViolation)
 end
 
 function JETLS.plugin_modify_jetconfigs!(
-        ::BorrowCheckerJETLSPlugin,
-        ::JETLS.ScriptAnalysisEntry,
-        jetconfigs::Dict{Symbol,Any},
-    )
+    ::BorrowCheckerJETLSPlugin, ::JETLS.ScriptAnalysisEntry, jetconfigs::Dict{Symbol,Any}
+)
     jetconfigs[:analyze_from_definitions] = true
     return nothing
 end
 function JETLS.plugin_modify_jetconfigs!(
-        ::BorrowCheckerJETLSPlugin,
-        ::JETLS.ScriptInEnvAnalysisEntry,
-        jetconfigs::Dict{Symbol,Any},
-    )
+    ::BorrowCheckerJETLSPlugin,
+    ::JETLS.ScriptInEnvAnalysisEntry,
+    jetconfigs::Dict{Symbol,Any},
+)
     jetconfigs[:analyze_from_definitions] = true
     return nothing
 end
 
 function JETLS.plugin_additional_report_uris(
-        ::BorrowCheckerJETLSPlugin,
-        report::JETLS.JET.InferenceErrorReport,
-    )
+    ::BorrowCheckerJETLSPlugin, report::JETLS.JET.InferenceErrorReport
+)
     err = _borrowcheck_error(report)
     err === nothing && return JETLS.URI[]
 
@@ -96,11 +87,11 @@ function JETLS.plugin_additional_report_uris(
 end
 
 function JETLS.plugin_expand_inference_error_report!(
-        ::BorrowCheckerJETLSPlugin,
-        uri2diagnostics::JETLS.URI2Diagnostics,
-        report::JETLS.JET.InferenceErrorReport,
-        ::JETLS.JET.PostProcessor,
-    )::Bool
+    ::BorrowCheckerJETLSPlugin,
+    uri2diagnostics::JETLS.URI2Diagnostics,
+    report::JETLS.JET.InferenceErrorReport,
+    ::JETLS.JET.PostProcessor,
+)::Bool
     err = _borrowcheck_error(report)
     err === nothing && return false
 
@@ -111,15 +102,18 @@ function JETLS.plugin_expand_inference_error_report!(
 
         diag = JETLS.LSP.Diagnostic(;
             range,
-            severity = JETLS.LSP.DiagnosticSeverity.Error,
-            code = BORROW_CHECK_CODE,
-            source = "BorrowChecker",
-            message = v.msg,
+            severity=JETLS.LSP.DiagnosticSeverity.Error,
+            code=BORROW_CHECK_CODE,
+            source="BorrowChecker",
+            message=v.msg,
         )
 
-        push!(get!(uri2diagnostics, uri) do
-            JETLS.LSP.Diagnostic[]
-        end, diag)
+        push!(
+            get!(uri2diagnostics, uri) do
+                JETLS.LSP.Diagnostic[]
+            end,
+            diag,
+        )
     end
 
     return true
