@@ -224,8 +224,9 @@ function _populate_registry!()
     ]
 
     for (nm, ret_aliases, writes, consumes) in foreigncall_specs
-        _known_foreigncall_effects_has(nm) ||
-            register_foreigncall_effects!(nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+        _known_foreigncall_effects_has(nm) || register_foreigncall_effects!(
+            nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases
+        )
     end
 
     return nothing

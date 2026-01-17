@@ -1,5 +1,4 @@
-export Config,
-    BorrowCheckError, register_effects!, register_foreigncall_effects!
+export Config, BorrowCheckError, register_effects!, register_foreigncall_effects!
 
 import Core.Compiler
 const CC = Core.Compiler
