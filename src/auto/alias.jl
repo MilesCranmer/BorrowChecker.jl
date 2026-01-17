@@ -319,15 +319,6 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                 continue
             end
 
-            # Common field/projection patterns in Base:
-            # `getproperty(x, :fld)` behaves like a pure projection and should not create a
-            # fresh binding origin for tracking purposes.
-            if raw_args !== nothing && f === Base.getproperty && length(raw_args) >= 3
-                hsrc = _handle_index(raw_args[2], nargs, track_arg, track_ssa)
-                hsrc != 0 && (origins[hdef] = origins[hsrc])
-                origins[hdef] != hdef && continue
-            end
-
             # If this statement produces an alias of an existing handle (per ret-alias
             # analysis), propagate binding origin from that input handle.
             if raw_args !== nothing && f !== nothing
