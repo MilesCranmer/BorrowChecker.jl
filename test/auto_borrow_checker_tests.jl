@@ -193,6 +193,98 @@
         @test Base.identity(_BCAutoDotT()) isa _BCAutoDotT
     end
 
+    @testset "boxed captured variable: getproperty field type refinement" begin
+        struct _BCBoxedField
+            n::Int
+        end
+
+        @auto function _bc_boxed_getproperty_dim(x::_BCBoxedField)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+            a = zeros(Float64, getfield(x, :n))
+            return (g(), length(a))
+        end
+
+        @test_broken begin
+            try
+                _bc_boxed_getproperty_dim(_BCBoxedField(3)) == (3, 3)
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "boxed captured variable: broadcast materialize should not consume" begin
+        struct _BCBoxedBroadcast
+            n::Int
+        end
+
+        @auto function _bc_boxed_broadcast_ok(x::_BCBoxedBroadcast)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+            b = rand(getfield(x, :n)) .< 0.5
+            return (g(), sum(b))
+        end
+
+        @test_broken begin
+            try
+                (n, s) = _bc_boxed_broadcast_ok(_BCBoxedBroadcast(10))
+                n == 10 && s isa Real
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "Threads.@threads plumbing should not spuriously consume" begin
+        struct _BCThreadsBoxedRange
+            n::Int
+        end
+
+        @auto function _bc_threads_boxed_range_ok(x::_BCThreadsBoxedRange, flag::Bool)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+
+            r = 1:(getfield(x, :n))
+            if flag
+                Base.Threads.@threads for i in r
+                    fakewrite(i)
+                end
+            else
+                for i in r
+                    fakewrite(i)
+                end
+            end
+
+            return g()
+        end
+
+        @test_broken begin
+            try
+                _bc_threads_boxed_range_ok(_BCThreadsBoxedRange(5), false) == 5
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "@auto assignment instrumentation: store should not create fresh origins" begin
+        mutable struct _BCProjectionS
+            a::Vector{Int}
+        end
+
+        bump!(a::Vector{Int}) = (a[1] += 1; nothing)
+
+        @auto function _bc_projection_store_ok(s::_BCProjectionS)
+            a = copy(s.a)  # avoid aliasing `s.a` during mutation
+            bump!(a)
+            s.a = a
+            return s.a[1]
+        end
+
+        @test _bc_projection_store_ok(_BCProjectionS([1, 2, 3])) == 2
+    end
+
     @testset "@auto known effects: eachindex should not consume/escape" begin
         @auto function _bc_eachindex_ok(refs, constants)
             for i in eachindex(refs, constants)
