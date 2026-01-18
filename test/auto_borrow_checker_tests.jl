@@ -125,6 +125,76 @@
         @test_throws BorrowCheckError _bc_bang_mutates_second_bad()
     end
 
+    @testset "adversarial overloads (no special-casing overloadables)" begin
+        mutable struct _BCGetPropMutates
+            x::Vector{Int}
+        end
+
+        function Base.getproperty(g::_BCGetPropMutates, s::Symbol)
+            if s === :x
+                v = getfield(g, :x)
+                push!(v, 999)
+                return v
+            end
+            return getfield(g, s)
+        end
+
+        BorrowChecker.Auto.@auto function _bc_getproperty_mutates_bad()
+            g = _BCGetPropMutates([1, 2, 3])
+            y = getfield(g, :x)
+            g.x  # calls overloaded getproperty (mutates)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_getproperty_mutates_bad()
+
+        mutable struct _BCSetPropDoesNotMutate
+            x::Vector{Int}
+        end
+
+        Base.setproperty!(::_BCSetPropDoesNotMutate, ::Symbol, v) = v
+
+        BorrowChecker.Auto.@auto function _bc_setproperty_no_mut_ok()
+            g = _BCSetPropDoesNotMutate([1, 2, 3])
+            y = g
+            g.x = [4, 5, 6]  # calls overloaded setproperty! (does not mutate)
+            return y
+        end
+
+        @test _bc_setproperty_no_mut_ok().x == [1, 2, 3]
+
+        mutable struct _BCCopyAliases
+            x::Vector{Int}
+        end
+
+        Base.copy(x::_BCCopyAliases) = x
+
+        BorrowChecker.Auto.@auto function _bc_copy_aliases_bad()
+            x = _BCCopyAliases([1, 2, 3])
+            y = copy(x)  # aliases by definition
+            x.x[1] = 0
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_copy_aliases_bad()
+
+        mutable struct _BCIterateWeird
+            x::Vector{Int}
+        end
+
+        Base.iterate(w::_BCIterateWeird) = (push!(getfield(w, :x), 1); (0, w))
+        Base.iterate(::_BCIterateWeird, _) = nothing
+
+        BorrowChecker.Auto.@auto function _bc_iterate_mutates_bad()
+            w = _BCIterateWeird([1, 2, 3])
+            y = w
+            iterate(w)  # calls overloaded iterate (mutates)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_iterate_mutates_bad()
+    end
+
     @testset "macro signature parsing: varargs" begin
         @auto function _bc_varargs_signature(xs...)
             return 0
