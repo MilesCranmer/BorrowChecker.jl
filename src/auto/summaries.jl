@@ -455,11 +455,7 @@ function _effects_for_call(
     if head === :call && f isa Type
         # If a `Type(...)` call has explicit known effects (e.g. `Task(f)`), honor them.
         if _known_effects_get(f) === nothing
-            is_functor = try
-                f <: Function
-            catch
-                false
-            end
+            is_functor = (f <: Function)
             is_functor || return EffectSummary()
         end
     end

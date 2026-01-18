@@ -24,23 +24,18 @@ const PER_TASK_CHECKED_CACHE = PerTaskCache{IdDict{Any,Tuple{UInt,CheckedCacheSi
 const BC_INPROGRESS_WORLD = typemax(UInt)
 
 function _tt_module(tt::Type{<:Tuple})
-    try
-        tt_u = Base.unwrap_unionall(tt)
-        if tt_u isa DataType && !isempty(tt_u.parameters)
-            fT = tt_u.parameters[1]
-            dt = Base.unwrap_unionall(fT)
-            if dt isa DataType
-                m = dt.name.module
-                if dt.name === Base.unwrap_unionall(Type).name && !isempty(dt.parameters)
-                    targ = Base.unwrap_unionall(dt.parameters[1])
-                    if targ isa DataType
-                        m = targ.name.module
-                    end
-                end
-                return m
-            end
-        end
-    catch
+    tt_u = Base.unwrap_unionall(tt)
+    tt_u isa DataType || return nothing
+    isempty(tt_u.parameters) && return nothing
+
+    fT = tt_u.parameters[1]
+    dt = Base.unwrap_unionall(fT)
+    dt isa DataType || return nothing
+
+    m = dt.name.module
+    if dt.name === Base.unwrap_unionall(Type).name && !isempty(dt.parameters)
+        targ = Base.unwrap_unionall(dt.parameters[1])
+        targ isa DataType && (m = targ.name.module)
     end
     return nothing
 end
@@ -49,11 +44,7 @@ function _module_is_under(m::Module, root::Module)::Bool
     mm = m
     while true
         mm === root && return true
-        parent = try
-            Base.parentmodule(mm)
-        catch
-            return false
-        end
+        parent = Base.parentmodule(mm)
         parent === mm && return false
         mm = parent
     end
