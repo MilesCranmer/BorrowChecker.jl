@@ -178,7 +178,7 @@ end
 
 function _auto_debug_emit_ir_for_tt(cfg::Config, world::UInt, tt::Type{<:Tuple}, depth::Int)
     codes = try
-        _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
     catch e
         _auto_debug_emit(
             cfg,

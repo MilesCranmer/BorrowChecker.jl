@@ -40,7 +40,37 @@ function _with_reflection_ctx(f::Function, world::UInt)
     end
 end
 
-function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
+function _inflate_ircode_fallback(match::Core.MethodMatch; world::UInt)
+    mi = try
+        Base.specialize_method(match)
+    catch
+        return nothing
+    end
+
+    ci = try
+        CC.retrieve_code_info(mi, world)
+    catch
+        return nothing
+    end
+    ci === nothing && return nothing
+
+    ir = try
+        CC.inflate_ir(ci)
+    catch
+        return nothing
+    end
+
+    # `compact!` can return a new IRCode.
+    ir = try
+        CC.compact!(ir)
+    catch
+        ir
+    end
+
+    return ir
+end
+
+function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config)
     interp = BCInterp(; world)
     matches = Base._methods_by_ftype(tt, -1, world)
     if isnothing(matches)
@@ -72,11 +102,43 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
 
     optimize_until = _normalize_optimize_until_for_ir(optimize_until)
     asts = Pair{Any,Any}[]
+    do_inflate = (length(matches) == 1)
     for match in matches
         match = match::Core.MethodMatch
         (code, ty) = CC.typeinf_ircode(interp, match, optimize_until)
         if code === nothing
-            push!(asts, match.method => Any)
+            ir = do_inflate ? _inflate_ircode_fallback(match; world) : nothing
+            if ir === nothing
+                push!(asts, match.method => ty)
+                if cfg.debug
+                    _auto_debug_emit(
+                        cfg,
+                        Dict(
+                            "event" => "auto_debug_no_ircode",
+                            "tt" => string(tt),
+                            "method" => string(match.method),
+                            "return_type" => string(ty),
+                            "world" => world,
+                            "optimize_until" => optimize_until,
+                        ),
+                    )
+                end
+            else
+                push!(asts, ir => ty)
+                if cfg.debug
+                    _auto_debug_emit(
+                        cfg,
+                        Dict(
+                            "event" => "auto_debug_inflated_ir",
+                            "tt" => string(tt),
+                            "method" => string(match.method),
+                            "return_type" => string(ty),
+                            "world" => world,
+                            "optimize_until" => optimize_until,
+                        ),
+                    )
+                end
+            end
         else
             push!(asts, code => ty)
         end
@@ -221,7 +283,28 @@ function _summary_cached(
     local_budget = BudgetTracker(false)
     try
         summ = compute(local_budget)
-    catch
+    catch e
+        if cfg.debug
+            world = _reflection_world()
+            bt = catch_backtrace()
+            st = try
+                Base.stacktrace(bt)
+            catch
+                nothing
+            end
+            frames = (st === nothing) ? nothing : [string(fr) for fr in st[1:min(end, 8)]]
+            _auto_debug_emit(
+                cfg,
+                Dict(
+                    "event" => "auto_debug_summary_exception",
+                    "key" => string(key),
+                    "world" => world,
+                    "depth" => depth,
+                    "error" => sprint(showerror, e),
+                    "backtrace" => frames,
+                ),
+            )
+        end
         summ = nothing
     finally
         inprogress_exit(key)
@@ -318,7 +401,7 @@ function _summary_for_tt(
     return _summary_cached_tt(
         key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
@@ -342,7 +425,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         key, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
         tt = mi.specTypes
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end

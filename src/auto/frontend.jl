@@ -221,7 +221,7 @@ function check_signature(
         debug_bt = nothing
 
         try
-            codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+            codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
             viols = BorrowViolation[]
             for entry in codes
                 ir = entry.first

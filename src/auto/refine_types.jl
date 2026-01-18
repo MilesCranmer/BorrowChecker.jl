@@ -154,9 +154,44 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
     n = length(ir.stmts)
     n == 0 && return ir
 
+    world = _reflection_world()
+    saw_box = false
+
     # Map `SSAValue` ids that hold a `Core.Box` object to their best-known `:contents` type.
     box_contents = Vector{_MaybeType}(undef, n)
     fill!(box_contents, nothing)
+
+    # Optional debug log of refinements.
+    refine_log = cfg.debug ? Vector{Dict{String,Any}}() : nothing
+
+    @inline function _log_change(kind::String, idx::Int, stmt, @nospecialize(oldT), newT::Type)
+        refine_log === nothing && return nothing
+        push!(
+            refine_log,
+            Dict(
+                "kind" => kind,
+                "stmt_idx" => idx,
+                "stmt" => string(stmt),
+                "old_type" => string(_widen_type_slot(oldT)),
+                "new_type" => string(newT),
+            ),
+        )
+        return nothing
+    end
+
+    @inline function _concrete_enough_for_return_refinement(tt_u::DataType)::Bool
+        params = tt_u.parameters
+        for p in params
+            if p === Any || p isa Union || p isa Core.TypeVar || p isa Core.TypeofVararg
+                return false
+            end
+        end
+        return true
+    end
+
+    ret_type_cache = Dict{Any,Type}()
+    n_return_refines = 0
+    max_return_refines = 16
 
     # A few iterations are enough for simple forward propagation.
     max_iter = 3
@@ -170,6 +205,7 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
 
             # (1) Track box init types.
             if _is_box_ctor(stmt, ir)
+                saw_box = true
                 initT = Any
                 if length(stmt.args) >= 2
                     initT = _as_type_or_any(_safe_argextype(stmt.args[2], ir))
@@ -216,7 +252,11 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                     bid = obj.id
                     bt = box_contents[bid]
                     if bt !== nothing
-                        changed |= _maybe_set_inst_type!(ir, i, bt::Type)
+                        oldT = _inst_get(inst, :type, Any)
+                        if _maybe_set_inst_type!(ir, i, bt::Type)
+                            changed = true
+                            _log_change("box_contents_getfield", i, stmt, oldT, bt::Type)
+                        end
                         continue
                     end
                 end
@@ -225,12 +265,92 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                 if _is_any_slot(_inst_get(inst, :type, Any))
                     objT = _as_type_or_any(_safe_argextype(obj, ir))
                     ft = _fieldtype_if_known(objT, field)
-                    ft !== nothing && (changed |= _maybe_set_inst_type!(ir, i, ft))
+                    if ft !== nothing
+                        oldT = _inst_get(inst, :type, Any)
+                        if _maybe_set_inst_type!(ir, i, ft)
+                            changed = true
+                            _log_change("struct_getfield", i, stmt, oldT, ft)
+                        end
+                    end
+                end
+            end
+
+            # (5) Refine __bc_bind__ to propagate the argument type.
+            if stmt isa Expr && stmt.head === :call && _is_any_slot(_inst_get(inst, :type, Any))
+                fobj = _resolve_callee(stmt, ir)
+                if fobj === __bc_bind__ && length(stmt.args) >= 2
+                    argT = _as_type_or_any(_safe_argextype(stmt.args[2], ir))
+                    oldT = _inst_get(inst, :type, Any)
+                    if _maybe_set_inst_type!(ir, i, argT)
+                        changed = true
+                        _log_change("__bc_bind__", i, stmt, oldT, argT)
+                    end
+                end
+            end
+
+            # (6) Refine call return types when the call tuple is concrete enough.
+            if stmt isa Expr &&
+               (stmt.head === :call || stmt.head === :invoke) &&
+               _is_any_slot(_inst_get(inst, :type, Any))
+                saw_box || continue
+                n_return_refines >= max_return_refines && continue
+                head, _mi, raw_args = _call_parts(stmt)
+                head === nothing && continue
+
+                fobj = _resolve_callee(stmt, ir)
+                fobj === nothing && continue
+
+                # Skip primitives we already handle explicitly.
+                if fobj === Core.getfield || fobj === Core.setfield! || fobj === __bc_bind__
+                    continue
+                end
+
+                tt = _call_tt_from_raw_args(raw_args, ir, fobj)
+                tt === nothing && continue
+
+                tt_u = Base.unwrap_unionall(tt)
+                tt_u isa DataType || continue
+                Base.has_free_typevars(tt_u) && continue
+                _concrete_enough_for_return_refinement(tt_u) || continue
+
+                rt = get(ret_type_cache, tt_u, nothing)
+                if rt === nothing
+                    rt_raw = try
+                        CC.return_type(tt_u, world)
+                    catch
+                        Any
+                    end
+                    rt = _as_type_or_any(rt_raw)
+                    ret_type_cache[tt_u] = rt
+                end
+                rt === Any && continue
+
+                oldT = _inst_get(inst, :type, Any)
+                if _maybe_set_inst_type!(ir, i, rt)
+                    changed = true
+                    _log_change("call_return", i, stmt, oldT, rt)
+                    n_return_refines += 1
                 end
             end
         end
 
         changed || break
+    end
+
+    if cfg.debug && refine_log !== nothing && !isempty(refine_log)
+        _auto_debug_emit(
+            cfg,
+            Dict(
+                "event" => "auto_debug_refine_types",
+                "tt" => try
+                    string(Tuple{ir.argtypes...})
+                catch
+                    nothing
+                end,
+                "world" => world,
+                "changes" => refine_log,
+            ),
+        )
     end
 
     return ir
