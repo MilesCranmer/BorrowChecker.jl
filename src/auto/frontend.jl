@@ -3,11 +3,17 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const CheckedCacheSig = Tuple{String,Int,Symbol}
+const CheckedCacheSig = Tuple{String,Int,Symbol,Bool,Int}
 
 @inline function _checked_cache_sig(cfg::Config)
     # Intentionally ignores `root_module`: we cache only based on the checking policy.
-    return (cfg.optimize_until, cfg.max_summary_depth, cfg.scope)::CheckedCacheSig
+    return (
+        cfg.optimize_until,
+        cfg.max_summary_depth,
+        cfg.scope,
+        cfg.debug,
+        cfg.debug_callee_depth,
+    )::CheckedCacheSig
 end
 
 const CHECKED_CACHE = Lockable(IdDict{Any,Tuple{UInt,CheckedCacheSig}}()) # Type{Tuple...} => (world, sig)
@@ -193,7 +199,19 @@ function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
         end
         _scope_allows_module(m, cfg) || continue
 
-        __bc_assert_safe__(tt; cfg=cfg, world=world)
+        try
+            __bc_assert_safe__(tt; cfg=cfg, world=world)
+        catch e
+            # `scope=:all` is intentionally aggressive and compiler-dependent. Base/Core IR
+            # routinely uses low-level memory primitives that can trigger spurious violations.
+            # Treat these as non-fatal so `scope=:all` remains usable for user-code debugging.
+            if cfg.scope === :all &&
+                (e isa BorrowCheckError) &&
+                (_module_is_under(m, Base) || _module_is_under(m, Core))
+                continue
+            end
+            rethrow()
+        end
     end
 
     return nothing
@@ -205,16 +223,48 @@ function check_signature(
     @nospecialize tt
     _ensure_registry_initialized()
     return _with_reflection_ctx(world) do
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
-        viols = BorrowViolation[]
-        for entry in codes
-            ir = entry.first
-            ir isa CC.IRCode || continue
-            append!(viols, check_ir(ir, cfg))
-            _check_ir_callees!(ir, cfg, world)
+        summary_snapshot = cfg.debug ? _auto_debug_summary_keys(UInt(world), cfg) : nothing
+        debug_ok = true
+        debug_violations = BorrowViolation[]
+        debug_err = nothing
+        debug_bt = nothing
+
+        try
+            codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+            viols = BorrowViolation[]
+            for entry in codes
+                ir = entry.first
+                ir isa CC.IRCode || continue
+                append!(viols, check_ir(ir, cfg))
+                _check_ir_callees!(ir, cfg, world)
+            end
+            isempty(viols) || throw(BorrowCheckError(tt, viols))
+            return true
+        catch e
+            debug_ok = false
+            debug_err = e
+            debug_bt = catch_backtrace()
+            if e isa BorrowCheckError
+                append!(debug_violations, e.violations)
+            end
+            rethrow()
+        finally
+            if cfg.debug
+                try
+                    _auto_debug_emit_check!(
+                        tt,
+                        cfg,
+                        UInt(world),
+                        summary_snapshot,
+                        debug_ok,
+                        debug_violations,
+                        debug_err,
+                        debug_bt,
+                    )
+                catch
+                end
+            end
         end
-        isempty(viols) || throw(BorrowCheckError(tt, viols))
-        return true
     end
 end
 
@@ -432,13 +482,23 @@ function _instrument_assignments(ex, cfg_tag)
     return Expr(ex.head, map(a -> _instrument_assignments(a, cfg_tag), ex.args)...)
 end
 
-function _prepend_check_stmt(sig, body, cfg_tag)
+function _prepend_check_stmt(sig, body, cfg_tag, debug::Bool=false)
     tt_expr = _tt_expr_from_signature(sig, cfg_tag)
     assert_ref = GlobalRef(@__MODULE__, :_generated_assert_safe)
     check_stmt = Expr(:call, assert_ref, tt_expr)
 
     body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
-    new_body = Expr(:block, check_stmt, body_block.args...)
+    debug_warn_stmt = if debug
+        path_ref = GlobalRef(@__MODULE__, :_auto_debug_path)
+        Expr(:call, path_ref, true)
+    else
+        nothing
+    end
+    new_body = if debug_warn_stmt === nothing
+        Expr(:block, check_stmt, body_block.args...)
+    else
+        Expr(:block, debug_warn_stmt, check_stmt, body_block.args...)
+    end
     return _instrument_assignments(new_body, cfg_tag)
 end
 
@@ -462,6 +522,8 @@ function parse_config(options, calling_module)::Config
     scope = cfg0.scope
     max_summary_depth = cfg0.max_summary_depth
     optimize_until = cfg0.optimize_until
+    debug = cfg0.debug
+    debug_callee_depth = cfg0.debug_callee_depth
     for option in options
         if option isa Expr &&
             length(option.args) == 2 &&
@@ -477,10 +539,16 @@ function parse_config(options, calling_module)::Config
             elseif k === :optimize_until
                 optimize_until = _parse_cfg_value(v, calling_module)::String
                 continue
+            elseif k === :debug
+                debug = _parse_cfg_value(v, calling_module)::Bool
+                continue
+            elseif k === :debug_callee_depth
+                debug_callee_depth = _parse_cfg_value(v, calling_module)::Int
+                continue
             end
         end
         error(
-            "@auto only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`; got: $option",
+            "@auto only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
         )
     end
 
@@ -489,7 +557,11 @@ function parse_config(options, calling_module)::Config
     )
 
     root_module = (scope === :module) ? calling_module : cfg0.root_module
-    return Config(optimize_until, max_summary_depth, scope, root_module)
+    debug_callee_depth >= 0 ||
+        error("`debug_callee_depth` must be >= 0; got: $debug_callee_depth")
+    return Config(
+        optimize_until, max_summary_depth, scope, root_module, debug, debug_callee_depth
+    )
 end
 
 function _auto(args...; calling_module, source_info=nothing)
@@ -512,6 +584,8 @@ function _auto(args...; calling_module, source_info=nothing)
             QuoteNode(cfg.scope),
             cfg.max_summary_depth,
             QuoteNode(Symbol(cfg.optimize_until)),
+            cfg.debug,
+            cfg.debug_callee_depth,
         )
     end
 
@@ -519,7 +593,7 @@ function _auto(args...; calling_module, source_info=nothing)
     if ex isa Expr && ex.head === :function
         sig = ex.args[1]
         body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body, cfg_tag)
+        inst_body = _prepend_check_stmt(sig, body, cfg_tag, cfg.debug)
         return Expr(:function, sig, inst_body)
     end
 
@@ -527,7 +601,7 @@ function _auto(args...; calling_module, source_info=nothing)
     if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
         sig = ex.args[1]
         body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body, cfg_tag)
+        inst_body = _prepend_check_stmt(sig, body, cfg_tag, cfg.debug)
         return Expr(:function, sig, inst_body)
     end
 
@@ -560,6 +634,10 @@ part of the checked-cache key).
   - `:all`: recursively check callees across all modules (very aggressive).
 - `max_summary_depth` (default: `12`): limits recursive effect summarization depth used
   when the checker cannot directly resolve effects.
+- `debug` (default: `false`): enable best-effort debug logging to a JSONL file
+  (path controlled by `BORROWCHECKER_AUTO_DEBUG_PATH`).
+- `debug_callee_depth` (default: `2`): when `debug=true`, also dump IR for summary-recursion
+  entries up to this depth (0 = only the entrypoint specialization).
 
 Examples:
 

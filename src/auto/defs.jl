@@ -25,6 +25,20 @@ Base.@kwdef struct Config
 
     "Root module used by `scope=:module`."
     root_module::Module = Main
+
+    """
+    Enable debug logging to a JSONL file (best-effort).
+
+    The output path is controlled by the `BORROWCHECKER_AUTO_DEBUG_PATH` environment variable.
+    """
+    debug::Bool = false
+
+    """
+    Max depth of summary-recursion for which `@auto debug=true` also dumps IR.
+
+    Depth is measured in the recursive effect summarizer (0 = the entrypoint specialization).
+    """
+    debug_callee_depth::Int = 2
 end
 
 @inline __bc_bind__(x) =
@@ -224,8 +238,9 @@ function _populate_registry!()
     ]
 
     for (nm, ret_aliases, writes, consumes) in foreigncall_specs
-        _known_foreigncall_effects_has(nm) ||
-            register_foreigncall_effects!(nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+        _known_foreigncall_effects_has(nm) || register_foreigncall_effects!(
+            nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases
+        )
     end
 
     return nothing

@@ -341,6 +341,135 @@
         @test _bc_macro_opt_optimize_until(2) == 2
     end
 
+    @testset "@auto debug logging" begin
+        using Test
+
+        Base.@noinline _bc_dbg_localfun(x) = x
+
+        @auto debug = true debug_callee_depth = 1 function _bc_dbg_fail(n::Int)
+            x = zeros(Float64, n)
+            x2 = _bc_dbg_localfun(x)
+            y = x2
+            x2[1] = 0.0
+            return length(y)
+        end
+
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                @test_throws BorrowCheckError _bc_dbg_fail(3)
+            end
+
+            s = read(path, String)
+            ir_lines = filter(
+                l -> occursin("\"event\":\"auto_debug_ir\"", l),
+                split(s, '\n'; keepempty=false),
+            )
+            @test occursin("\"event\":\"auto_debug_check\"", s)
+            @test occursin("\"event\":\"auto_debug_violations\"", s)
+            @test occursin("\"event\":\"auto_debug_summaries\"", s)
+            @test occursin("_bc_dbg_localfun", s)
+            @test any(l -> occursin("\"depth\":0", l), ir_lines)
+            @test any(l -> occursin("\"depth\":1", l), ir_lines)
+        end
+
+        @auto debug = true debug_callee_depth = 0 function _bc_dbg_depth0(n::Int)
+            x = zeros(Float64, n)
+            x2 = _bc_dbg_localfun(x)
+            y = x2
+            x2[1] = 0.0
+            return length(y)
+        end
+
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _ = try
+                    _bc_dbg_depth0(3)
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            s = read(path, String)
+            ir_lines = filter(
+                l -> occursin("\"event\":\"auto_debug_ir\"", l),
+                split(s, '\n'; keepempty=false),
+            )
+            @test any(l -> occursin("\"depth\":0", l), ir_lines)
+            @test !any(l -> occursin("\"depth\":1", l), ir_lines)
+        end
+
+        @auto debug = true debug_callee_depth = 0 function _bc_dbg_ok(x)
+            return x + 1
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                @test _bc_dbg_ok(1) == 2
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_check\"", s) &&
+                occursin("\"ok\":true", s)
+            @test !occursin("\"event\":\"auto_debug_error\"", s)
+        end
+
+        # Warning + default-path behavior when env var is unset.
+        default_path = joinpath(tempdir(), "BorrowChecker.auto.debug.$(getpid()).jsonl")
+        rm(default_path; force=true)
+        old = pop!(ENV, "BORROWCHECKER_AUTO_DEBUG_PATH", nothing)
+        logs, _ = Test.collect_test_logs() do
+            try
+                _bc_dbg_depth0(3)
+            catch
+            end
+            try
+                _bc_dbg_depth0(3)
+            catch
+            end
+        end
+        old === nothing || (ENV["BORROWCHECKER_AUTO_DEBUG_PATH"] = old)
+        @test count(
+            lr ->
+                lr.level == Base.CoreLogging.Warn && occursin(
+                    "BorrowChecker.@auto debug enabled; writing JSONL debug log to",
+                    lr.message,
+                ),
+            logs,
+        ) == 1
+        @test isfile(default_path)
+
+        # Exercise the error-swallowing path in debug logging by pointing the log path to a directory.
+        mktempdir() do d
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => d) do
+                @test _bc_dbg_ok(1) == 2
+            end
+        end
+
+        # `optimize_until` is logged exactly as provided.
+        @auto debug = true optimize_until = "definitely_invalid_pass" function _bc_dbg_bad_opt(
+            x
+        )
+            return x + 1
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _ = try
+                    _bc_dbg_bad_opt(1)
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_check\"", s)
+            @test occursin("\"optimize_until\":\"definitely_invalid_pass\"", s)
+            @test occursin("\"error\":", s)
+            @test occursin("\"time_s\":", s)
+        end
+    end
+
     @testset "scope=:none disables @auto" begin
         # This would normally fail borrow checking due to aliasing + mutation.
         BorrowChecker.Auto.@auto scope = :none function _bc_auto_disabled()
