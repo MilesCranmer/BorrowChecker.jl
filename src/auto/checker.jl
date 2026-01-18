@@ -116,6 +116,9 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)
 
+    # Improve local IR typing around Core.Box/captured values and dynamic GlobalRef calls.
+    refine_types!(ir, cfg)
+
     track_arg, track_ssa = compute_tracking_masks(ir)
 
     uf = UnionFind(nargs + nstmts)

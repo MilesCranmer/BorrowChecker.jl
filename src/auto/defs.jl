@@ -41,8 +41,29 @@ Base.@kwdef struct Config
     debug_callee_depth::Int = 2
 end
 
-@inline __bc_bind__(x) =
-    isdefined(Base, :inferencebarrier) ? (Base.inferencebarrier(x)::typeof(x)) : x
+@generated function __bc_bind__(x::T) where {T}
+    # Preserve constant propagation for isbits values (e.g. value type parameters).
+    # For non-isbits values, keep the inference barrier so the compiler doesn't
+    # collapse bindings in ways that confuse our alias/origin tracking.
+    if Base.isbitstype(T)
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+    if isdefined(Base, :inferencebarrier)
+        return quote
+            Base.@_inline_meta
+            Base.inferencebarrier(x)::T
+        end
+    else
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+end
+
 
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:

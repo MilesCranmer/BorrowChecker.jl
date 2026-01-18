@@ -26,7 +26,7 @@
         # analyzed under `@auto` (likely via the compiler-generated keyword wrapper).
         # This should not be a move/escape: `copy` is expected to produce a fresh object.
         BorrowChecker.Auto.@auto bc_copy_ok(ex) = copy(ex)
-        @test_broken try
+        @test try
             bc_copy_ok(x1)
             true
         catch e

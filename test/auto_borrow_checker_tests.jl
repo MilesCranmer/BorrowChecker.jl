@@ -205,7 +205,7 @@
             return (g(), length(a))
         end
 
-        @test_broken begin
+        @test begin
             try
                 _bc_boxed_getproperty_dim(_BCBoxedField(3)) == (3, 3)
             catch
@@ -226,7 +226,7 @@
             return (g(), sum(b))
         end
 
-        @test_broken begin
+        @test begin
             try
                 (n, s) = _bc_boxed_broadcast_ok(_BCBoxedBroadcast(10))
                 n == 10 && s isa Real
@@ -259,7 +259,7 @@
             return g()
         end
 
-        @test_broken begin
+        @test begin
             try
                 _bc_threads_boxed_range_ok(_BCThreadsBoxedRange(5), false) == 5
             catch
@@ -274,7 +274,7 @@
             return Array{Int,l}(x)
         end
 
-        @test_broken begin
+        @test begin
             try
                 _bc_array_value_dim_ctor([1]) == [1]
             catch

@@ -89,7 +89,7 @@ function _maybe_ret_alias_summary(
             return nothing
         end
 
-        tt = _call_tt_from_raw_args(raw_args, ir)
+        tt = _call_tt_from_raw_args(raw_args, ir, f)
         tt !== nothing &&
             return _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
         return nothing
@@ -101,7 +101,7 @@ function _maybe_ret_alias_summary(
         tt = if f === Core.kwcall
             _kwcall_tt_from_raw_args(raw_args, ir)
         else
-            _call_tt_from_raw_args(raw_args, ir)
+            _call_tt_from_raw_args(raw_args, ir, f)
         end
         tt === nothing || _mark_budget_hit!(budget_state)
     end

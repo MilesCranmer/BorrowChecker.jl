@@ -122,7 +122,7 @@ end
 function _apply_iterate_inner_tt(raw_args, ir::CC.IRCode)
     length(raw_args) >= 3 || return nothing
     inner_f = try
-        CC.singleton_type(CC.argextype(raw_args[3], ir))
+        CC.singleton_type(_safe_argextype(raw_args[3], ir))
     catch
         nothing
     end
@@ -188,7 +188,7 @@ function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
                 nothing
             end
         else
-            _call_tt_from_raw_args(raw_args, ir)
+            _call_tt_from_raw_args(raw_args, ir, f)
         end
         tt === nothing && continue
         tt isa Type{<:Tuple} || continue

@@ -13,6 +13,11 @@ aliases held by user code. They should not participate in `@auto`'s Rust-like
 ownership/move rules.
 """
 function _is_shareable_handle_type(@nospecialize(T))::Bool
+    # Type slots in `IRCode` may contain compiler lattice elements
+    # (e.g. `Core.PartialStruct`, `Core.Const`, ...). Only actual Julia `Type`s
+    # are eligible for this shareable-handle fast-path.
+    T isa Type || return false
+
     # Task handles are stored in the scheduler run queues by `@async`/`schedule`.
     (T <: Task) && return true
 
@@ -30,15 +35,38 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     if T isa Union
         return any(tt, Base.uniontypes(T))
     end
-    T isa Type || return true
+
+    # Core.Compiler often uses lattice elements (e.g. Const/PartialStruct) for IR types.
+    # When possible, widen them to an underlying Julia type so we don't conservatively
+    # treat everything as tracked.
+    if !(T isa Type)
+        Tw = try
+            CC.widenconst(T)
+        catch
+            nothing
+        end
+        if Tw isa Type
+            T = Tw
+        else
+            return true
+        end
+    end
+
+    if T isa UnionAll
+        return tt(Base.unwrap_unionall(T))
+    end
     T === Symbol && return false
+
+    # Modules and type objects are globally-shareable handles.
+    # Treat them as *not tracked* so they don't participate in move/consume rules.
+    (T <: Module) && return false
+    (T <: Type) && return false
+
     _is_shareable_handle_type(T) && return false
 
+    # Low-level references. We treat these as tracked because they can point to mutable
+    # memory even though the value itself is isbits.
     if T <: Ptr
-        return true
-    end
-    if T <: AbstractArray
-        # TODO: This skips immutable array types even when false. For example, a range.
         return true
     end
     if isdefined(Base, :RefValue) && (T <: Base.RefValue)
@@ -57,24 +85,19 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     dt = Base.unwrap_unionall(T)
     if dt isa DataType
         if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
+            # Some low-level compiler artifacts behave more like borrows than owned resources.
             return false
         end
         Base.isconcretetype(dt) || return true
-
         Base.ismutabletype(dt) && return true
         if Base.isbitstype(dt)
-            # Most bitstypes are pure values. However, some bitstypes (notably tuples/structs
-            # that contain `Ptr`) represent references into mutable memory and need tracking
-            # for IR-level effects (e.g. BLAS `ccall` lowering through pointer tuples).
             return any(tt, fieldtypes(dt))
         end
-
-        if dt in tt.seen
-            return true
-        end
+        dt in tt.seen && return true
         push!(tt.seen, dt)
         return any(tt, fieldtypes(dt))
     end
+
     return true
 end
 
@@ -109,33 +132,66 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T === Union{} && return false
     T === Any && return true
     T isa Union && return any(tt, Base.uniontypes(T))
-    T isa Type || return true
+
+    # Core.Compiler often uses lattice elements (e.g. Const/PartialStruct) for IR types.
+    # When possible, widen them to an underlying Julia type so we don't conservatively
+    # treat everything as owned.
+    if !(T isa Type)
+        Tw = try
+            CC.widenconst(T)
+        catch
+            nothing
+        end
+        if Tw isa Type
+            T = Tw
+        else
+            return true
+        end
+    end
+
+    if T isa UnionAll
+        return tt(Base.unwrap_unionall(T))
+    end
     T === Symbol && return false
-    T <: Module && return false
-    # Type objects (`DataType`, `UnionAll`, `TypeVar`, ...) are globally shared and
-    # should not participate in ownership/move rules.
-    T <: Type && return false
+
+    # Modules and type objects are globally-shareable handles.
+    # Treat them as *not owned* so unknown/dynamic calls don't spuriously consume them.
+    (T <: Module) && return false
+    (T <: Type) && return false
 
     _is_shareable_handle_type(T) && return false
 
-    _is_nonowning_ref_type(T) && return false
+    # These low-level reference types are never treated as owned.
+    if T <: Ptr
+        return false
+    end
+    if isdefined(Base, :RefValue) && (T <: Base.RefValue)
+        return false
+    end
+    if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
+        return false
+    end
+    if isdefined(Core, :GenericMemoryRef) && (T <: Core.GenericMemoryRef)
+        return false
+    end
+    if isdefined(Core, :GenericMemory) && (T <: Core.GenericMemory)
+        return false
+    end
 
     dt = Base.unwrap_unionall(T)
     if dt isa DataType
         if isdefined(Core, :Box) && (dt === Core.Box || T <: Core.Box)
+            # Some low-level compiler artifacts behave more like borrows than owned resources.
             return false
         end
         Base.isconcretetype(dt) || return true
-
         Base.ismutabletype(dt) && return true
         Base.isbitstype(dt) && return false
-
-        if dt in tt.seen
-            return true
-        end
+        dt in tt.seen && return true
         push!(tt.seen, dt)
         return any(tt, fieldtypes(dt))
     end
+
     return true
 end
 
@@ -167,6 +223,13 @@ function _inst_get(@nospecialize(inst), sym::Symbol, default=nothing)
         return getproperty(inst, sym)
     end
     return default
+end
+
+@inline function _safe_argextype(@nospecialize(x), ir::CC.IRCode)
+    # `Core.Compiler.argextype` expects a valid IR argument (SSAValue/Argument/Const/...),
+    # not an `Expr(:call, ...)`. On newer Julia versions this can throw/warn loudly.
+    x isa Expr && return Any
+    return CC.argextype(x, ir)
 end
 
 function _lineinfo_from_debuginfo(ir::CC.IRCode, pc::Int)

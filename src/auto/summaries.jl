@@ -349,7 +349,7 @@ end
 
 function _widenargtype_or_any(@nospecialize(x), ir::CC.IRCode)
     try
-        t = CC.widenconst(CC.argextype(x, ir))
+        t = CC.widenconst(_safe_argextype(x, ir))
         return (t isa Type) ? t : Any
     catch
         return Any
@@ -472,7 +472,7 @@ function _effects_for_call(
     if f === Core._apply_iterate && length(raw_args) >= 3
         # Inner callee
         inner_f = try
-            CC.singleton_type(CC.argextype(raw_args[3], ir))
+            CC.singleton_type(_safe_argextype(raw_args[3], ir))
         catch
             nothing
         end
@@ -619,7 +619,7 @@ function _effects_for_call(
     end
 
     if head === :call && f !== nothing
-        tt = _call_tt_from_raw_args(raw_args, ir)
+        tt = _call_tt_from_raw_args(raw_args, ir, f)
         if tt !== nothing
             if depth < cfg.max_summary_depth
                 s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
