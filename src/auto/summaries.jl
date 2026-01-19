@@ -49,36 +49,6 @@ function _with_reflection_ctx(f::Function, world::UInt)
     end
 end
 
-function _inflate_ircode_fallback(match::Core.MethodMatch; world::UInt)
-    mi = try
-        Base.specialize_method(match)
-    catch
-        return nothing
-    end
-
-    ci = try
-        CC.retrieve_code_info(mi, world)
-    catch
-        return nothing
-    end
-    ci === nothing && return nothing
-
-    ir = try
-        CC.inflate_ir(ci)
-    catch
-        return nothing
-    end
-
-    # `compact!` can return a new IRCode.
-    ir = try
-        CC.compact!(ir)
-    catch
-        ir
-    end
-
-    return ir
-end
-
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config)
     ctx = _reflection_ctx()
     interp = (ctx !== nothing && ctx.world === world) ? ctx.interp : BCInterp(; world)
@@ -125,21 +95,17 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
 
     optimize_until = _normalize_optimize_until_for_ir(optimize_until)
     asts = Pair{Any,Any}[]
-    do_inflate = (length(matches) == 1)
     for match in matches
         match = match::Core.MethodMatch
         (code, ty) = CC.typeinf_ircode(interp, match, optimize_until)
         if code === nothing
             ir = nothing
-            if do_inflate
-                m = match.method
-                mod = m.module
-                # Avoid inflating IR for Core/Base methods: this is both expensive and has
-                # been observed to be unstable on some Julia versions (can segfault).
-                if mod !== Core && mod !== Base && mod !== Auto
-                    ir = _inflate_ircode_fallback(match; world)
-                end
-            end
+            mod = match.method.module
+            @assert (mod === Core || mod === Base || mod === Auto) (
+                "BorrowChecker.Auto: unexpected `typeinf_ircode` returned `nothing` for " *
+                "non-Base/Core method. method=$(match.method) module=$(mod) tt=$(tt) " *
+                "world=$(world) optimize_until=$(optimize_until)"
+            )
             if ir === nothing
                 push!(asts, match.method => ty)
                 if cfg.debug
