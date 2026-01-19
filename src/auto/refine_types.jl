@@ -155,11 +155,19 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
     n == 0 && return ir
 
     world = _reflection_world()
-    saw_box = false
 
     # Map `SSAValue` ids that hold a `Core.Box` object to their best-known `:contents` type.
     box_contents = Vector{_MaybeType}(undef, n)
     fill!(box_contents, nothing)
+
+    # Track which SSA statements we've refined to something more precise than `Any`.
+    # We use this to gate expensive return-type inference so `scope=:all` stays fast.
+    interesting = falses(n)
+
+    # Cache `return_type` results within this IR to avoid repeated compiler work.
+    rt_cache = Dict{DataType,Type}()
+    rt_calls = 0
+    rt_cache_hits = 0
 
     # Optional debug log of refinements.
     refine_log = cfg.debug ? Vector{Dict{String,Any}}() : nothing
@@ -189,10 +197,6 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
         return true
     end
 
-    ret_type_cache = Dict{Any,Type}()
-    n_return_refines = 0
-    max_return_refines = 16
-
     # A few iterations are enough for simple forward propagation.
     max_iter = 3
     for _iter in 1:max_iter
@@ -205,7 +209,6 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
 
             # (1) Track box init types.
             if _is_box_ctor(stmt, ir)
-                saw_box = true
                 initT = Any
                 if length(stmt.args) >= 2
                     initT = _as_type_or_any(_safe_argextype(stmt.args[2], ir))
@@ -255,6 +258,7 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                         oldT = _inst_get(inst, :type, Any)
                         if _maybe_set_inst_type!(ir, i, bt::Type)
                             changed = true
+                            interesting[i] = true
                             _log_change("box_contents_getfield", i, stmt, oldT, bt::Type)
                         end
                         continue
@@ -269,6 +273,7 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                         oldT = _inst_get(inst, :type, Any)
                         if _maybe_set_inst_type!(ir, i, ft)
                             changed = true
+                            interesting[i] = true
                             _log_change("struct_getfield", i, stmt, oldT, ft)
                         end
                     end
@@ -279,23 +284,48 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
             if stmt isa Expr && stmt.head === :call && _is_any_slot(_inst_get(inst, :type, Any))
                 fobj = _resolve_callee(stmt, ir)
                 if fobj === __bc_bind__ && length(stmt.args) >= 2
-                    argT = _as_type_or_any(_safe_argextype(stmt.args[2], ir))
+                    arg_expr = _canonical_ref(stmt.args[2], ir)
+                    argT = _as_type_or_any(_safe_argextype(arg_expr, ir))
                     oldT = _inst_get(inst, :type, Any)
                     if _maybe_set_inst_type!(ir, i, argT)
                         changed = true
+                        if arg_expr isa Core.SSAValue
+                            sid = arg_expr.id
+                            if 1 <= sid <= n && interesting[sid]
+                                interesting[i] = true
+                            end
+                        end
                         _log_change("__bc_bind__", i, stmt, oldT, argT)
                     end
                 end
             end
 
             # (6) Refine call return types when the call tuple is concrete enough.
+            #
+            # IMPORTANT: `Core.Compiler.return_type` is expensive. To keep `scope=:all` runs
+            # fast, we only attempt return-type refinement for call sites that *depend on*
+            # previously-refined SSA values (e.g. values coming from boxed `:contents` loads).
             if stmt isa Expr &&
                (stmt.head === :call || stmt.head === :invoke) &&
                _is_any_slot(_inst_get(inst, :type, Any))
-                saw_box || continue
-                n_return_refines >= max_return_refines && continue
                 head, _mi, raw_args = _call_parts(stmt)
                 head === nothing && continue
+
+                # Gate on dataflow from refined SSA values.
+                has_interest = false
+                if length(raw_args) >= 2
+                    for a in raw_args[2:end]  # skip callee
+                        ca = _canonical_ref(a, ir)
+                        if ca isa Core.SSAValue
+                            sid = ca.id
+                            if 1 <= sid <= n && interesting[sid]
+                                has_interest = true
+                                break
+                            end
+                        end
+                    end
+                end
+                has_interest || continue
 
                 fobj = _resolve_callee(stmt, ir)
                 fobj === nothing && continue
@@ -313,15 +343,19 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                 Base.has_free_typevars(tt_u) && continue
                 _concrete_enough_for_return_refinement(tt_u) || continue
 
-                rt = get(ret_type_cache, tt_u, nothing)
-                if rt === nothing
-                    rt_raw = try
+                local rt::Type
+                if haskey(rt_cache, tt_u)
+                    rt_cache_hits += 1
+                    rt = rt_cache[tt_u]
+                else
+                    rt_calls += 1
+                    rt = try
                         CC.return_type(tt_u, world)
                     catch
                         Any
                     end
-                    rt = _as_type_or_any(rt_raw)
-                    ret_type_cache[tt_u] = rt
+                    rt = _as_type_or_any(rt)
+                    rt_cache[tt_u] = rt
                 end
                 rt === Any && continue
 
@@ -329,7 +363,7 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                 if _maybe_set_inst_type!(ir, i, rt)
                     changed = true
                     _log_change("call_return", i, stmt, oldT, rt)
-                    n_return_refines += 1
+                    interesting[i] = true
                 end
             end
         end
@@ -337,20 +371,26 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
         changed || break
     end
 
-    if cfg.debug && refine_log !== nothing && !isempty(refine_log)
-        _auto_debug_emit(
-            cfg,
-            Dict(
-                "event" => "auto_debug_refine_types",
-                "tt" => try
-                    string(Tuple{ir.argtypes...})
-                catch
-                    nothing
-                end,
-                "world" => world,
-                "changes" => refine_log,
-            ),
-        )
+    if cfg.debug && refine_log !== nothing
+        if !isempty(refine_log) || rt_calls > 0 || rt_cache_hits > 0
+            _auto_debug_emit(
+                cfg,
+                Dict(
+                    "event" => "auto_debug_refine_types",
+                    "tt" => try
+                        string(Tuple{ir.argtypes...})
+                    catch
+                        nothing
+                    end,
+                    "world" => world,
+                    "stats" => Dict(
+                        "return_type_calls" => rt_calls,
+                        "return_type_cache_hits" => rt_cache_hits,
+                    ),
+                    "changes" => refine_log,
+                ),
+            )
+        end
     end
 
     return ir

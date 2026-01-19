@@ -176,6 +176,39 @@ function _auto_debug_ir_string(ir::CC.IRCode)
     return sprint(show, ir)
 end
 
+function _auto_debug_emit_ir_for_codes(
+    cfg::Config, world::UInt, tt::Type{<:Tuple}, depth::Int, codes
+)
+    ir_entries = Any[]
+    for entry in codes
+        ir_or_err = entry.first
+        ty = entry.second
+        if ir_or_err isa CC.IRCode
+            push!(
+                ir_entries,
+                Dict("ir" => _auto_debug_ir_string(ir_or_err), "inferred_type" => string(ty)),
+            )
+        else
+            push!(
+                ir_entries,
+                Dict("ir_error" => string(ir_or_err), "inferred_type" => string(ty)),
+            )
+        end
+    end
+    _auto_debug_emit(
+        cfg,
+        Dict(
+            "event" => "auto_debug_ir",
+            "time_ns" => time_ns(),
+            "tt" => string(tt),
+            "depth" => depth,
+            "optimize_until" => cfg.optimize_until,
+            "entries" => ir_entries,
+        ),
+    )
+    return nothing
+end
+
 function _auto_debug_emit_ir_for_tt(cfg::Config, world::UInt, tt::Type{<:Tuple}, depth::Int)
     codes = try
         _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
@@ -192,28 +225,7 @@ function _auto_debug_emit_ir_for_tt(cfg::Config, world::UInt, tt::Type{<:Tuple},
         )
         return nothing
     end
-    ir_entries = Any[]
-    for entry in codes
-        ir = entry.first
-        ty = entry.second
-        ir isa CC.IRCode || continue
-        push!(
-            ir_entries,
-            Dict("ir" => _auto_debug_ir_string(ir), "inferred_type" => string(ty)),
-        )
-    end
-    _auto_debug_emit(
-        cfg,
-        Dict(
-            "event" => "auto_debug_ir",
-            "time_ns" => time_ns(),
-            "tt" => string(tt),
-            "depth" => depth,
-            "optimize_until" => cfg.optimize_until,
-            "entries" => ir_entries,
-        ),
-    )
-    return nothing
+    return _auto_debug_emit_ir_for_codes(cfg, world, tt, depth, codes)
 end
 
 function _auto_debug_emit_check!(
@@ -225,6 +237,7 @@ function _auto_debug_emit_check!(
     violations::Vector{BorrowViolation},
     err,
     bt,
+    entry_codes,
 )
     t_ns = time_ns()
     err_s = if err === nothing
@@ -292,9 +305,13 @@ function _auto_debug_emit_check!(
         ),
     )
 
-    try
-        _auto_debug_emit_ir_for_tt(cfg, world, tt, 0)
-    catch
+    # IR dumping can be *very* expensive. We already computed `entry_codes` in the
+    # normal checking path; reuse it rather than calling back into inference again.
+    if entry_codes !== nothing
+        try
+            _auto_debug_emit_ir_for_codes(cfg, world, tt, 0, entry_codes)
+        catch
+        end
     end
     if cfg.debug_callee_depth > 0
         tt0 = summary_snapshot === nothing ? Set{Any}() : summary_snapshot[2]

@@ -14,9 +14,20 @@ const SUMMARY_STATE = Lockable((
 ))
 
 const TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
+const TLS_REFLECTION_CACHE_KEY = :BorrowCheckerAuto__reflection_cache
 
 function _reflection_ctx()
     return get(Base.task_local_storage(), TLS_REFLECTION_CTX_KEY, nothing)
+end
+
+function _reflection_cache()
+    tls = Base.task_local_storage()
+    cache = get(tls, TLS_REFLECTION_CACHE_KEY, nothing)
+    if cache === nothing
+        cache = Dict{UInt,Any}()
+        tls[TLS_REFLECTION_CACHE_KEY] = cache
+    end
+    return cache
 end
 
 function _reflection_world(default::UInt=Base.get_world_counter())
@@ -28,7 +39,19 @@ function _with_reflection_ctx(f::Function, world::UInt)
     @nospecialize f
     tls = Base.task_local_storage()
     old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
-    tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=BCInterp(; world))
+    # Fast path: nested borrow-checking frequently calls `check_signature` recursively.
+    # Reuse the existing reflection context to avoid repeatedly constructing interpreters.
+    if old !== nothing && getproperty(old, :world) === world
+        return f()
+    end
+
+    cache = _reflection_cache()
+    entry = get!(cache, world) do
+        (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
+    end
+    tls[TLS_REFLECTION_CTX_KEY] = (;
+        world=world, interp=entry.interp, methods_cache=entry.methods_cache
+    )
     try
         return f()
     finally
@@ -71,8 +94,22 @@ function _inflate_ircode_fallback(match::Core.MethodMatch; world::UInt)
 end
 
 function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config)
-    interp = BCInterp(; world)
-    matches = Base._methods_by_ftype(tt, -1, world)
+    ctx = _reflection_ctx()
+    interp = (ctx !== nothing && ctx.world === world) ? ctx.interp : BCInterp(; world)
+
+    methods_cache = if ctx !== nothing && ctx.world === world && hasproperty(ctx, :methods_cache)
+        getproperty(ctx, :methods_cache)
+    else
+        nothing
+    end
+
+    matches = if methods_cache === nothing
+        Base._methods_by_ftype(tt, -1, world)
+    else
+        get!(methods_cache, tt) do
+            Base._methods_by_ftype(tt, -1, world)
+        end
+    end
     if isnothing(matches)
         error("No method found matching signature $tt in world $world")
     end
@@ -107,7 +144,16 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
         match = match::Core.MethodMatch
         (code, ty) = CC.typeinf_ircode(interp, match, optimize_until)
         if code === nothing
-            ir = do_inflate ? _inflate_ircode_fallback(match; world) : nothing
+            ir = nothing
+            if do_inflate
+                m = match.method
+                mod = m.module
+                # Avoid inflating IR for Core/Base methods: this is both expensive and has
+                # been observed to be unstable on some Julia versions (can segfault).
+                if mod !== Core && mod !== Base && mod !== Auto
+                    ir = _inflate_ircode_fallback(match; world)
+                end
+            end
             if ir === nothing
                 push!(asts, match.method => ty)
                 if cfg.debug
@@ -146,26 +192,66 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
     return asts
 end
 
+const _FALLBACK_PASS_NAMES = String[
+    # Julia's default `run_passes_ipo_safe` pipeline as of 1.12.x.
+    "convert",
+    "slot2reg",
+    "compact 1",
+    "Inlining",
+    "compact 2",
+    "SROA",
+    "ADCE",
+    "compact 3",
+]
+
+const _PASS_NAMES_CACHE = Ref{Vector{String}}(String[])
+
+@inline function _compiler_pass_names()::Vector{String}
+    names = _PASS_NAMES_CACHE[]
+    isempty(names) || return names
+
+    if isdefined(CC, :ALL_PASS_NAMES)
+        names = [String(nm) for nm in CC.ALL_PASS_NAMES]
+    else
+        names = _FALLBACK_PASS_NAMES
+    end
+
+    _PASS_NAMES_CACHE[] = names
+    return names
+end
+
 function _normalize_optimize_until_for_ir(optimize_until)
     optimize_until isa String || return optimize_until
-    isdefined(CC, :ALL_PASS_NAMES) || return optimize_until
 
-    for nm in CC.ALL_PASS_NAMES
-        s = String(nm)
+    pass_names = _compiler_pass_names()
+    for s in pass_names
         s == optimize_until && return s
     end
 
+    # Normalize common spellings like "compact_1" and "COMPACT_1".
     @inline function _norm(s::AbstractString)
         return replace(lowercase(String(s)), r"[^a-z0-9]+" => "")
     end
 
     optn = _norm(optimize_until)
-    for nm in CC.ALL_PASS_NAMES
-        s = String(nm)
-        endswith(_norm(s), optn) && return s
+    matches = String[]
+    for s in pass_names
+        endswith(_norm(s), optn) && push!(matches, s)
     end
 
-    return optimize_until
+    if length(matches) == 1
+        return matches[1]
+    elseif length(matches) > 1
+        throw(ArgumentError(
+            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
+            "Candidates: $(join(matches, ", "))",
+        ))
+    end
+
+    throw(ArgumentError(
+        "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
+        "Known passes: $(join(pass_names, ", "))",
+    ))
 end
 
 mutable struct BudgetTracker
@@ -510,6 +596,16 @@ function _effects_for_call(
 )::EffectSummary
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return EffectSummary()
+
+    # Fast path: if this call does not involve any tracked values from the current IR,
+    # it cannot influence borrow checking (consume/write/alias) for this caller.
+    any_tracked = false
+    # NOTE: include the callee expression itself. This matters for functors/closures
+    # where `f()` can mutate/alias through captured state or `f`'s own fields.
+    @inbounds for v in raw_args
+        _handle_index(v, nargs, track_arg, track_ssa) != 0 && (any_tracked = true; break)
+    end
+    any_tracked || return EffectSummary()
     f = _resolve_callee(stmt, ir)
 
     if idx != 0

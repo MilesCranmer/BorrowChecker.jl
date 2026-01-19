@@ -5,6 +5,65 @@
 
     using BorrowChecker.Auto: BorrowCheckError, @auto
 
+    const BC_TEST_TIMINGS =
+        lowercase(get(ENV, "BORROWCHECKER_TEST_TIMINGS", "")) in ("1", "true", "yes")
+    const BC_TEST_TIMING_BASE_DEPTH = Ref{Int}(-1)
+
+    if BC_TEST_TIMINGS
+        using Test
+
+        mutable struct BCTimedTestSet <: Test.AbstractTestSet
+            inner::Test.DefaultTestSet
+            start_ns::UInt64
+        end
+
+        function BCTimedTestSet(
+            desc::AbstractString;
+            verbose::Bool=false,
+            showtiming::Bool=true,
+            failfast::Union{Nothing,Bool}=nothing,
+            source=nothing,
+            rng=nothing,
+        )
+            # Only print timings for the direct children of the timing wrapper (top-level
+            # `@testset` blocks in this file).
+            depth = Test.get_testset_depth()
+            if depth == BC_TEST_TIMING_BASE_DEPTH[] + 1
+                println("[BC_TEST_BEGIN] ", desc)
+            end
+            inner = Test.DefaultTestSet(
+                desc;
+                verbose=verbose,
+                showtiming=showtiming,
+                failfast=failfast,
+                source=source,
+                rng=rng,
+            )
+            return BCTimedTestSet(inner, time_ns())
+        end
+
+        Test.record(ts::BCTimedTestSet, t) = Test.record(ts.inner, t)
+        Test.print_verbose(ts::BCTimedTestSet) = Test.print_verbose(ts.inner)
+        Test.results(ts::BCTimedTestSet) = Test.results(ts.inner)
+
+        function Test.finish(ts::BCTimedTestSet; print_results::Bool=Test.TESTSET_PRINT_ENABLE[])
+            elapsed_s = (time_ns() - ts.start_ns) / 1e9
+            depth = Test.get_testset_depth()
+            if depth == BC_TEST_TIMING_BASE_DEPTH[] + 1
+                println("[BC_TEST_END] ", ts.inner.description, "  ", round(elapsed_s; digits=3), "s")
+            end
+            return Test.finish(ts.inner; print_results=print_results)
+        end
+    end
+
+    local _bc_timing_ts = nothing
+    if BC_TEST_TIMINGS
+        using Test
+        BC_TEST_TIMING_BASE_DEPTH[] = Test.get_testset_depth()
+        _bc_timing_ts = BCTimedTestSet("BorrowChecker.Auto @auto (timings)"; showtiming=false)
+        Test.push_testset(_bc_timing_ts)
+    end
+
     Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
 
     BorrowChecker.Auto._ensure_registry_initialized()
@@ -424,12 +483,16 @@
             return length(y)
         end
 
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_fail depth=1 (begin)")
         mktemp() do path, io
             close(io)
             withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_fail(3) (expect throw)")
                 @test_throws BorrowCheckError _bc_dbg_fail(3)
+                BC_TEST_TIMINGS && println("[BC_DEBUG] _bc_dbg_fail(3) threw as expected")
             end
 
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (dbg_fail depth=1)")
             s = read(path, String)
             ir_lines = filter(
                 l -> occursin("\"event\":\"auto_debug_ir\"", l),
@@ -451,9 +514,11 @@
             return length(y)
         end
 
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_depth0 depth=0 (begin)")
         mktemp() do path, io
             close(io)
             withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_depth0(3) (expect throw)")
                 _ = try
                     _bc_dbg_depth0(3)
                     nothing
@@ -461,6 +526,7 @@
                     nothing
                 end
             end
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (dbg_depth0 depth=0)")
             s = read(path, String)
             ir_lines = filter(
                 l -> occursin("\"event\":\"auto_debug_ir\"", l),
@@ -473,11 +539,14 @@
         @auto debug = true debug_callee_depth = 0 function _bc_dbg_ok(x)
             return x + 1
         end
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_ok (begin)")
         mktemp() do path, io
             close(io)
             withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_ok(1)")
                 @test _bc_dbg_ok(1) == 2
             end
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (dbg_ok)")
             s = read(path, String)
             @test occursin("\"event\":\"auto_debug_check\"", s) &&
                 occursin("\"ok\":true", s)
@@ -485,15 +554,18 @@
         end
 
         # Warning + default-path behavior when env var is unset.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: warn default-path (begin)")
         default_path = joinpath(tempdir(), "BorrowChecker.auto.debug.$(getpid()).jsonl")
         rm(default_path; force=true)
         old = pop!(ENV, "BORROWCHECKER_AUTO_DEBUG_PATH", nothing)
         logs, _ = Test.collect_test_logs() do
             try
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_depth0(3) with env unset (1)")
                 _bc_dbg_depth0(3)
             catch
             end
             try
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_depth0(3) with env unset (2)")
                 _bc_dbg_depth0(3)
             catch
             end
@@ -510,6 +582,7 @@
         @test isfile(default_path)
 
         # Exercise the error-swallowing path in debug logging by pointing the log path to a directory.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: debug path is directory (begin)")
         mktempdir() do d
             withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => d) do
                 @test _bc_dbg_ok(1) == 2
@@ -517,6 +590,7 @@
         end
 
         # `optimize_until` is logged exactly as provided.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: invalid optimize_until logged (begin)")
         @auto debug = true optimize_until = "definitely_invalid_pass" function _bc_dbg_bad_opt(
             x
         )
@@ -525,6 +599,7 @@
         mktemp() do path, io
             close(io)
             withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_bad_opt(1) (expect error logged)")
                 _ = try
                     _bc_dbg_bad_opt(1)
                     nothing
@@ -532,6 +607,7 @@
                     nothing
                 end
             end
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (invalid optimize_until)")
             s = read(path, String)
             @test occursin("\"event\":\"auto_debug_check\"", s)
             @test occursin("\"optimize_until\":\"definitely_invalid_pass\"", s)
@@ -1602,5 +1678,12 @@
         end
 
         @test isempty(bad)
+    end
+
+    if (@isdefined(_bc_timing_ts)) && _bc_timing_ts !== nothing
+        using Test
+        Test.pop_testset()
+        # Don't print the full nested summary; we only want the timing lines above.
+        Test.finish(_bc_timing_ts; print_results=false)
     end
 end
