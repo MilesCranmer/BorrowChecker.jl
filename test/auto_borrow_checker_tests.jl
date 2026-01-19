@@ -614,6 +614,25 @@
             @test occursin("\"error\":", s)
             @test occursin("\"time_s\":", s)
         end
+
+        # Summary exceptions are logged (best-effort) rather than crashing debug mode.
+        @generated _bc_dbg_badgen(x) = error("boom")
+        @auto debug = true scope = :function function _bc_dbg_summary_exception(x)
+            return _bc_dbg_badgen(x)
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _ = try
+                    _bc_dbg_summary_exception(Int[1])
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_summary_exception\"", s)
+        end
     end
 
     @testset "scope=:none disables @auto" begin
