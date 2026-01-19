@@ -13,21 +13,11 @@ const SUMMARY_STATE = Lockable((
     tt_summary_inprogress=Set{SUMMARY_CACHE_KEY}(),
 ))
 
-const TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
-const TLS_REFLECTION_CACHE_KEY = :BorrowCheckerAuto__reflection_cache
+const PER_TASK_REFLECTION_CACHE = PerTaskCache{Dict{UInt,Any}}()
+const PER_TASK_REFLECTION_CTX = PerTaskCache{Base.RefValue{Any}}(() -> Ref{Any}(nothing))
 
 function _reflection_ctx()
-    return get(Base.task_local_storage(), TLS_REFLECTION_CTX_KEY, nothing)
-end
-
-function _reflection_cache()
-    tls = Base.task_local_storage()
-    cache = get(tls, TLS_REFLECTION_CACHE_KEY, nothing)
-    if cache === nothing
-        cache = Dict{UInt,Any}()
-        tls[TLS_REFLECTION_CACHE_KEY] = cache
-    end
-    return cache
+    return PER_TASK_REFLECTION_CTX[][]
 end
 
 function _reflection_world(default::UInt=Base.get_world_counter())
@@ -37,29 +27,25 @@ end
 
 function _with_reflection_ctx(f::Function, world::UInt)
     @nospecialize f
-    tls = Base.task_local_storage()
-    old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
+    ctx_ref = PER_TASK_REFLECTION_CTX[]
+    old = ctx_ref[]
     # Fast path: nested borrow-checking frequently calls `check_signature` recursively.
     # Reuse the existing reflection context to avoid repeatedly constructing interpreters.
     if old !== nothing && getproperty(old, :world) === world
         return f()
     end
 
-    cache = _reflection_cache()
+    cache = PER_TASK_REFLECTION_CACHE[]
     entry = get!(cache, world) do
         (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
     end
-    tls[TLS_REFLECTION_CTX_KEY] = (;
+    ctx_ref[] = (;
         world=world, interp=entry.interp, methods_cache=entry.methods_cache
     )
     try
         return f()
     finally
-        if old === nothing
-            pop!(tls, TLS_REFLECTION_CTX_KEY, nothing)
-        else
-            (tls[TLS_REFLECTION_CTX_KEY] = old)
-        end
+        ctx_ref[] = old
     end
 end
 
