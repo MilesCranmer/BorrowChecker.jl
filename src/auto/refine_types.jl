@@ -310,6 +310,7 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
                _is_any_slot(_inst_get(inst, :type, Any))
                 head, _mi, raw_args = _call_parts(stmt)
                 head === nothing && continue
+                raw_args === nothing && continue
 
                 # Gate on dataflow from refined SSA values.
                 has_interest = false
