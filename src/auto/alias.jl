@@ -89,7 +89,7 @@ function _maybe_ret_alias_summary(
             return nothing
         end
 
-        tt = _call_tt_from_raw_args(raw_args, ir)
+        tt = _call_tt_from_raw_args(raw_args, ir, f)
         tt !== nothing &&
             return _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
         return nothing
@@ -101,7 +101,7 @@ function _maybe_ret_alias_summary(
         tt = if f === Core.kwcall
             _kwcall_tt_from_raw_args(raw_args, ir)
         else
-            _call_tt_from_raw_args(raw_args, ir)
+            _call_tt_from_raw_args(raw_args, ir, f)
         end
         tt === nothing || _mark_budget_hit!(budget_state)
     end
@@ -317,15 +317,6 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                 # Binding barriers are treated as producing a fresh identity for tracking.
                 origins[hdef] = hdef
                 continue
-            end
-
-            # Common field/projection patterns in Base:
-            # `getproperty(x, :fld)` behaves like a pure projection and should not create a
-            # fresh binding origin for tracking purposes.
-            if raw_args !== nothing && f === Base.getproperty && length(raw_args) >= 3
-                hsrc = _handle_index(raw_args[2], nargs, track_arg, track_ssa)
-                hsrc != 0 && (origins[hdef] = origins[hsrc])
-                origins[hdef] != hdef && continue
             end
 
             # If this statement produces an alias of an existing handle (per ret-alias

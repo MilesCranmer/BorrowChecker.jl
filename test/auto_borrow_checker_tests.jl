@@ -5,6 +5,75 @@
 
     using BorrowChecker.Auto: BorrowCheckError, @auto
 
+    const BC_TEST_TIMINGS =
+        lowercase(get(ENV, "BORROWCHECKER_TEST_TIMINGS", "")) in ("1", "true", "yes")
+    const BC_TEST_TIMING_BASE_DEPTH = Ref{Int}(-1)
+
+    if BC_TEST_TIMINGS
+        using Test
+
+        mutable struct BCTimedTestSet <: Test.AbstractTestSet
+            inner::Test.DefaultTestSet
+            start_ns::UInt64
+        end
+
+        function BCTimedTestSet(
+            desc::AbstractString;
+            verbose::Bool=false,
+            showtiming::Bool=true,
+            failfast::Union{Nothing,Bool}=nothing,
+            source=nothing,
+            rng=nothing,
+        )
+            # Only print timings for the direct children of the timing wrapper (top-level
+            # `@testset` blocks in this file).
+            depth = Test.get_testset_depth()
+            if depth == BC_TEST_TIMING_BASE_DEPTH[] + 1
+                println("[BC_TEST_BEGIN] ", desc)
+            end
+            inner = Test.DefaultTestSet(
+                desc;
+                verbose=verbose,
+                showtiming=showtiming,
+                failfast=failfast,
+                source=source,
+                rng=rng,
+            )
+            return BCTimedTestSet(inner, time_ns())
+        end
+
+        Test.record(ts::BCTimedTestSet, t) = Test.record(ts.inner, t)
+        Test.print_verbose(ts::BCTimedTestSet) = Test.print_verbose(ts.inner)
+        Test.results(ts::BCTimedTestSet) = Test.results(ts.inner)
+
+        function Test.finish(
+            ts::BCTimedTestSet; print_results::Bool=Test.TESTSET_PRINT_ENABLE[]
+        )
+            elapsed_s = (time_ns() - ts.start_ns) / 1e9
+            depth = Test.get_testset_depth()
+            if depth == BC_TEST_TIMING_BASE_DEPTH[] + 1
+                println(
+                    "[BC_TEST_END] ",
+                    ts.inner.description,
+                    "  ",
+                    round(elapsed_s; digits=3),
+                    "s",
+                )
+            end
+            return Test.finish(ts.inner; print_results=print_results)
+        end
+    end
+
+    local _bc_timing_ts = nothing
+    if BC_TEST_TIMINGS
+        using Test
+        BC_TEST_TIMING_BASE_DEPTH[] = Test.get_testset_depth()
+        _bc_timing_ts = BCTimedTestSet(
+            "BorrowChecker.Auto @auto (timings)"; showtiming=false
+        )
+        Test.push_testset(_bc_timing_ts)
+    end
+
     Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
 
     BorrowChecker.Auto._ensure_registry_initialized()
@@ -125,6 +194,76 @@
         @test_throws BorrowCheckError _bc_bang_mutates_second_bad()
     end
 
+    @testset "adversarial overloads (no special-casing overloadables)" begin
+        mutable struct _BCGetPropMutates
+            x::Vector{Int}
+        end
+
+        function Base.getproperty(g::_BCGetPropMutates, s::Symbol)
+            if s === :x
+                v = getfield(g, :x)
+                push!(v, 999)
+                return v
+            end
+            return getfield(g, s)
+        end
+
+        BorrowChecker.Auto.@auto function _bc_getproperty_mutates_bad()
+            g = _BCGetPropMutates([1, 2, 3])
+            y = getfield(g, :x)
+            g.x  # calls overloaded getproperty (mutates)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_getproperty_mutates_bad()
+
+        mutable struct _BCSetPropDoesNotMutate
+            x::Vector{Int}
+        end
+
+        Base.setproperty!(::_BCSetPropDoesNotMutate, ::Symbol, v) = v
+
+        BorrowChecker.Auto.@auto function _bc_setproperty_no_mut_ok()
+            g = _BCSetPropDoesNotMutate([1, 2, 3])
+            y = g
+            g.x = [4, 5, 6]  # calls overloaded setproperty! (does not mutate)
+            return y
+        end
+
+        @test _bc_setproperty_no_mut_ok().x == [1, 2, 3]
+
+        mutable struct _BCCopyAliases
+            x::Vector{Int}
+        end
+
+        Base.copy(x::_BCCopyAliases) = x
+
+        BorrowChecker.Auto.@auto function _bc_copy_aliases_bad()
+            x = _BCCopyAliases([1, 2, 3])
+            y = copy(x)  # aliases by definition
+            x.x[1] = 0
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_copy_aliases_bad()
+
+        mutable struct _BCIterateWeird
+            x::Vector{Int}
+        end
+
+        Base.iterate(w::_BCIterateWeird) = (push!(getfield(w, :x), 1); (0, w))
+        Base.iterate(::_BCIterateWeird, _) = nothing
+
+        BorrowChecker.Auto.@auto function _bc_iterate_mutates_bad()
+            w = _BCIterateWeird([1, 2, 3])
+            y = w
+            iterate(w)  # calls overloaded iterate (mutates)
+            return y
+        end
+
+        @test_throws BorrowCheckError _bc_iterate_mutates_bad()
+    end
+
     @testset "macro signature parsing: varargs" begin
         @auto function _bc_varargs_signature(xs...)
             return 0
@@ -148,6 +287,15 @@
         end
 
         @test _bc_keyword_only_signature(; x=1, y=2) == 3
+    end
+
+    @testset "macro signature parsing: anonymous typed arg" begin
+        @auto function _bc_anon_typed_arg_signature(x, ::Type{T}=Int) where {T}
+            return T
+        end
+
+        @test _bc_anon_typed_arg_signature(1) == Int
+        @test _bc_anon_typed_arg_signature(1, Float64) == Float64
     end
 
     @testset "macro signature parsing: destructuring arg" begin
@@ -184,6 +332,135 @@
         @test Base.identity(_BCAutoDotT()) isa _BCAutoDotT
     end
 
+    @testset "boxed captured variable: getproperty field type refinement" begin
+        struct _BCBoxedField
+            n::Int
+        end
+
+        @auto function _bc_boxed_getproperty_dim(x::_BCBoxedField)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+            a = zeros(Float64, getfield(x, :n))
+            return (g(), length(a))
+        end
+
+        @test begin
+            try
+                _bc_boxed_getproperty_dim(_BCBoxedField(3)) == (3, 3)
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "boxed captured variable: broadcast materialize should not consume" begin
+        struct _BCBoxedBroadcast
+            n::Int
+        end
+
+        @auto function _bc_boxed_broadcast_ok(x::_BCBoxedBroadcast)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+            b = rand(getfield(x, :n)) .< 0.5
+            return (g(), sum(b))
+        end
+
+        @test begin
+            try
+                (n, s) = _bc_boxed_broadcast_ok(_BCBoxedBroadcast(10))
+                n == 10 && s isa Real
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "Threads.@threads plumbing should not spuriously consume" begin
+        struct _BCThreadsBoxedRange
+            n::Int
+        end
+
+        @auto function _bc_threads_boxed_range_ok(x::_BCThreadsBoxedRange, flag::Bool)
+            g = () -> getfield(x, :n)
+            x = fakewrite(x)  # capture + assign forces Core.Box lowering
+
+            r = 1:(getfield(x, :n))
+            if flag
+                Base.Threads.@threads for i in r
+                    fakewrite(i)
+                end
+            else
+                for i in r
+                    fakewrite(i)
+                end
+            end
+
+            return g()
+        end
+
+        @test_broken begin
+            try
+                _bc_threads_boxed_range_ok(_BCThreadsBoxedRange(5), false) == 5
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "known failure: Array{Int,l}(x) with value l" begin
+        @auto scope = :function function _bc_array_value_dim_ctor(x)
+            l = 1
+            return Array{Int,l}(x)
+        end
+
+        @test begin
+            try
+                _bc_array_value_dim_ctor([1]) == [1]
+            catch
+                false
+            end
+        end
+    end
+
+    @testset "@auto assignment instrumentation: store should not create fresh origins" begin
+        mutable struct _BCProjectionS
+            a::Vector{Int}
+        end
+
+        bump!(a::Vector{Int}) = (a[1] += 1; nothing)
+
+        @auto function _bc_projection_store_ok(s::_BCProjectionS)
+            a = copy(s.a)  # avoid aliasing `s.a` during mutation
+            bump!(a)
+            s.a = a
+            return s.a[1]
+        end
+
+        @test _bc_projection_store_ok(_BCProjectionS([1, 2, 3])) == 2
+    end
+
+    @testset "@auto known effects: eachindex should not consume/escape" begin
+        @auto function _bc_eachindex_ok(refs, constants)
+            for i in eachindex(refs, constants)
+                refs[i] = constants[i]
+            end
+            return refs
+        end
+
+        @test _bc_eachindex_ok([1, 2, 3], [4, 5, 6]) == [4, 5, 6]
+    end
+
+    @testset "@auto known effects: copy should not consume" begin
+        @auto function _bc_copy_call_ok(x)
+            y = copy(x)
+            return (x, y)
+        end
+
+        (x, y) = _bc_copy_call_ok([1, 2, 3])
+        @test x == [1, 2, 3]
+        @test y == [1, 2, 3]
+    end
+
     @testset "macro rejects non-function inputs" begin
         @test_throws LoadError eval(:(BorrowChecker.Auto.@auto begin
             x = 1
@@ -201,6 +478,192 @@
             optimize_until = $opt, _bc_macro_opt_optimize_until(x) = x
         )
         @test _bc_macro_opt_optimize_until(2) == 2
+    end
+
+    @testset "@auto debug logging" begin
+        using Test
+
+        Base.@noinline _bc_dbg_localfun(x) = x
+
+        @auto debug = true debug_callee_depth = 1 function _bc_dbg_fail(n::Int)
+            x = zeros(Float64, n)
+            x2 = _bc_dbg_localfun(x)
+            y = x2
+            x2[1] = 0.0
+            return length(y)
+        end
+
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_fail depth=1 (begin)")
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS &&
+                    println("[BC_DEBUG] calling _bc_dbg_fail(3) (expect throw)")
+                @test_throws BorrowCheckError _bc_dbg_fail(3)
+                BC_TEST_TIMINGS && println("[BC_DEBUG] _bc_dbg_fail(3) threw as expected")
+            end
+
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (dbg_fail depth=1)")
+            s = read(path, String)
+            ir_lines = filter(
+                l -> occursin("\"event\":\"auto_debug_ir\"", l),
+                split(s, '\n'; keepempty=false),
+            )
+            @test occursin("\"event\":\"auto_debug_check\"", s)
+            @test occursin("\"event\":\"auto_debug_violations\"", s)
+            @test occursin("\"event\":\"auto_debug_summaries\"", s)
+            @test occursin("_bc_dbg_localfun", s)
+            @test any(l -> occursin("\"depth\":0", l), ir_lines)
+            @test any(l -> occursin("\"depth\":1", l), ir_lines)
+        end
+
+        @auto debug = true debug_callee_depth = 0 function _bc_dbg_depth0(n::Int)
+            x = zeros(Float64, n)
+            x2 = _bc_dbg_localfun(x)
+            y = x2
+            x2[1] = 0.0
+            return length(y)
+        end
+
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_depth0 depth=0 (begin)")
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS &&
+                    println("[BC_DEBUG] calling _bc_dbg_depth0(3) (expect throw)")
+                _ = try
+                    _bc_dbg_depth0(3)
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            BC_TEST_TIMINGS &&
+                println("[BC_DEBUG] reading jsonl output (dbg_depth0 depth=0)")
+            s = read(path, String)
+            ir_lines = filter(
+                l -> occursin("\"event\":\"auto_debug_ir\"", l),
+                split(s, '\n'; keepempty=false),
+            )
+            @test any(l -> occursin("\"depth\":0", l), ir_lines)
+            @test !any(l -> occursin("\"depth\":1", l), ir_lines)
+        end
+
+        @auto debug = true debug_callee_depth = 0 function _bc_dbg_ok(x)
+            return x + 1
+        end
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: dbg_ok (begin)")
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS && println("[BC_DEBUG] calling _bc_dbg_ok(1)")
+                @test _bc_dbg_ok(1) == 2
+            end
+            BC_TEST_TIMINGS && println("[BC_DEBUG] reading jsonl output (dbg_ok)")
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_check\"", s) &&
+                occursin("\"ok\":true", s)
+            @test !occursin("\"event\":\"auto_debug_error\"", s)
+        end
+
+        # Warning + default-path behavior when env var is unset.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: warn default-path (begin)")
+        default_path = joinpath(tempdir(), "BorrowChecker.auto.debug.$(getpid()).jsonl")
+        rm(default_path; force=true)
+        old = pop!(ENV, "BORROWCHECKER_AUTO_DEBUG_PATH", nothing)
+        logs, _ = Test.collect_test_logs() do
+            try
+                BC_TEST_TIMINGS &&
+                    println("[BC_DEBUG] calling _bc_dbg_depth0(3) with env unset (1)")
+                _bc_dbg_depth0(3)
+            catch
+            end
+            try
+                BC_TEST_TIMINGS &&
+                    println("[BC_DEBUG] calling _bc_dbg_depth0(3) with env unset (2)")
+                _bc_dbg_depth0(3)
+            catch
+            end
+        end
+        old === nothing || (ENV["BORROWCHECKER_AUTO_DEBUG_PATH"] = old)
+        @test count(
+            lr ->
+                lr.level == Base.CoreLogging.Warn && occursin(
+                    "BorrowChecker.@auto debug enabled; writing JSONL debug log to",
+                    lr.message,
+                ),
+            logs,
+        ) == 1
+        @test isfile(default_path)
+
+        # Exercise the error-swallowing path in debug logging by pointing the log path to a directory.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: debug path is directory (begin)")
+        mktempdir() do d
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => d) do
+                @test _bc_dbg_ok(1) == 2
+            end
+        end
+
+        # `optimize_until` is logged exactly as provided.
+        BC_TEST_TIMINGS && println("[BC_DEBUG] case: invalid optimize_until logged (begin)")
+        @auto debug = true optimize_until = "definitely_invalid_pass" function _bc_dbg_bad_opt(
+            x
+        )
+            return x + 1
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                BC_TEST_TIMINGS &&
+                    println("[BC_DEBUG] calling _bc_dbg_bad_opt(1) (expect error logged)")
+                _ = try
+                    _bc_dbg_bad_opt(1)
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            BC_TEST_TIMINGS &&
+                println("[BC_DEBUG] reading jsonl output (invalid optimize_until)")
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_check\"", s)
+            @test occursin("\"optimize_until\":\"definitely_invalid_pass\"", s)
+            @test occursin("\"error\":", s)
+            @test occursin("\"time_s\":", s)
+        end
+
+        # Summary exceptions are logged (best-effort) rather than crashing debug mode.
+        @generated _bc_dbg_badgen(x) = error("boom")
+        @auto debug = true scope = :function function _bc_dbg_summary_exception(x)
+            return _bc_dbg_badgen(x)
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _ = try
+                    _bc_dbg_summary_exception(Int[1])
+                    nothing
+                catch
+                    nothing
+                end
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_summary_exception\"", s)
+        end
+
+        # Type refinement debug event is emitted when refinement makes changes.
+        @auto debug = true scope = :function function _bc_dbg_refine_types_event()
+            x = (g = () -> 3; g())
+            return x
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _bc_dbg_refine_types_event()
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_refine_types\"", s)
+        end
     end
 
     @testset "scope=:none disables @auto" begin
@@ -1265,5 +1728,12 @@
         end
 
         @test isempty(bad)
+    end
+
+    if (@isdefined(_bc_timing_ts)) && _bc_timing_ts !== nothing
+        using Test
+        Test.pop_testset()
+        # Don't print the full nested summary; we only want the timing lines above.
+        Test.finish(_bc_timing_ts; print_results=false)
     end
 end

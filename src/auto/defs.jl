@@ -25,10 +25,44 @@ Base.@kwdef struct Config
 
     "Root module used by `scope=:module`."
     root_module::Module = Main
+
+    """
+    Enable debug logging to a JSONL file (best-effort).
+
+    The output path is controlled by the `BORROWCHECKER_AUTO_DEBUG_PATH` environment variable.
+    """
+    debug::Bool = false
+
+    """
+    Max depth of summary-recursion for which `@auto debug=true` also dumps IR.
+
+    Depth is measured in the recursive effect summarizer (0 = the entrypoint specialization).
+    """
+    debug_callee_depth::Int = 2
 end
 
-@inline __bc_bind__(x) =
-    isdefined(Base, :inferencebarrier) ? (Base.inferencebarrier(x)::typeof(x)) : x
+@generated function __bc_bind__(x::T) where {T}
+    # Preserve constant propagation for isbits values (e.g. value type parameters).
+    # For non-isbits values, keep the inference barrier so the compiler doesn't
+    # collapse bindings in ways that confuse our alias/origin tracking.
+    if Base.isbitstype(T)
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+    if isdefined(Base, :inferencebarrier)
+        return quote
+            Base.@_inline_meta
+            Base.inferencebarrier(x)::T
+        end
+    else
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+end
 
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:
@@ -224,8 +258,9 @@ function _populate_registry!()
     ]
 
     for (nm, ret_aliases, writes, consumes) in foreigncall_specs
-        _known_foreigncall_effects_has(nm) ||
-            register_foreigncall_effects!(nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases)
+        _known_foreigncall_effects_has(nm) || register_foreigncall_effects!(
+            nm; writes=writes, consumes=consumes, ret_aliases=ret_aliases
+        )
     end
 
     return nothing

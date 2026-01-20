@@ -73,6 +73,23 @@ end
 
 Pass names vary across Julia versions; `@auto` normalizes common spellings like `"compact 1"` / `"compact_1"` when possible.
 
+### `debug`
+
+Enable debug logging (best-effort) to a JSONL file:
+
+```julia
+@auto debug=true function f(x)
+    return g(x)
+end
+```
+
+The output path is controlled by the `BORROWCHECKER_AUTO_DEBUG_PATH` environment variable (otherwise a file in `tempdir()` is used).
+If `BORROWCHECKER_AUTO_DEBUG_PATH` is not set, `@auto debug=true` will emit a warning telling you where it is writing the file.
+
+### `debug_callee_depth`
+
+When `debug=true`, controls how deep in the recursive effect summarizer `@auto` also dumps IR (0 = only the entrypoint specialization).
+
 ## Registry Overrides (advanced)
 
 The checker uses a small registry of effect specs for non-overloadable primitives.

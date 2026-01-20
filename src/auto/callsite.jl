@@ -42,10 +42,15 @@ function _foreigncall_nccallargs(argtypes)
 end
 
 function _foreigncall_name_symbol(@nospecialize(name_expr))
-    _sym_from_tuple(@nospecialize(v)) =
-        (v isa Symbol) ? v :
-        (v isa Tuple && !isempty(v)) ? _sym_from_tuple(v[1]) :
-        nothing
+    function _sym_from_tuple(@nospecialize(v))
+        return if (v isa Symbol)
+            v
+        elseif (v isa Tuple && !isempty(v))
+            _sym_from_tuple(v[1])
+        else
+            nothing
+        end
+    end
 
     if name_expr isa QuoteNode
         v = name_expr.value
@@ -129,11 +134,22 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
     fexpr = raw_args[1]
 
     try
-        ft = CC.argextype(fexpr, ir)
+        ft = _safe_argextype(fexpr, ir)
         return CC.singleton_type(ft)
     catch
-        return nothing
     end
+
+    # Some calls remain "dynamic" in IR because the callee is a mutable global binding
+    # (e.g. `Main.eachindex`), even though at runtime it usually points to a concrete
+    # function value like `Base.eachindex`. For `@auto`, resolve such callees from the
+    # current binding to avoid spurious "unknown call" conservatism.
+    if fexpr isa GlobalRef
+        try
+            return getfield(fexpr.mod, fexpr.name)
+        catch
+        end
+    end
+    return nothing
 end
 
 function _unwrap_unionall_datatype(@nospecialize(x))
@@ -289,12 +305,22 @@ function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
 
     fexpr = raw_args[3]
     ft = try
-        CC.argextype(fexpr, ir)
+        _safe_argextype(fexpr, ir)
     catch
         return nothing
     end
 
-    fobj = CC.singleton_type(ft)
+    fobj = try
+        CC.singleton_type(ft)
+    catch
+        nothing
+    end
+    if fobj === nothing
+        # If inference lost the singleton, fall back to resolving a GlobalRef binding.
+        if fexpr isa GlobalRef && isdefined(fexpr.mod, fexpr.name)
+            fobj = getfield(fexpr.mod, fexpr.name)
+        end
+    end
     fobj === nothing && return nothing
 
     kwf = try
@@ -303,14 +329,29 @@ function _kwcall_tt_from_raw_args(raw_args, ir::CC.IRCode)
         return nothing
     end
 
+    # Build the kwfunc call tuple type: `kwf(kwargs, f, args...)`
     argtypes = Any[typeof(kwf)]
-    for i in 2:length(raw_args)
+
+    # 1) kw container
+    kw_t = try
+        CC.widenconst(_safe_argextype(raw_args[2], ir))
+    catch
+        Any
+    end
+    push!(argtypes, (kw_t isa Type) ? kw_t : Any)
+
+    # 2) the function value itself: use the resolved singleton's type
+    f_t = (fobj isa Type) ? Type{fobj} : Core.Typeof(fobj)
+    push!(argtypes, f_t)
+
+    # 3) positional arguments
+    for i in 4:length(raw_args)
         ti = try
-            CC.widenconst(CC.argextype(raw_args[i], ir))
+            CC.widenconst(_safe_argextype(raw_args[i], ir))
         catch
             Any
         end
-        push!(argtypes, ti)
+        push!(argtypes, (ti isa Type) ? ti : Any)
     end
     return Core.apply_type(Tuple, argtypes...)
 end
@@ -331,6 +372,30 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
     fldsym === :contents || return Any
     box = _canonical_ref(stmt.args[2], ir)
 
+    # First try to recover the type from the Core.Box(init) constructor, if available.
+    init_ty = Any
+    if box isa Core.SSAValue
+        bstmt = try
+            ir[box][:stmt]
+        catch
+            nothing
+        end
+        if bstmt isa Expr &&
+            bstmt.head === :call &&
+            (bstmt.args[1] === Core.Box || bstmt.args[1] == GlobalRef(Core, :Box))
+            if length(bstmt.args) >= 2
+                init = bstmt.args[2]
+                init_ty = try
+                    CC.widenconst(_safe_argextype(init, ir))
+                catch
+                    Any
+                end
+                init_ty = (init_ty isa Type) ? init_ty : Any
+            end
+        end
+    end
+
+    # Otherwise (or additionally), look for writes to `box.contents`.
     for i in 1:length(ir.stmts)
         st = ir[Core.SSAValue(i)][:stmt]
         st isa Expr && st.head === :call || continue
@@ -344,14 +409,17 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
         box2 == box || continue
         v = st.args[4]
         t = try
-            CC.widenconst(CC.argextype(v, ir))
+            CC.widenconst(_safe_argextype(v, ir))
         catch
             Any
         end
-        return (t isa Type) ? t : Any
+        t = (t isa Type) ? t : Any
+        # If inference lost precision (t === Any), keep searching; we may still have a useful init type.
+        t === Any && continue
+        return t
     end
 
-    return Any
+    return init_ty
 end
 
 function _maybe_const_type_object(fexpr, ir::CC.IRCode)
@@ -379,30 +447,39 @@ function _maybe_const_type_object(fexpr, ir::CC.IRCode)
     return nothing
 end
 
-function _call_tt_from_raw_args(raw_args, ir::CC.IRCode)
+function _call_tt_from_raw_args(raw_args, ir::CC.IRCode, f_override=nothing)
     types = Any[]
     for (i, a) in enumerate(raw_args)
         t = Any
         try
-            at = CC.argextype(a, ir)
+            at = _safe_argextype(a, ir)
             if i == 1
-                fobj = _maybe_const_type_object(a, ir)
-                if fobj !== nothing
-                    t = Type{fobj}
+                if f_override !== nothing
+                    t = (f_override isa Type) ? Type{f_override} : Core.Typeof(f_override)
                 else
-                    fval = try
-                        CC.singleton_type(at)
-                    catch
-                        nothing
-                    end
-                    if fval isa Type
-                        # Constructors dispatch on `Type{T}` / `Type{UnionAll(...)}` rather than
-                        # `DataType`, so use the singleton type of the type object when it can be
-                        # resolved.
-                        t = Type{fval}
+                    fobj = _maybe_const_type_object(a, ir)
+                    if fobj !== nothing
+                        t = Type{fobj}
                     else
-                        t = CC.widenconst(at)
+                        fval = try
+                            CC.singleton_type(at)
+                        catch
+                            nothing
+                        end
+                        if fval isa Type
+                            # Constructors dispatch on `Type{T}` / `Type{UnionAll(...)}` rather than
+                            # `DataType`, so use the singleton type of the type object when it can be
+                            # resolved.
+                            t = Type{fval}
+                        else
+                            t = CC.widenconst(at)
+                        end
                     end
+
+                    @assert !(a isa GlobalRef) (
+                        "BorrowChecker.Auto: unexpected GlobalRef callee in call signature inference. " *
+                        "globalref=$(a.mod).$(a.name) inferred=$(t)"
+                    )
                 end
             else
                 t = CC.widenconst(at)

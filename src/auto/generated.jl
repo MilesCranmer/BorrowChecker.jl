@@ -11,7 +11,7 @@ Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
 end
 Base.Experimental.@MethodTable BCMT
 
-struct GeneratedCfgTag{S,MSD,OPT} end
+struct GeneratedCfgTag{S,MSD,OPT,DBG,DCD} end
 
 Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
@@ -22,14 +22,14 @@ Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
 function _cfg_from_tag(
-    ::Type{GeneratedCfgTag{S,MSD,OPT}},
-    tt::Type{<:Tuple},
-    world::UInt,
-) where {S,MSD,OPT}
+    ::Type{GeneratedCfgTag{S,MSD,OPT,DBG,DCD}}, tt::Type{<:Tuple}, world::UInt
+) where {S,MSD,OPT,DBG,DCD}
     @nospecialize tt
     scope = S::Symbol
     max_summary_depth = MSD::Int
     optimize_until = String(OPT::Symbol)
+    debug = DBG::Bool
+    debug_callee_depth = DCD::Int
 
     root_module = if scope === :module
         matches = Base._methods_by_ftype(tt, -1, world)
@@ -42,7 +42,9 @@ function _cfg_from_tag(
         Main
     end
 
-    return Config(optimize_until, max_summary_depth, scope, root_module)
+    return Config(
+        optimize_until, max_summary_depth, scope, root_module, debug, debug_callee_depth
+    )
 end
 
 function _tt_cfg_from_sig(sig::DataType, world::UInt)

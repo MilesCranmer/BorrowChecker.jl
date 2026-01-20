@@ -13,10 +13,11 @@ const SUMMARY_STATE = Lockable((
     tt_summary_inprogress=Set{SUMMARY_CACHE_KEY}(),
 ))
 
-const TLS_REFLECTION_CTX_KEY = :BorrowCheckerAuto__reflection_ctx
+const PER_TASK_REFLECTION_CACHE = PerTaskCache{Dict{UInt,Any}}()
+const PER_TASK_REFLECTION_CTX = PerTaskCache{Base.RefValue{Any}}(() -> Ref{Any}(nothing))
 
 function _reflection_ctx()
-    return get(Base.task_local_storage(), TLS_REFLECTION_CTX_KEY, nothing)
+    return PER_TASK_REFLECTION_CTX[][]
 end
 
 function _reflection_world(default::UInt=Base.get_world_counter())
@@ -26,33 +27,115 @@ end
 
 function _with_reflection_ctx(f::Function, world::UInt)
     @nospecialize f
-    tls = Base.task_local_storage()
-    old = get(tls, TLS_REFLECTION_CTX_KEY, nothing)
-    tls[TLS_REFLECTION_CTX_KEY] = (; world=world, interp=BCInterp(; world))
+    ctx_ref = PER_TASK_REFLECTION_CTX[]
+    old = ctx_ref[]
+    # Fast path: nested borrow-checking frequently calls `check_signature` recursively.
+    # Reuse the existing reflection context to avoid repeatedly constructing interpreters.
+    if old !== nothing && getproperty(old, :world) === world
+        return f()
+    end
+
+    cache = PER_TASK_REFLECTION_CACHE[]
+    entry = get!(cache, world) do
+        (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
+    end
+    ctx_ref[] = (; world=world, interp=entry.interp, methods_cache=entry.methods_cache)
     try
         return f()
     finally
-        if old === nothing
-            pop!(tls, TLS_REFLECTION_CTX_KEY, nothing)
-        else
-            (tls[TLS_REFLECTION_CTX_KEY] = old)
-        end
+        ctx_ref[] = old
     end
 end
 
-function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
-    interp = BCInterp(; world)
-    matches = Base._methods_by_ftype(tt, -1, world)
+function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config)
+    ctx = _reflection_ctx()
+    interp = (ctx !== nothing && ctx.world === world) ? ctx.interp : BCInterp(; world)
+
+    methods_cache =
+        if ctx !== nothing && ctx.world === world && hasproperty(ctx, :methods_cache)
+            getproperty(ctx, :methods_cache)
+        else
+            nothing
+        end
+
+    matches = if methods_cache === nothing
+        Base._methods_by_ftype(tt, -1, world)
+    else
+        get!(methods_cache, tt) do
+            Base._methods_by_ftype(tt, -1, world)
+        end
+    end
     if isnothing(matches)
         error("No method found matching signature $tt in world $world")
     end
+
+    # For concrete call signatures, `Base._methods_by_ftype` can still return multiple
+    # applicable methods (e.g. both `f(::Any, ::Any)` and `f(::Any, ::Symbol)` for
+    # `Tuple{typeof(f), T, Symbol}`). At runtime dispatch will pick the most-specific
+    # method; unioning effects across all matches can introduce large, spurious
+    # conservatism (common for `getproperty`, keyword wrappers, etc.).
+    #
+    # When the tuple type is concrete enough, keep only the most-specific match.
+    matches = let tt_u = Base.unwrap_unionall(tt)
+        if tt_u isa DataType
+            params = tt_u.parameters
+            concrete = true
+            for p in params
+                if p === Any || p isa Union || p isa Core.TypeVar || p isa Core.TypeofVararg
+                    concrete = false
+                    break
+                end
+            end
+            concrete ? (matches[1:1]) : matches
+        else
+            matches
+        end
+    end
+
     optimize_until = _normalize_optimize_until_for_ir(optimize_until)
     asts = Pair{Any,Any}[]
     for match in matches
         match = match::Core.MethodMatch
         (code, ty) = CC.typeinf_ircode(interp, match, optimize_until)
         if code === nothing
-            push!(asts, match.method => Any)
+            ir = nothing
+            mod = match.method.module
+            @assert (mod === Core || mod === Base || mod === Auto) (
+                "BorrowChecker.Auto: unexpected `typeinf_ircode` returned `nothing` for " *
+                "non-Base/Core method. method=$(match.method) module=$(mod) tt=$(tt) " *
+                "world=$(world) optimize_until=$(optimize_until)"
+            )
+            if ir === nothing
+                push!(asts, match.method => ty)
+                if cfg.debug
+                    _auto_debug_emit(
+                        cfg,
+                        Dict(
+                            "event" => "auto_debug_no_ircode",
+                            "tt" => string(tt),
+                            "method" => string(match.method),
+                            "return_type" => string(ty),
+                            "world" => world,
+                            "optimize_until" => optimize_until,
+                        ),
+                    )
+                end
+            else
+                push!(asts, ir => ty)
+                if cfg.debug
+                    _auto_debug_emit(
+                        cfg,
+                        Dict(
+                            "event" => "auto_debug_inflated_ir",
+                            "tt" => string(tt),
+                            "method" => string(match.method),
+                            "return_type" => string(ty),
+                            "world" => world,
+                            "optimize_until" => optimize_until,
+                        ),
+                    )
+                end
+            end
         else
             push!(asts, code => ty)
         end
@@ -60,26 +143,70 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt)
     return asts
 end
 
+const _FALLBACK_PASS_NAMES = String[
+    # Julia's default `run_passes_ipo_safe` pipeline as of 1.12.x.
+    "convert",
+    "slot2reg",
+    "compact 1",
+    "Inlining",
+    "compact 2",
+    "SROA",
+    "ADCE",
+    "compact 3",
+]
+
+const _PASS_NAMES_CACHE = Ref{Vector{String}}(String[])
+
+@inline function _compiler_pass_names()::Vector{String}
+    names = _PASS_NAMES_CACHE[]
+    isempty(names) || return names
+
+    if isdefined(CC, :ALL_PASS_NAMES)
+        names = [String(nm) for nm in CC.ALL_PASS_NAMES]
+    else
+        names = _FALLBACK_PASS_NAMES
+    end
+
+    _PASS_NAMES_CACHE[] = names
+    return names
+end
+
 function _normalize_optimize_until_for_ir(optimize_until)
     optimize_until isa String || return optimize_until
-    isdefined(CC, :ALL_PASS_NAMES) || return optimize_until
 
-    for nm in CC.ALL_PASS_NAMES
-        s = String(nm)
+    pass_names = _compiler_pass_names()
+    for s in pass_names
         s == optimize_until && return s
     end
 
+    # Normalize common spellings like "compact_1" and "COMPACT_1".
     @inline function _norm(s::AbstractString)
         return replace(lowercase(String(s)), r"[^a-z0-9]+" => "")
     end
 
     optn = _norm(optimize_until)
-    for nm in CC.ALL_PASS_NAMES
-        s = String(nm)
-        endswith(_norm(s), optn) && return s
+    matches = String[]
+    for s in pass_names
+        endswith(_norm(s), optn) && push!(matches, s)
     end
 
-    return optimize_until
+    if length(matches) == 1
+        return matches[1]
+    elseif length(matches) > 1
+        throw(
+            ArgumentError(
+                "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
+                "Candidates: $(join(matches, ", "))",
+            ),
+        )
+    end
+
+    throw(
+        ArgumentError(
+            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
+            "Known passes: $(join(pass_names, ", "))",
+        ),
+    )
 end
 
 mutable struct BudgetTracker
@@ -197,7 +324,28 @@ function _summary_cached(
     local_budget = BudgetTracker(false)
     try
         summ = compute(local_budget)
-    catch
+    catch e
+        if cfg.debug
+            world = _reflection_world()
+            bt = catch_backtrace()
+            st = try
+                Base.stacktrace(bt)
+            catch
+                nothing
+            end
+            frames = (st === nothing) ? nothing : [string(fr) for fr in st[1:min(end, 8)]]
+            _auto_debug_emit(
+                cfg,
+                Dict(
+                    "event" => "auto_debug_summary_exception",
+                    "key" => string(key),
+                    "world" => world,
+                    "depth" => depth,
+                    "error" => sprint(showerror, e),
+                    "backtrace" => frames,
+                ),
+            )
+        end
         summ = nothing
     finally
         inprogress_exit(key)
@@ -294,7 +442,9 @@ function _summary_for_tt(
     return _summary_cached_tt(
         key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        codes = _code_ircode_by_type(
+            tt; optimize_until=cfg.optimize_until, world=world, cfg
+        )
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
@@ -318,14 +468,16 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         key, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
         tt = mi.specTypes
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world)
+        codes = _code_ircode_by_type(
+            tt; optimize_until=cfg.optimize_until, world=world, cfg
+        )
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
 
 function _widenargtype_or_any(@nospecialize(x), ir::CC.IRCode)
     try
-        t = CC.widenconst(CC.argextype(x, ir))
+        t = CC.widenconst(_safe_argextype(x, ir))
         return (t isa Type) ? t : Any
     catch
         return Any
@@ -403,6 +555,16 @@ function _effects_for_call(
 )::EffectSummary
     head, mi, raw_args = _call_parts(stmt)
     raw_args === nothing && return EffectSummary()
+
+    # Fast path: if this call does not involve any tracked values from the current IR,
+    # it cannot influence borrow checking (consume/write/alias) for this caller.
+    any_tracked = false
+    # NOTE: include the callee expression itself. This matters for functors/closures
+    # where `f()` can mutate/alias through captured state or `f`'s own fields.
+    @inbounds for v in raw_args
+        _handle_index(v, nargs, track_arg, track_ssa) != 0 && (any_tracked = true; break)
+    end
+    any_tracked || return EffectSummary()
     f = _resolve_callee(stmt, ir)
 
     if idx != 0
@@ -421,6 +583,21 @@ function _effects_for_call(
         return EffectSummary()
     end
 
+    # Treat most `Type(...)` calls (constructors/conversions) as pure with respect to
+    # ownership: constructing a new object that (may) hold references to inputs should
+    # create aliases, not "move"/consume the inputs.
+    #
+    # Exception: callable objects (subtypes of `Function`) model captured environments
+    # (closures/functors) that can escape and outlive the current scope, so keep the
+    # normal conservative behavior for those.
+    if head === :call && f isa Type
+        # If a `Type(...)` call has explicit known effects (e.g. `Task(f)`), honor them.
+        if _known_effects_get(f) === nothing
+            is_functor = (f <: Function)
+            is_functor || return EffectSummary()
+        end
+    end
+
     # `_apply_iterate` is Core plumbing used for splatting/varargs and some wrappers.
     # Treat it as a transparent call wrapper: infer effects for the callee (`raw_args[3]`)
     # on the expanded argument list, then map those effects back to the original
@@ -429,9 +606,16 @@ function _effects_for_call(
     if f === Core._apply_iterate && length(raw_args) >= 3
         # Inner callee
         inner_f = try
-            CC.singleton_type(CC.argextype(raw_args[3], ir))
+            CC.singleton_type(_safe_argextype(raw_args[3], ir))
         catch
             nothing
+        end
+        if inner_f === nothing && raw_args[3] isa GlobalRef
+            inner_f = try
+                getfield(raw_args[3].mod, raw_args[3].name)
+            catch
+                nothing
+            end
         end
         if inner_f !== nothing
             expanded_types = Any[typeof(inner_f)]
@@ -569,7 +753,7 @@ function _effects_for_call(
     end
 
     if head === :call && f !== nothing
-        tt = _call_tt_from_raw_args(raw_args, ir)
+        tt = _call_tt_from_raw_args(raw_args, ir, f)
         if tt !== nothing
             if depth < cfg.max_summary_depth
                 s = _summary_for_tt(tt, cfg; depth=depth + 1, budget_state=budget_state)
@@ -582,12 +766,6 @@ function _effects_for_call(
                 _mark_budget_hit!(budget_state)
             end
         end
-    end
-
-    # If we have a call to a `Type` (constructor/conversion) but cannot obtain reflectable
-    # IR for it (e.g. builtin struct constructors), treat it as pure w.r.t. inputs.
-    if head === :call && f !== nothing && f isa Type
-        return EffectSummary()
     end
 
     consumes = Int[]
