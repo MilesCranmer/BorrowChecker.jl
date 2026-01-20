@@ -36,21 +36,9 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
         return any(tt, Base.uniontypes(T))
     end
 
-    # Core.Compiler often uses lattice elements (e.g. Const/PartialStruct) for IR types.
-    # When possible, widen them to an underlying Julia type so we don't conservatively
-    # treat everything as tracked.
-    if !(T isa Type)
-        Tw = try
-            CC.widenconst(T)
-        catch
-            nothing
-        end
-        if Tw isa Type
-            T = Tw
-        else
-            return true
-        end
-    end
+    @assert (T isa Type) (
+        "BorrowChecker.Auto: expected `Type` in TypeTracker, got $(typeof(T))"
+    )
 
     if T isa UnionAll
         return tt(Base.unwrap_unionall(T))
@@ -133,21 +121,9 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T === Any && return true
     T isa Union && return any(tt, Base.uniontypes(T))
 
-    # Core.Compiler often uses lattice elements (e.g. Const/PartialStruct) for IR types.
-    # When possible, widen them to an underlying Julia type so we don't conservatively
-    # treat everything as owned.
-    if !(T isa Type)
-        Tw = try
-            CC.widenconst(T)
-        catch
-            nothing
-        end
-        if Tw isa Type
-            T = Tw
-        else
-            return true
-        end
-    end
+    @assert (T isa Type) (
+        "BorrowChecker.Auto: expected `Type` in OwnedTypeTracker, got $(typeof(T))"
+    )
 
     if T isa UnionAll
         return tt(Base.unwrap_unionall(T))

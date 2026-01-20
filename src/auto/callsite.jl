@@ -475,32 +475,10 @@ function _call_tt_from_raw_args(raw_args, ir::CC.IRCode, f_override=nothing)
                         end
                     end
 
-                    # If inference can't resolve the callee type (often because it's a mutable global
-                    # binding like `Main.eachindex`), fall back to the current runtime binding so we can
-                    # still reflect and summarize the call.
-                    if a isa GlobalRef
-                        need_runtime = (t === Any) || (t isa Union)
-                        if !need_runtime
-                            dt = try
-                                Base.unwrap_unionall(t)
-                            catch
-                                nothing
-                            end
-                            need_runtime = (dt isa DataType) && Base.isabstracttype(dt)
-                        end
-                        if need_runtime
-                            v = try
-                                getfield(a.mod, a.name)
-                            catch
-                                nothing
-                            end
-                            if v isa Type
-                                t = Type{v}
-                            elseif v !== nothing
-                                t = Core.Typeof(v)
-                            end
-                        end
-                    end
+                    @assert !(a isa GlobalRef) (
+                        "BorrowChecker.Auto: unexpected GlobalRef callee in call signature inference. " *
+                        "globalref=$(a.mod).$(a.name) inferred=$(t)"
+                    )
                 end
             else
                 t = CC.widenconst(at)
