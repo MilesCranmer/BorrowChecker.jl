@@ -650,6 +650,20 @@
             s = read(path, String)
             @test occursin("\"event\":\"auto_debug_summary_exception\"", s)
         end
+
+        # Type refinement debug event is emitted when refinement makes changes.
+        @auto debug = true scope = :function function _bc_dbg_refine_types_event()
+            x = (g = () -> 3; g())
+            return x
+        end
+        mktemp() do path, io
+            close(io)
+            withenv("BORROWCHECKER_AUTO_DEBUG_PATH" => path) do
+                _bc_dbg_refine_types_event()
+            end
+            s = read(path, String)
+            @test occursin("\"event\":\"auto_debug_refine_types\"", s)
+        end
     end
 
     @testset "scope=:none disables @auto" begin
