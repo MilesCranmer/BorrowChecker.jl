@@ -20,7 +20,7 @@ The pass never attempts to interpret overloadable Base operations like `getprope
 # `ir_primitives.jl`, so we can use internal helpers like `_inst_get` and
 # `_canonical_ref`.
 
-const _MaybeType = Union{Nothing, Type}
+const _MaybeType = Union{Nothing,Type}
 
 @inline function _as_type_or_any(@nospecialize(T))::Type
     T = CC.widenconst(T)
@@ -172,7 +172,9 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
     # Optional debug log of refinements.
     refine_log = cfg.debug ? Vector{Dict{String,Any}}() : nothing
 
-    @inline function _log_change(kind::String, idx::Int, stmt, @nospecialize(oldT), newT::Type)
+    @inline function _log_change(
+        kind::String, idx::Int, stmt, @nospecialize(oldT), newT::Type
+    )
         refine_log === nothing && return nothing
         push!(
             refine_log,
@@ -281,7 +283,9 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
             end
 
             # (5) Refine __bc_bind__ to propagate the argument type.
-            if stmt isa Expr && stmt.head === :call && _is_any_slot(_inst_get(inst, :type, Any))
+            if stmt isa Expr &&
+                stmt.head === :call &&
+                _is_any_slot(_inst_get(inst, :type, Any))
                 fobj = _resolve_callee(stmt, ir)
                 if fobj === __bc_bind__ && length(stmt.args) >= 2
                     arg_expr = _canonical_ref(stmt.args[2], ir)
@@ -306,8 +310,8 @@ function refine_types!(ir::CC.IRCode, cfg::Config)
             # fast, we only attempt return-type refinement for call sites that *depend on*
             # previously-refined SSA values (e.g. values coming from boxed `:contents` loads).
             if stmt isa Expr &&
-               (stmt.head === :call || stmt.head === :invoke) &&
-               _is_any_slot(_inst_get(inst, :type, Any))
+                (stmt.head === :call || stmt.head === :invoke) &&
+                _is_any_slot(_inst_get(inst, :type, Any))
                 head, _mi, raw_args = _call_parts(stmt)
                 head === nothing && continue
                 raw_args === nothing && continue

@@ -380,8 +380,9 @@ function _maybe_box_contents_type(x::Core.SSAValue, ir::CC.IRCode)
         catch
             nothing
         end
-        if bstmt isa Expr && bstmt.head === :call &&
-           (bstmt.args[1] === Core.Box || bstmt.args[1] == GlobalRef(Core, :Box))
+        if bstmt isa Expr &&
+            bstmt.head === :call &&
+            (bstmt.args[1] === Core.Box || bstmt.args[1] == GlobalRef(Core, :Box))
             if length(bstmt.args) >= 2
                 init = bstmt.args[2]
                 init_ty = try

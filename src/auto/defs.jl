@@ -64,7 +64,6 @@ end
     end
 end
 
-
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:
     # raw_args[1] is the function value, raw_args[2] is the first user argument, etc.

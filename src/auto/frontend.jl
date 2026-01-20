@@ -193,7 +193,9 @@ function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
         # Performance guard: for `scope=:all`, avoid recursively checking Base/Core callees.
         # Base/Core borrow-check errors are treated as non-fatal anyway, and walking the entire
         # Base/Core call graph can make `scope=:all` unusably slow.
-        if cfg.scope === :all && m_precise && (_module_is_under(m, Base) || _module_is_under(m, Core))
+        if cfg.scope === :all &&
+            m_precise &&
+            (_module_is_under(m, Base) || _module_is_under(m, Core))
             continue
         end
         _scope_allows_module(m, cfg) || continue
@@ -230,7 +232,9 @@ function check_signature(
         entry_codes = nothing
 
         try
-            codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
+            codes = _code_ircode_by_type(
+                tt; optimize_until=cfg.optimize_until, world=world, cfg
+            )
             entry_codes = codes
             viols = BorrowViolation[]
             for entry in codes

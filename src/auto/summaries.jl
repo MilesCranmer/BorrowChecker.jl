@@ -39,9 +39,7 @@ function _with_reflection_ctx(f::Function, world::UInt)
     entry = get!(cache, world) do
         (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
     end
-    ctx_ref[] = (;
-        world=world, interp=entry.interp, methods_cache=entry.methods_cache
-    )
+    ctx_ref[] = (; world=world, interp=entry.interp, methods_cache=entry.methods_cache)
     try
         return f()
     finally
@@ -53,11 +51,12 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
     ctx = _reflection_ctx()
     interp = (ctx !== nothing && ctx.world === world) ? ctx.interp : BCInterp(; world)
 
-    methods_cache = if ctx !== nothing && ctx.world === world && hasproperty(ctx, :methods_cache)
-        getproperty(ctx, :methods_cache)
-    else
-        nothing
-    end
+    methods_cache =
+        if ctx !== nothing && ctx.world === world && hasproperty(ctx, :methods_cache)
+            getproperty(ctx, :methods_cache)
+        else
+            nothing
+        end
 
     matches = if methods_cache === nothing
         Base._methods_by_ftype(tt, -1, world)
@@ -194,16 +193,20 @@ function _normalize_optimize_until_for_ir(optimize_until)
     if length(matches) == 1
         return matches[1]
     elseif length(matches) > 1
-        throw(ArgumentError(
-            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
-            "Candidates: $(join(matches, ", "))",
-        ))
+        throw(
+            ArgumentError(
+                "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
+                "Candidates: $(join(matches, ", "))",
+            ),
+        )
     end
 
-    throw(ArgumentError(
-        "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
-        "Known passes: $(join(pass_names, ", "))",
-    ))
+    throw(
+        ArgumentError(
+            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
+            "Known passes: $(join(pass_names, ", "))",
+        ),
+    )
 end
 
 mutable struct BudgetTracker
@@ -439,7 +442,9 @@ function _summary_for_tt(
     return _summary_cached_tt(
         key, cfg; depth=depth, budget_state=budget_state, allow_core=allow_core
     ) do local_budget
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
+        codes = _code_ircode_by_type(
+            tt; optimize_until=cfg.optimize_until, world=world, cfg
+        )
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end
@@ -463,7 +468,9 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         key, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
         tt = mi.specTypes
-        codes = _code_ircode_by_type(tt; optimize_until=cfg.optimize_until, world=world, cfg)
+        codes = _code_ircode_by_type(
+            tt; optimize_until=cfg.optimize_until, world=world, cfg
+        )
         return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
     end
 end

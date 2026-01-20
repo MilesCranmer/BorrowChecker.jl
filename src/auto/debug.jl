@@ -186,7 +186,9 @@ function _auto_debug_emit_ir_for_codes(
         if ir_or_err isa CC.IRCode
             push!(
                 ir_entries,
-                Dict("ir" => _auto_debug_ir_string(ir_or_err), "inferred_type" => string(ty)),
+                Dict(
+                    "ir" => _auto_debug_ir_string(ir_or_err), "inferred_type" => string(ty)
+                ),
             )
         else
             push!(

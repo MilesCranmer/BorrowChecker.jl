@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-import Pkg
+using Pkg: Pkg
 
 Pkg.activate(@__DIR__; io=devnull)
 Pkg.develop(Pkg.PackageSpec(; path=abspath(joinpath(@__DIR__, ".."))); io=devnull)
@@ -12,7 +12,9 @@ using TOML
 using BorrowChecker
 using DynamicExpressions
 
-function _arg_value(args::Vector{String}, flag::String, default::Union{Nothing,String}=nothing)
+function _arg_value(
+    args::Vector{String}, flag::String, default::Union{Nothing,String}=nothing
+)
     for i in 1:length(args)
         if args[i] == flag
             return (i < length(args)) ? args[i + 1] : default
@@ -121,7 +123,8 @@ function run_case!(
     stop = Dates.now(Dates.UTC)
 
     marker_line = _first_line_matching(source_file, broken_marker_needle)
-    testset = marker_line === nothing ? nothing : _nearest_testset_name(source_file, marker_line)
+    testset =
+        marker_line === nothing ? nothing : _nearest_testset_name(source_file, marker_line)
 
     counts = _event_counts(jsonl_path)
     ok = (err === nothing)
@@ -146,8 +149,9 @@ function run_case!(
         "jsonl_path" => jsonl_path,
         "jsonl_bytes" => (isfile(jsonl_path) ? filesize(jsonl_path) : 0),
         "jsonl_event_counts" => counts,
-        "debug_cfg" =>
-            _toml_dict("debug" => true, "debug_callee_depth" => 2, "optimize_until" => "compact 1"),
+        "debug_cfg" => _toml_dict(
+            "debug" => true, "debug_callee_depth" => 2, "optimize_until" => "compact 1"
+        ),
     )
 
     open(joinpath(meta_dir, "$(case_id).toml"), "w") do io
@@ -172,7 +176,7 @@ struct _BCThreadsBoxedRange
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_getproperty_dim(
-    x::_BCBoxedField,
+    x::_BCBoxedField
 )
     g = () -> getfield(x, :n)
     x = fakewrite(x)
@@ -181,7 +185,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_broadcast_ok(
-    x::_BCBoxedBroadcast,
+    x::_BCBoxedBroadcast
 )
     g = () -> getfield(x, :n)
     x = fakewrite(x)
@@ -190,8 +194,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_threads_boxed_range_ok(
-    x::_BCThreadsBoxedRange,
-    flag::Bool,
+    x::_BCThreadsBoxedRange, flag::Bool
 )
     g = () -> getfield(x, :n)
     x = fakewrite(x)
@@ -211,14 +214,15 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_array_value_dim_ctor(
-    x,
+    x
 )
     l = 1
     return Array{Int,l}(x)
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" bc_copy_ok(ex) =
-    copy(ex)
+BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" bc_copy_ok(
+    ex
+) = copy(ex)
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_lambda_arglist_symbol()
     f = x -> x + 1
@@ -266,7 +270,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_body_with_arg(
-    z,
+    z
 )
     f = () -> begin
         x = z
@@ -288,7 +292,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
 end
 
 BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_body_with_arg(
-    z,
+    z
 )
     f = () -> begin
         x = copy(z)
@@ -577,7 +581,8 @@ function main()
             Dict(
                 "toolchain_label" => _arg_value(ARGS, "--label", ""),
                 "julia_version" => string(VERSION),
-                "finished_utc" => Dates.format(Dates.now(Dates.UTC), dateformat"yyyy-mm-ddTHH:MM:SS"),
+                "finished_utc" =>
+                    Dates.format(Dates.now(Dates.UTC), dateformat"yyyy-mm-ddTHH:MM:SS"),
                 "cases" => cases,
             ),
         )
