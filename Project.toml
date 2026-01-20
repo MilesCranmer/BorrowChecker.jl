@@ -5,13 +5,17 @@ authors = ["MilesCranmer <miles.cranmer@gmail.com>"]
 
 [deps]
 DispatchDoctor = "8d63f2c5-f18a-4cf2-ba9d-b3f60fc568c8"
+JuliaSyntaxHighlighting = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Preferences = "21216c6a-2e73-6563-6e65-726566657250"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StyledStrings = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 
 [compat]
 DispatchDoctor = "0.4.19"
+JuliaSyntaxHighlighting = "0.1, 1"
 MacroTools = "0.5"
 Preferences = "1.4"
 Random = "1"
+StyledStrings = "1"
 julia = "1.10"

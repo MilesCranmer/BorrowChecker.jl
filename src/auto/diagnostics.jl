@@ -3,12 +3,23 @@ struct BorrowViolation
     msg::String
     lineinfo::Union{Nothing,Any}
     stmt::Any
+    kind::Symbol
+    problem_var::Symbol
+    other_var::Symbol
+    other_lineinfo::Union{Nothing,Any}
 end
 
 struct BorrowCheckError <: Exception
     tt::Any
     violations::Vector{BorrowViolation}
 end
+
+BorrowViolation(idx::Int, msg::String, lineinfo, stmt) = BorrowViolation(
+    idx, msg, lineinfo, stmt, :generic, :anonymous, :anonymous, nothing
+)
+
+using JuliaSyntaxHighlighting: highlight
+using StyledStrings: Face, face!
 
 struct CachedFileLines
     mtime::Float64
@@ -206,7 +217,55 @@ function _recover_callee_from_tt(tt)
     end
 end
 
-function _print_source_context(io::IO, tt, li; context::Int=0)
+function _io_color_enabled(io::IO)
+    return try
+        get(io, :color, false)::Bool
+    catch
+        false
+    end
+end
+
+function _print_highlighted_line(io::IO, line::AbstractString, underline::Union{Nothing,Symbol})
+    if !_io_color_enabled(io)
+        print(io, line)
+        return nothing
+    end
+
+    s = highlight(String(line))
+    if underline !== nothing && underline !== :anonymous
+        needle = String(underline)
+        isempty(needle) || begin
+            # Best-effort identifier-ish matching (avoid underlining inside longer names).
+            pattern =
+                try
+                    escaped = replace(needle, r"([\\.^$|?*+()\\[\\]{}])" => s"\\\1")
+                    Regex("(?<![A-Za-z0-9_])" * escaped * "(?![A-Za-z0-9_])")
+                catch
+                    nothing
+                end
+            if pattern !== nothing
+                for m in eachmatch(pattern, s.string)
+                    face!(
+                        s[m.offset:(m.offset + ncodeunits(m.match) - 1)], Face(; underline=true)
+                    )
+                end
+            else
+                start = firstindex(s.string)
+                while true
+                    found = findnext(needle, s.string, start)
+                    found === nothing && break
+                    face!(s[found], Face(; underline=true))
+                    start = nextind(s.string, last(found))
+                end
+            end
+        end
+    end
+
+    Base.AnnotatedDisplay.ansi_write(print, io, s)
+    return nothing
+end
+
+function _print_source_context(io::IO, tt, li; context::Int=0, underline::Union{Nothing,Symbol}=nothing)
     file, line = if li isa Core.LineInfoNode || li isa LineNumberNode
         _lineinfo_file_line(li)
     else
@@ -235,7 +294,9 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
         hi = min(length(lines), line + context)
         for ln in lo:hi
             prefix = (ln == line) ? "      > " : "        "
-            println(io, prefix, rpad(string(ln), 5), " ", lines[ln])
+            print(io, prefix, rpad(string(ln), 5), " ")
+            _print_highlighted_line(io, lines[ln], (ln == line) ? underline : nothing)
+            println(io)
         end
         return nothing
     end
@@ -359,9 +420,24 @@ function Base.showerror(io::IO, e::BorrowCheckError)
         print(io, "  [", i, "] stmt#", v.idx, ": ", v.msg)
         if v.lineinfo !== nothing
             try
-                _print_source_context(io, e.tt, v.lineinfo; context=2)
+                _print_source_context(
+                    io, e.tt, v.lineinfo; context=2, underline=v.problem_var
+                )
             catch
                 println(io, "      ", v.lineinfo)
+            end
+        end
+        if v.other_lineinfo !== nothing && v.other_var != :anonymous
+            try
+                println(io)
+                println(io)
+                p = (v.problem_var == :anonymous) ? "value" : "`$(v.problem_var)`"
+                o = (v.other_var == :anonymous) ? "another live binding" : "`$(v.other_var)`"
+                println(io, "      note: ", p, " became problematic due to ", o, " introduced here")
+                _print_source_context(
+                    io, e.tt, v.other_lineinfo; context=2, underline=v.other_var
+                )
+            catch
             end
         end
         println(io)
