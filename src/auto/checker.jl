@@ -258,7 +258,9 @@ function _quoted_var(sym::Symbol)
     return sym === :anonymous ? "value" : "`$(sym)`"
 end
 
-function _alias_conflict_msg(context::String, problem_var::Symbol, other_var::Symbol)::String
+function _alias_conflict_msg(
+    context::String, problem_var::Symbol, other_var::Symbol
+)::String
     lhs = _quoted_var(problem_var)
     rhs = other_var === :anonymous ? "another live binding" : "`$(other_var)`"
     return "cannot perform $context: $(lhs) is aliased by $(rhs)"
@@ -323,9 +325,15 @@ function _push_violation!(
     problem_var::Symbol=:anonymous,
     other_var::Symbol=:anonymous,
     other_lineinfo=nothing,
+    problem_argpos::Int=0,
 )
     li = _stmt_lineinfo(ir, idx)
-    push!(viols, BorrowViolation(idx, msg, li, stmt, kind, problem_var, other_var, other_lineinfo))
+    push!(
+        viols,
+        BorrowViolation(
+            idx, msg, li, stmt, kind, problem_var, other_var, other_lineinfo, problem_argpos
+        ),
+    )
     return nothing
 end
 
@@ -570,7 +578,8 @@ function _check_call_eval_order_moves!(
             for hq in deps
                 _uf_find(uf, hq) == rp || continue
                 problem_var = _handle_var_symbol(ir, nargs, hp)
-                problem_var === :anonymous && (problem_var = _handle_var_symbol(ir, nargs, hq))
+                problem_var === :anonymous &&
+                    (problem_var = _handle_var_symbol(ir, nargs, hq))
                 msg =
                     "call argument uses $(_quoted_var(problem_var)) after it was moved by an earlier argument " *
                     "(arg $p before arg $q)"
@@ -582,6 +591,7 @@ function _check_call_eval_order_moves!(
                     msg;
                     kind=:eval_order_use_after_move,
                     problem_var,
+                    problem_argpos=q,
                 )
                 return nothing
             end
@@ -612,7 +622,8 @@ function _require_unique!(
         (h2 == hv || h2 == ignore_h || h2 == 1) && continue
         if _uf_find(uf, h2) == rv && origins[h2] != ohv
             cand_other_var = _handle_var_symbol(ir, nargs, h2)
-            if best_h2 == 0 || (best_other_var == :anonymous && cand_other_var != :anonymous)
+            if best_h2 == 0 ||
+                (best_other_var == :anonymous && cand_other_var != :anonymous)
                 best_h2 = h2
                 best_other_var = cand_other_var
             end

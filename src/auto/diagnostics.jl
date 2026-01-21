@@ -7,6 +7,7 @@ struct BorrowViolation
     problem_var::Symbol
     other_var::Symbol
     other_lineinfo::Union{Nothing,Any}
+    problem_argpos::Int
 end
 
 struct BorrowCheckError <: Exception
@@ -14,12 +15,15 @@ struct BorrowCheckError <: Exception
     violations::Vector{BorrowViolation}
 end
 
-BorrowViolation(idx::Int, msg::String, lineinfo, stmt) = BorrowViolation(
-    idx, msg, lineinfo, stmt, :generic, :anonymous, :anonymous, nothing
-)
+function BorrowViolation(idx::Int, msg::String, lineinfo, stmt)
+    return BorrowViolation(
+        idx, msg, lineinfo, stmt, :generic, :anonymous, :anonymous, nothing, 0
+    )
+end
 
 using JuliaSyntaxHighlighting: highlight
 using StyledStrings: Face, face!
+import Base.JuliaSyntax: GreenNode, children, kind, parseall, span, @K_str
 
 struct CachedFileLines
     mtime::Float64
@@ -225,39 +229,228 @@ function _io_color_enabled(io::IO)
     end
 end
 
-function _print_highlighted_line(io::IO, line::AbstractString, underline::Union{Nothing,Symbol})
+struct UnderlineInfo
+    sym::Symbol
+    argpos::Int
+end
+
+const _EMPTY_GREEN_CHILDREN = GreenNode[]
+
+@inline function _children_or_empty(n::GreenNode)
+    c = children(n)
+    return c === nothing ? _EMPTY_GREEN_CHILDREN : c
+end
+
+@inline function _leaf_eq_token(n::GreenNode)
+    return kind(n) == K"=" && span(n) == 1 && isempty(_children_or_empty(n))
+end
+
+function _collect_identifier_ranges!(
+    out::Vector{UnitRange{Int}},
+    line::AbstractString,
+    node::GreenNode,
+    off::Int,
+    needle::String,
+)
+    if kind(node) == K"Identifier"
+        if (off + span(node)) <= ncodeunits(line) &&
+            line[(off + 1):(off + span(node))] == needle
+            push!(out, (off + 1):(off + span(node)))
+        end
+        return nothing
+    end
+
+    if kind(node) == K"="
+        # Skip LHS identifiers; only underline identifiers in the RHS.
+        o = off
+        seen_eq = false
+        for ch in _children_or_empty(node)
+            if !seen_eq
+                _leaf_eq_token(ch) && (seen_eq = true)
+                o += span(ch)
+                continue
+            end
+            kind(ch) == K"Whitespace" && (o += span(ch); continue)
+            _collect_identifier_ranges!(out, line, ch, o, needle)
+            o += span(ch)
+        end
+        return nothing
+    end
+
+    o = off
+    for ch in _children_or_empty(node)
+        _collect_identifier_ranges!(out, line, ch, o, needle)
+        o += span(ch)
+    end
+    return nothing
+end
+
+function _parameters_value_nodes(params::GreenNode, off::Int)
+    # Return expression nodes representing keyword argument *values* in evaluation order.
+    vals = Tuple{GreenNode,Int}[]
+    o = off
+    for ch in _children_or_empty(params)
+        k = kind(ch)
+        if k == K";" || k == K"," || k == K"Whitespace"
+            o += span(ch)
+            continue
+        end
+
+        if k == K"="
+            # RHS = first non-whitespace node after the leaf '=' token.
+            co = o
+            seen_eq = false
+            for cch in _children_or_empty(ch)
+                if !seen_eq
+                    _leaf_eq_token(cch) && (seen_eq = true)
+                    co += span(cch)
+                    continue
+                end
+                kind(cch) == K"Whitespace" && (co += span(cch); continue)
+                push!(vals, (cch, co))
+                break
+            end
+            o += span(ch)
+            continue
+        end
+
+        # Implicit kwargs like `; x` and splats like `; kwargs...`.
+        push!(vals, (ch, o))
+        o += span(ch)
+    end
+    return vals
+end
+
+function _tuple_value_nodes(node::GreenNode, off::Int)
+    # Return expression nodes representing tuple element *values* in evaluation order.
+    vals = Tuple{GreenNode,Int}[]
+
+    # NamedTuple/kwargs form: tuple has a `parameters` child containing `=` nodes.
+    o = off
+    params = nothing
+    params_off = 0
+    for ch in _children_or_empty(node)
+        if kind(ch) == K"parameters"
+            params = ch
+            params_off = o
+            break
+        end
+        o += span(ch)
+    end
+
+    if params !== nothing
+        return _parameters_value_nodes(params, params_off)
+    end
+
+    # Regular tuple: each non-punctuation/non-whitespace child is an element expression.
+    o = off
+    for ch in _children_or_empty(node)
+        k = kind(ch)
+        if k == K"(" || k == K")" || k == K"," || k == K"Whitespace"
+            o += span(ch)
+            continue
+        end
+        push!(vals, (ch, o))
+        o += span(ch)
+    end
+    return vals
+end
+
+function _call_value_nodes(node::GreenNode, off::Int)
+    # Return expression nodes representing call argument *values* in evaluation order (excluding callee).
+    vals = Tuple{GreenNode,Int}[]
+    o = off
+    first = true
+    for ch in _children_or_empty(node)
+        if first
+            # Callee expression.
+            o += span(ch)
+            first = false
+            continue
+        end
+
+        k = kind(ch)
+        if k == K"(" || k == K")" || k == K"," || k == K"Whitespace"
+            o += span(ch)
+            continue
+        end
+
+        if k == K"parameters"
+            append!(vals, _parameters_value_nodes(ch, o))
+            o += span(ch)
+            continue
+        end
+
+        push!(vals, (ch, o))
+        o += span(ch)
+    end
+    return vals
+end
+
+function _underline_ranges_for_argpos(
+    line::AbstractString, ast::GreenNode, sym::Symbol, argpos::Int
+)
+    elem_idx = argpos - 1
+    elem_idx >= 1 || return UnitRange{Int}[]
+    needle = String(sym)
+
+    function find_ranges(node::GreenNode, off::Int)
+        k = kind(node)
+        if k == K"call" || k == K"tuple"
+            vals = if (k == K"call")
+                _call_value_nodes(node, off)
+            else
+                _tuple_value_nodes(node, off)
+            end
+            if length(vals) >= elem_idx
+                (elem_node, elem_off) = vals[elem_idx]
+                ranges = UnitRange{Int}[]
+                _collect_identifier_ranges!(ranges, line, elem_node, elem_off, needle)
+                isempty(ranges) || return ranges
+            end
+        end
+        o = off
+        for ch in _children_or_empty(node)
+            found = find_ranges(ch, o)
+            found !== nothing && return found
+            o += span(ch)
+        end
+        return nothing
+    end
+
+    found = find_ranges(ast, 0)
+    return found === nothing ? UnitRange{Int}[] : found
+end
+
+function _underline_ranges(line::AbstractString, ast::GreenNode, underline::UnderlineInfo)
+    underline.sym == :anonymous && return UnitRange{Int}[]
+    needle = String(underline.sym)
+
+    if underline.argpos >= 2
+        ranges = _underline_ranges_for_argpos(line, ast, underline.sym, underline.argpos)
+        isempty(ranges) || return ranges
+        # Fallback: underline RHS occurrences.
+    end
+
+    ranges = UnitRange{Int}[]
+    _collect_identifier_ranges!(ranges, line, ast, 0, needle)
+    return ranges
+end
+
+function _print_highlighted_line(
+    io::IO, line::AbstractString, underline::Union{Nothing,UnderlineInfo}
+)
     if !_io_color_enabled(io)
         print(io, line)
         return nothing
     end
 
-    s = highlight(String(line))
-    if underline !== nothing && underline !== :anonymous
-        needle = String(underline)
-        isempty(needle) || begin
-            # Best-effort identifier-ish matching (avoid underlining inside longer names).
-            pattern =
-                try
-                    escaped = replace(needle, r"([\\.^$|?*+()\\[\\]{}])" => s"\\\1")
-                    Regex("(?<![A-Za-z0-9_])" * escaped * "(?![A-Za-z0-9_])")
-                catch
-                    nothing
-                end
-            if pattern !== nothing
-                for m in eachmatch(pattern, s.string)
-                    face!(
-                        s[m.offset:(m.offset + ncodeunits(m.match) - 1)], Face(; underline=true)
-                    )
-                end
-            else
-                start = firstindex(s.string)
-                while true
-                    found = findnext(needle, s.string, start)
-                    found === nothing && break
-                    face!(s[found], Face(; underline=true))
-                    start = nextind(s.string, last(found))
-                end
-            end
+    ast = parseall(GreenNode, String(line); ignore_errors=true)
+    s = highlight(String(line), ast)
+
+    if underline !== nothing
+        for r in _underline_ranges(line, ast, underline)
+            face!(s[r], Face(; underline=true))
         end
     end
 
@@ -265,7 +458,9 @@ function _print_highlighted_line(io::IO, line::AbstractString, underline::Union{
     return nothing
 end
 
-function _print_source_context(io::IO, tt, li; context::Int=0, underline::Union{Nothing,Symbol}=nothing)
+function _print_source_context(
+    io::IO, tt, li; context::Int=0, underline::Union{Nothing,UnderlineInfo}=nothing
+)
     file, line = if li isa Core.LineInfoNode || li isa LineNumberNode
         _lineinfo_file_line(li)
     else
@@ -421,7 +616,11 @@ function Base.showerror(io::IO, e::BorrowCheckError)
         if v.lineinfo !== nothing
             try
                 _print_source_context(
-                    io, e.tt, v.lineinfo; context=2, underline=v.problem_var
+                    io,
+                    e.tt,
+                    v.lineinfo;
+                    context=2,
+                    underline=UnderlineInfo(v.problem_var, v.problem_argpos),
                 )
             catch
                 println(io, "      ", v.lineinfo)
@@ -432,10 +631,25 @@ function Base.showerror(io::IO, e::BorrowCheckError)
                 println(io)
                 println(io)
                 p = (v.problem_var == :anonymous) ? "value" : "`$(v.problem_var)`"
-                o = (v.other_var == :anonymous) ? "another live binding" : "`$(v.other_var)`"
-                println(io, "      note: ", p, " became problematic due to ", o, " introduced here")
+                o = if (v.other_var == :anonymous)
+                    "another live binding"
+                else
+                    "`$(v.other_var)`"
+                end
+                println(
+                    io,
+                    "      note: ",
+                    p,
+                    " became problematic due to ",
+                    o,
+                    " introduced here",
+                )
                 _print_source_context(
-                    io, e.tt, v.other_lineinfo; context=2, underline=v.other_var
+                    io,
+                    e.tt,
+                    v.other_lineinfo;
+                    context=2,
+                    underline=UnderlineInfo(v.other_var, 0),
                 )
             catch
             end
