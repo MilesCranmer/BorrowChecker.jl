@@ -706,23 +706,21 @@ Pass names vary across Julia versions; `@safe` tries to normalize common spellin
     false positives. It is intended for development and testing, and does not guarantee
     memory safety.
 """
-macro auto(args...)
-    Base.depwarn(
-        "`BorrowChecker.@auto` is deprecated; use `BorrowChecker.@safe` instead.", :auto
-    )
+macro safe(args...)
     return esc(_auto(args...; calling_module=__module__, source_info=__source__))
 end
 
 """
-    BorrowChecker.@safe [options...] function f(args...)
+    BorrowChecker.@auto [options...] function f(args...)
         ...
     end
 
-Equivalent to the old `BorrowChecker.@auto`. This name intentionally mirrors Rust's
-`unsafe { ... }` blocks: you opt into `@safe` (checked) functions, and can carve out
-small unchecked regions with [`@unsafe`](@ref).
+Deprecated alias for [`BorrowChecker.@safe`](@ref). Emits a depwarn and forwards.
 """
-macro safe(args...)
+macro auto(args...)
+    Base.depwarn(
+        "`BorrowChecker.@auto` is deprecated; use `BorrowChecker.@safe` instead.", :auto
+    )
     return esc(_auto(args...; calling_module=__module__, source_info=__source__))
 end
 
@@ -735,20 +733,21 @@ Mark a lexical region as *unchecked* by `BorrowChecker.@safe`.
 
 Semantics (auto-IR checker only):
 
-- The borrow checker does **not** validate aliasing/escape rules for statements inside
-  the `@unsafe` region.
-- The checker also does **not** recursively borrow-check callees that are only reachable
-  from within the `@unsafe` region.
-- The unsafe region is still executed normally at runtime.
+- The borrow checker does **not** validate aliasing / uniqueness rules for statements
+  inside the `@unsafe` region.
+- The borrow checker does **not** enforce escape/consume ("move") rules inside the
+  `@unsafe` region.
+- The unsafe region is treated as **opaque** to surrounding checked code: effects inside
+  the region (writes, consumes, escapes, new aliases) are not propagated outward into the
+  surrounding analysis.
+- The checker does **not** recursively borrow-check callees that are only reachable from
+  within the `@unsafe` region.
+- The unsafe region is still executed normally at runtime and evaluates to the value of
+  its last expression (like a `begin ... end` block).
 
 This is intentionally analogous to `@inbounds`: it is an escape hatch for low-level
 code or for cases where the checker is overly conservative. The responsibility to
 uphold the usual invariants is on you.
-
-Implementation note: `@unsafe` injects an `Expr(:meta, :borrow_checker_unsafe, <ast>)`
-marker which is preserved in `Core.Compiler.IRCode.meta`. The auto-IR borrow checker
-uses that metadata to skip checking statements whose source locations come from the
-annotated block.
 """
 macro unsafe(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
