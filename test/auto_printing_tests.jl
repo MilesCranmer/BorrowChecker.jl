@@ -1,4 +1,4 @@
-@testitem "Auto @auto printing" tags = [:auto] begin
+@testitem "Auto @safe printing" tags = [:auto] begin
     using TestItems
     using BorrowChecker
 
@@ -39,11 +39,11 @@
 
     @testset "BorrowCheckError includes REPL context (real checker)" begin
         mod = Module(:_BCPrintRealMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
+        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
         Base.include_string(
             mod,
             """
-            @auto function foo()
+            @safe function foo()
                 x = [1, 2, 3]
                 y = x
                 push!(x, 9)
@@ -69,11 +69,11 @@
 
     @testset "BorrowCheckError prints multiple violations" begin
         mod = Module(:_BCPrintMultiMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
+        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
         Base.include_string(
             mod,
             """
-            @auto function multi()
+            @safe function multi()
                 x = [1, 2, 3]
                 y = x
                 push!(x, 9)
@@ -111,11 +111,11 @@
             path,
             """
             module _BCFilePrintMod
-            using BorrowChecker.Auto: @auto
+            using BorrowChecker.Auto: @safe
 
             f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 
-            @auto function foo()
+            @safe function foo()
                 x = [1, 2, 3]
                 y = x
                 return sum(f(; x=x, y=y))
@@ -170,11 +170,11 @@
 
         repltask = @async REPL.run_repl(repl)
 
-        write(input.in, "using BorrowChecker.Auto: @auto\r")
+        write(input.in, "using BorrowChecker.Auto: @safe\r")
         write(input.in, "f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)\r")
         write(
             input.in,
-            "@auto function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
+            "@safe function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
         )
         write(input.in, "foo()\r")
         close(input.in)

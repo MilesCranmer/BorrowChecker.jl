@@ -195,7 +195,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
     elseif length(matches) > 1
         throw(
             ArgumentError(
-                "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
+                "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is ambiguous. " *
                 "Candidates: $(join(matches, ", "))",
             ),
         )
@@ -203,7 +203,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
 
     throw(
         ArgumentError(
-            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
+            "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
             "Known passes: $(join(pass_names, ", "))",
         ),
     )

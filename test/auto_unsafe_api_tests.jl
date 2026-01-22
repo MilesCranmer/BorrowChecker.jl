@@ -4,6 +4,8 @@
 
     @test Symbol("@safe") in names(BorrowChecker)
     @test Symbol("@unsafe") in names(BorrowChecker)
+    @test Symbol("@safe") in names(BorrowChecker.Auto)
+    @test Symbol("@unsafe") in names(BorrowChecker.Auto)
 
     @test_deprecated macroexpand(
         @__MODULE__, :(BorrowChecker.@auto function _bc_depwarn_auto()

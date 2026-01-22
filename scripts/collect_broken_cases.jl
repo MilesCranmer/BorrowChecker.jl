@@ -175,7 +175,7 @@ struct _BCThreadsBoxedRange
     n::Int
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_getproperty_dim(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_getproperty_dim(
     x::_BCBoxedField
 )
     g = () -> getfield(x, :n)
@@ -184,7 +184,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return (g(), length(a))
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_broadcast_ok(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_boxed_broadcast_ok(
     x::_BCBoxedBroadcast
 )
     g = () -> getfield(x, :n)
@@ -193,7 +193,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return (g(), sum(b))
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_threads_boxed_range_ok(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_threads_boxed_range_ok(
     x::_BCThreadsBoxedRange, flag::Bool
 )
     g = () -> getfield(x, :n)
@@ -213,18 +213,18 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return g()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_array_value_dim_ctor(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_array_value_dim_ctor(
     x
 )
     l = 1
     return Array{Int,l}(x)
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" bc_copy_ok(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" bc_copy_ok(
     ex
 ) = copy(ex)
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_lambda_arglist_symbol()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_lambda_arglist_symbol()
     f = x -> x + 1
     return f(1)
 end
@@ -232,14 +232,14 @@ end
 const _BC_LAMBDA_ARGLIST_NOTHING_EXPR = Expr(:(->), nothing, :(1))
 eval(
     quote
-        BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_lambda_arglist_nothing()
+        BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_lambda_arglist_nothing()
             f = $_BC_LAMBDA_ARGLIST_NOTHING_EXPR
             return f()
         end
     end,
 )
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_nested_function_bad()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_nested_function_bad()
     function _bc_inner()
         x = [1, 2, 3]
         y = x
@@ -249,7 +249,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return _bc_inner()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_local_oneliner_bad()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_local_oneliner_bad()
     _bc_inner() = begin
         x = [1, 2, 3]
         y = x
@@ -259,7 +259,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return _bc_inner()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_body_0arg()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_body_0arg()
     f = () -> begin
         x = [1, 2, 3]
         y = x
@@ -269,7 +269,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return f()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_body_with_arg(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_body_with_arg(
     z
 )
     f = () -> begin
@@ -281,7 +281,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return f()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_body_0arg()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_body_0arg()
     f = () -> begin
         x = [1, 2, 3]
         y = copy(x)
@@ -291,7 +291,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return f()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_body_with_arg(
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_body_with_arg(
     z
 )
     f = () -> begin
@@ -303,14 +303,14 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return f()
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_view_alias()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_view_alias()
     x = [1, 2, 3, 4]
     y = view(x, 1:2)
     push!(x, 9)
     return collect(y)
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_capture()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_capture()
     x = [1, 2, 3]
     y = x
     f = () -> (push!(x, 9); nothing)
@@ -318,7 +318,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return y
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_capture_nested()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_bad_closure_capture_nested()
     x = [1, 2, 3]
     y = x
     f = () -> begin
@@ -330,7 +330,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return y
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_capture_readonly()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_ok_closure_capture_readonly()
     x = [1, 2, 3]
     y = x
     f = () -> begin
@@ -344,7 +344,7 @@ BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "c
     return x
 end
 
-BorrowChecker.Auto.@auto debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_module_not_owned()
+BorrowChecker.Auto.@safe debug = true debug_callee_depth = 2 optimize_until = "compact 1" function _bc_module_not_owned()
     m = Base
     g = Base.inferencebarrier(identity)
     g(m)
@@ -569,7 +569,7 @@ function main()
             "dynamic_expressions_copy_ok";
             title="DynamicExpressions: copy(::Expression) should not spuriously consume",
             source_file=joinpath("test", "dynamic_expressions_integration_tests.jl"),
-            broken_marker_needle="BorrowChecker.Auto.@auto bc_copy_ok",
+            broken_marker_needle="BorrowChecker.Auto.@safe bc_copy_ok",
             invoke=() -> bc_copy_ok(x1),
             outdir=outdir,
         ),

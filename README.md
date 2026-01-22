@@ -14,7 +14,7 @@ This is an experimental package for emulating a runtime borrow checker in Julia,
 
 BorrowChecker.jl currently has two alternative layers:
 
-1. **Automatic checking (`BorrowChecker.@auto`)**
+1. **Automatic checking (`BorrowChecker.@safe`)**
    - Drop-in for existing Julia code: wrap a function and BorrowChecker will run a best-effort borrow check when that method specialization executes.
    - It does not change program behavior (except for throwing when it finds a violation).
 2. **Manual overlay (explicit ownership/borrow macros like `@own`, `@ref`, `@take!`, …)**
@@ -57,16 +57,16 @@ This "ownership" paradigm can help improve safety of code. Especially in complex
 
 In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. The aim is to build a development layer that can help prevent a few classes of memory safety issues, without affecting runtime behavior of code.
 
-## Automatic Checking: `BorrowChecker.@auto`
+## Automatic Checking: `BorrowChecker.@safe`
 
-`BorrowChecker.@auto` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime. This requires Julia ≥ 1.12.
+`BorrowChecker.@safe` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime. This requires Julia ≥ 1.12.
 
 > [!WARNING]
 > This macro is highly experimental and compiler-dependent. There are likely bugs and false positives. It is intended for development and testing, and does not guarantee memory safety.
 
 ### Options
 
-`@auto` supports a few options that are compiled into a `BorrowChecker.Auto.Config`:
+`@safe` supports a few options that are compiled into a `BorrowChecker.Auto.Config`:
 
 - `scope` (default `:function`): whether to recursively borrow-check callees (`:none`, `:function`, `:module`, `:user`, `:all`).
 - `max_summary_depth` (default `12`): recursion depth limit for effect summarization when effects cannot be directly resolved.
@@ -74,15 +74,15 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 
 `scope` meanings:
 
-- `:none`: disable `@auto` entirely.
+- `:none`: disable `@safe` entirely.
 - `:function`: check only the annotated method.
-- `:module`: recursively check callees defined in the module where `@auto` is used.
+- `:module`: recursively check callees defined in the module where `@safe` is used.
 - `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
 - `:all`: recursively check callees across all modules (very aggressive).
 
-The `@auto` checked-cache is keyed by specialization *and these options*, so checking a function once under `scope=:function` will not incorrectly skip a later recursive check under `scope=:module` / `:all`.
+The `@safe` checked-cache is keyed by specialization *and these options*, so checking a function once under `scope=:function` will not incorrectly skip a later recursive check under `scope=:module` / `:all`.
 
-`@auto` is meant to be a *drop-in tripwire* for existing code:
+`@safe` is meant to be a *drop-in tripwire* for existing code:
 
 - **Aliasing violations**: mutating a value while another live binding may observe that mutation.
 - **Escapes / "moves"**: storing a mutable value somewhere that outlives the current scope (e.g. a global cache / a field / a container), then continuing to reference it locally.
@@ -94,7 +94,7 @@ This analyzes the compiler’s IR, so it can catch patterns that are "hidden" by
 When you write:
 
 ```julia
-BorrowChecker.@auto function f(args...)
+BorrowChecker.@safe function f(args...)
     # ...
 end
 ```
@@ -110,12 +110,12 @@ the macro rewrites the function so that:
 
 ### Aliasing Detection
 
-BorrowChecker.jl's `@auto` macro can detect when values are modified through aliased bindings, and throw an error:
+BorrowChecker.jl's `@safe` macro can detect when values are modified through aliased bindings, and throw an error:
 
 ```julia
 julia> import BorrowChecker
 
-julia> BorrowChecker.@auto function f()
+julia> BorrowChecker.@safe function f()
            x = [1, 2, 3]
            y = x
            push!(x, 4)
@@ -147,7 +147,7 @@ ERROR: BorrowCheckError for specialization Tuple{typeof(f)}
 To fix it, simply copy the value, which will avoid the error:
 
 ```julia
-julia> BorrowChecker.@auto function f()
+julia> BorrowChecker.@safe function f()
            x = [1, 2, 3]
            y = copy(x)
            push!(x, 4)
@@ -164,7 +164,7 @@ julia> f()
 
 ### Escape Detection
 
-Much like Rust's ownership model, BorrowChecker.jl's `@auto` macro attempts to infer when values escape their scope (moved/consumed) and throw an error if they are used afterwards.
+Much like Rust's ownership model, BorrowChecker.jl's `@safe` macro attempts to infer when values escape their scope (moved/consumed) and throw an error if they are used afterwards.
 
 ```julia
 julia> const CACHE = Dict()
@@ -173,7 +173,7 @@ Dict{Any, Any}()
 julia> foo(x) = (CACHE[x] = 1; nothing)
 foo (generic function with 1 method)
 
-julia> BorrowChecker.@auto function bar()
+julia> BorrowChecker.@safe function bar()
            x = [1, 2]
            foo(x)
            return x
@@ -191,7 +191,7 @@ ERROR: BorrowCheckError for specialization Tuple{typeof(bar)}
   method: bar() @ Main REPL[13]:1
 
   [1] stmt#6: value escapes/consumed by unknown call; it (or an alias) is used later      at REPL[13]:3
-        1     BorrowChecker.@auto function bar()
+        1     BorrowChecker.@safe function bar()
         2         x = [1, 2]
       > 3         foo(x)
         4         return x
@@ -205,7 +205,7 @@ Why is this an error? Because `x` was stored as a key in the cache, but is _muta
 How can we fix it? We have two options. The first is we can copy the value before storing it:
 
 ```julia
-julia> BorrowChecker.@auto function bar()
+julia> BorrowChecker.@safe function bar()
            x = [1, 2]
            foo(copy(x))
            return x
@@ -219,7 +219,7 @@ We no longer have access to the object created by `copy(x)`, so the borrow check
 Alternatively, we can use immutable objects, which are safe to pass around:
 
 ```julia
-julia> BorrowChecker.@auto function bar()
+julia> BorrowChecker.@safe function bar()
            x = (1, 2)
            foo(x)
            return x
@@ -229,10 +229,10 @@ bar (generic function with 1 method)
 julia> bar()  # ok
 ```
 
-### More `@auto` examples
+### More `@safe` examples
 
 <details>
-<summary><code>@auto</code> analyzes the entire callstack</summary>
+<summary><code>@safe</code> analyzes the entire callstack</summary>
 
 BorrowChecker doesn't rely on naming conventions, such as the presence of `!` in the function name. It tries to infer effects from IR:
 
@@ -240,7 +240,7 @@ BorrowChecker doesn't rely on naming conventions, such as the presence of `!` in
 julia> h(x) = (push!(x, 1); nothing)  # no "!" in the name
 h (generic function with 1 method)
 
-julia> BorrowChecker.@auto function demo()
+julia> BorrowChecker.@safe function demo()
            x = [1, 2, 3]
            y = x
            h(x)
@@ -255,13 +255,13 @@ julia> demo()  # errors
 <details>
 <summary>Keyword arguments are handled (the checker sees lowered <code>kwcall</code> IR)</summary>
 
-Keyword calls get lowered into a `NamedTuple` + `Core.kwcall(...)`. `@auto` analyzes the lowered IR, so aliasing via keyword arguments is still visible:
+Keyword calls get lowered into a `NamedTuple` + `Core.kwcall(...)`. `@safe` analyzes the lowered IR, so aliasing via keyword arguments is still visible:
 
 ```julia
 julia> f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 f (generic function with 1 method)
 
-julia> BorrowChecker.@auto function kw_demo()
+julia> BorrowChecker.@safe function kw_demo()
            x = [1, 2, 3]
            y = x
            return sum(f(; x=x, y=y))
@@ -276,7 +276,7 @@ julia> kw_demo()  # errors
 <summary>Aliasing isn't only <code>y = x</code>: views can alias too</summary>
 
 ```julia
-julia> BorrowChecker.@auto function view_demo()
+julia> BorrowChecker.@safe function view_demo()
            x = [1, 2, 3, 4]
            y = view(x, 1:2)  # aliases x
            push!(x, 9)
@@ -292,7 +292,7 @@ julia> view_demo()  # errors
 <summary>Closures are analyzed too</summary>
 
 ```julia
-julia> BorrowChecker.@auto function closure_demo()
+julia> BorrowChecker.@safe function closure_demo()
            x = [1, 2, 3]
            y = x
            f = () -> (push!(x, 9); nothing)

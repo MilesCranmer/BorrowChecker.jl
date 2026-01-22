@@ -9,7 +9,7 @@ Return `true` for types that behave like shareable concurrency handles.
 
 These values routinely escape into globally-reachable runtime state (e.g. scheduler
 queues) as an implementation detail, while remaining safe to use via additional
-aliases held by user code. They should not participate in `@auto`'s Rust-like
+aliases held by user code. They should not participate in `@safe`'s Rust-like
 ownership/move rules.
 """
 function _is_shareable_handle_type(@nospecialize(T))::Bool

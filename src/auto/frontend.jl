@@ -367,7 +367,7 @@ end
 function _tt_expr_from_signature(sig, cfg_tag)
     call = _sig_call(sig)
     call isa Expr && call.head === :call ||
-        error("@auto currently supports standard function signatures")
+        error("@safe currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
 
     params = Any[cfg_tag, :(Core.Typeof($fval))]
@@ -459,7 +459,7 @@ function _instrument_assignments(ex, cfg_tag)
         return ex
     end
 
-    # `@unsafe ...` regions are deliberately excluded from `@auto`'s recursive
+    # `@unsafe ...` regions are deliberately excluded from `@safe`'s recursive
     # instrumentation (no prologue checks for inner lambdas/functions, and we do
     # not insert `__bc_bind__` barriers inside).
     if ex.head === :macrocall
@@ -553,7 +553,7 @@ function _parse_cfg_value(x, calling_module)
 end
 
 """
-Parse `@auto` macro options into `Config` field overrides.
+Parse `@safe` macro options into `Config` field overrides.
 
 Returns a fully-specified `Config`.
 """
@@ -588,12 +588,12 @@ function parse_config(options, calling_module)::Config
             end
         end
         error(
-            "@auto only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
+            "@safe only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
         )
     end
 
     scope ∈ (:none, :function, :module, :user, :all) || error(
-        "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
+        "invalid `scope` for @safe: $scope (expected :none, :function, :module, :user, or :all)",
     )
 
     root_module = (scope === :module) ? calling_module : cfg0.root_module
@@ -645,13 +645,13 @@ function _auto(args...; calling_module, source_info=nothing)
         return Expr(:function, sig, inst_body)
     end
 
-    return error("@auto must wrap a function/method definition")
+    return error("@safe must wrap a function/method definition")
 end
 
 """
 Automatically borrow-check a function (best-effort).
 
-`BorrowChecker.@auto` is a *drop-in tripwire* for existing code:
+`BorrowChecker.@safe` is a *drop-in tripwire* for existing code:
 
 - **Aliasing violations**: mutating a value while another live binding may observe that mutation.
 - **Escapes / “moves”**: storing a mutable value somewhere that outlives the current scope
@@ -667,9 +667,9 @@ part of the checked-cache key).
 
 - `scope` (default: `:function`): controls whether the checker recursively borrow-checks
   callees (call-graph traversal).
-  - `:none`: disable `@auto` entirely (no IR borrow-checking; returns the original definition).
+  - `:none`: disable `@safe` entirely (no IR borrow-checking; returns the original definition).
   - `:function`: check only the annotated method.
-  - `:module`: recursively check callees whose defining module matches the module where `@auto` is used.
+  - `:module`: recursively check callees whose defining module matches the module where `@safe` is used.
   - `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
   - `:all`: recursively check callees across all modules (very aggressive).
 - `max_summary_depth` (default: `12`): limits recursive effect summarization depth used
@@ -682,11 +682,11 @@ part of the checked-cache key).
 Examples:
 
 ```julia
-BorrowChecker.@auto scope=:module function f(x)
+BorrowChecker.@safe scope=:module function f(x)
     g(x)
 end
 
-BorrowChecker.@auto max_summary_depth=4 optimize_until="compact 1" function h(x)
+BorrowChecker.@safe max_summary_depth=4 optimize_until="compact 1" function h(x)
     g(x)
 end
 ```
@@ -698,7 +698,7 @@ end
 `optimize_until` (default: `BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until`) controls
 which compiler pass to stop at when fetching IR via `Base.code_ircode_by_type`.
 
-Pass names vary across Julia versions; `@auto` tries to normalize common spellings like
+Pass names vary across Julia versions; `@safe` tries to normalize common spellings like
 `"compact 1"` / `"compact_1"` when possible.
 
 !!! warning

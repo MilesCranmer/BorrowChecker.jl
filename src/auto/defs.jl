@@ -34,7 +34,7 @@ Base.@kwdef struct Config
     debug::Bool = false
 
     """
-    Max depth of summary-recursion for which `@auto debug=true` also dumps IR.
+    Max depth of summary-recursion for which `@safe debug=true` also dumps IR.
 
     Depth is measured in the recursive effect summarizer (0 = the entrypoint specialization).
     """
@@ -160,7 +160,7 @@ const REGISTRY_INITED = Lockable(Ref{Bool}(false))
 
 function _populate_registry!()
     _known_effects_has(__bc_bind__) || register_effects!(__bc_bind__; ret_aliases=(2,))
-    # `@auto scope=...` builds a `Config` object at runtime for the prologue check.
+    # `@safe scope=...` builds a `Config` object at runtime for the prologue check.
     # This constructor is internal plumbing and should be treated as pure.
     _known_effects_has(Config) || register_effects!(Config; ret_aliases=())
 
