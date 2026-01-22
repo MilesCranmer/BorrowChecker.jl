@@ -307,6 +307,91 @@ function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
     end
 end
 
+# === `@unsafe` (auto-IR) support ===
+#
+# `BorrowChecker.@unsafe` expands to an `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
+# marker plus the *real* executable block. The compiler preserves `Expr(:meta, ...)`
+# entries in `IRCode.meta`.
+#
+# We interpret these markers as "do not borrow-check statements whose source locations
+# come from the annotated block".
+const BC_UNSAFE_META = :borrow_checker_unsafe
+
+function _collect_linenodes!(acc::Set{Tuple{Symbol,Int}}, ex)
+    if ex isa LineNumberNode
+        ex.line > 0 && push!(acc, (ex.file, Int(ex.line)))
+        return acc
+    elseif ex isa Expr
+        for a in ex.args
+            _collect_linenodes!(acc, a)
+        end
+        return acc
+    else
+        return acc
+    end
+end
+
+function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
+    if li isa LineNumberNode
+        return (li.file, Int(li.line))
+    end
+    if li isa Core.LineInfoNode
+        file = try
+            getproperty(li, :file)
+        catch
+            return nothing
+        end
+        line = try
+            getproperty(li, :line)
+        catch
+            return nothing
+        end
+        file_sym = (file isa Symbol) ? file : Symbol(file)
+        return (file_sym, Int(line))
+    end
+    return nothing
+end
+
+"""Return a statement mask `unsafe_stmt[i]` indicating that IR stmt `i` is inside an `@unsafe` region."""
+function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
+    nstmts = length(ir.stmts)
+    (nstmts == 0) && return Bool[]
+
+    meta = try
+        getproperty(ir, :meta)
+    catch
+        Any[]
+    end
+
+    # If a method contains a bare `Expr(:meta, :borrow_checker_unsafe)`, treat the entire
+    # method body as unchecked.
+    all_unsafe = false
+    linenodes = Set{Tuple{Symbol,Int}}()
+
+    for m in meta
+        (m isa Expr && m.head === :meta && !isempty(m.args)) || continue
+        m.args[1] === BC_UNSAFE_META || continue
+        if length(m.args) == 1
+            all_unsafe = true
+            break
+        end
+        # Convention: `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
+        _collect_linenodes!(linenodes, m.args[2])
+    end
+
+    all_unsafe && return trues(nstmts)
+    isempty(linenodes) && return falses(nstmts)
+
+    unsafe_stmt = falses(nstmts)
+    for i in 1:nstmts
+        li = _stmt_lineinfo(ir, i)
+        lt = (li === nothing) ? nothing : _line_tuple(li)
+        lt === nothing && continue
+        (lt in linenodes) && (unsafe_stmt[i] = true)
+    end
+    return unsafe_stmt
+end
+
 mutable struct UnionFind
     parent::Vector{Int}
     rank::Vector{UInt8}

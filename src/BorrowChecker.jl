@@ -28,10 +28,11 @@ using .MutexModule: Mutex
 export MovedError, BorrowError, BorrowRuleError, SymbolMismatchError, ExpiredError
 export Owned, OwnedMut, Borrowed, BorrowedMut, LazyAccessor, OrBorrowed, OrBorrowedMut
 export @own, @move, @ref, @ref_into, @take, @take!, @lifetime, @clone, @bc, @mut, @cc, @&
+export @safe, @unsafe
 export Mutex
 
 # Not exported but still available
-using .Auto: @auto
+using .Auto: @auto, @safe, @unsafe
 using .PreferencesModule: disable_by_default!
 using .StaticTraitModule: is_static
 using .TypesModule: AsMutable, Lifetime, LazyAccessorOf, is_moved, get_owner, get_symbol, get_immutable_borrows, get_mutable_borrows

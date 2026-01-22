@@ -1,11 +1,11 @@
 using BorrowChecker
 using InteractiveUtils: code_llvm
-using Test: @test
+using Test: @test, @test_throws
 
 function llvm_ir_minimal()
     m = Module(gensym(:BCLLVM))
     Core.eval(m, :(import BorrowChecker as BC))
-    Core.eval(m, :(BC.@auto f(x::Int) = x))
+    Core.eval(m, :(BC.@safe f(x::Int) = x))
 
     f = Core.eval(m, :f)
 

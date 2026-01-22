@@ -158,8 +158,11 @@ end
 function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
     (cfg.scope === :none || cfg.scope === :function) && return nothing
 
+    unsafe_stmt = _unsafe_stmt_mask(ir)
+
     nstmts = length(ir.stmts)
     for i in 1:nstmts
+        (1 <= i <= length(unsafe_stmt) && unsafe_stmt[i]) && continue
         stmt = ir[Core.SSAValue(i)][:stmt]
         head, mi, raw_args = _call_parts(stmt)
         raw_args === nothing && continue
@@ -439,6 +442,37 @@ function _instrument_assignments(ex, cfg_tag)
         return ex
     end
 
+    # Already-expanded `@unsafe` regions: these are blocks that start with our meta marker.
+    # Avoid instrumenting the unsafe region (including the stored meta AST).
+    if ex.head === :block && !isempty(ex.args)
+        first = ex.args[1]
+        if first isa Expr &&
+            first.head === :meta &&
+            !isempty(first.args) &&
+            first.args[1] === :borrow_checker_unsafe
+            return ex
+        end
+    end
+
+    # Avoid recursing into the stored meta AST for `@unsafe`.
+    if ex.head === :meta && !isempty(ex.args) && ex.args[1] === :borrow_checker_unsafe
+        return ex
+    end
+
+    # `@unsafe ...` regions are deliberately excluded from `@auto`'s recursive
+    # instrumentation (no prologue checks for inner lambdas/functions, and we do
+    # not insert `__bc_bind__` barriers inside).
+    if ex.head === :macrocall
+        # Forms:
+        #   @unsafe begin ... end
+        #   Mod.@unsafe begin ... end
+        # AST forms use `Symbol("@unsafe")` or a `GlobalRef` for qualified macros.
+        m = ex.args[1]
+        if m === Symbol("@unsafe") || (m isa GlobalRef && m.name === Symbol("@unsafe"))
+            return ex
+        end
+    end
+
     if ex.head === :function
         sig = ex.args[1]
         body = ex.args[2]
@@ -673,5 +707,58 @@ Pass names vary across Julia versions; `@auto` tries to normalize common spellin
     memory safety.
 """
 macro auto(args...)
+    Base.depwarn(
+        "`BorrowChecker.@auto` is deprecated; use `BorrowChecker.@safe` instead.", :auto
+    )
     return esc(_auto(args...; calling_module=__module__, source_info=__source__))
+end
+
+"""
+    BorrowChecker.@safe [options...] function f(args...)
+        ...
+    end
+
+Equivalent to the old `BorrowChecker.@auto`. This name intentionally mirrors Rust's
+`unsafe { ... }` blocks: you opt into `@safe` (checked) functions, and can carve out
+small unchecked regions with [`@unsafe`](@ref).
+"""
+macro safe(args...)
+    return esc(_auto(args...; calling_module=__module__, source_info=__source__))
+end
+
+"""
+    @unsafe begin
+        ...
+    end
+
+Mark a lexical region as *unchecked* by `BorrowChecker.@safe`.
+
+Semantics (auto-IR checker only):
+
+- The borrow checker does **not** validate aliasing/escape rules for statements inside
+  the `@unsafe` region.
+- The checker also does **not** recursively borrow-check callees that are only reachable
+  from within the `@unsafe` region.
+- The unsafe region is still executed normally at runtime.
+
+This is intentionally analogous to `@inbounds`: it is an escape hatch for low-level
+code or for cases where the checker is overly conservative. The responsibility to
+uphold the usual invariants is on you.
+
+Implementation note: `@unsafe` injects an `Expr(:meta, :borrow_checker_unsafe, <ast>)`
+marker which is preserved in `Core.Compiler.IRCode.meta`. The auto-IR borrow checker
+uses that metadata to skip checking statements whose source locations come from the
+annotated block.
+"""
+macro unsafe(ex)
+    is_borrow_checker_enabled(__module__) || return esc(ex)
+
+    body = (ex isa Expr && ex.head === :block) ? ex : Expr(:block, ex)
+
+    # Record the annotated AST in metadata (not executed), but execute the real block.
+    # This keeps `@unsafe` allocation-free while still giving the borrow checker a
+    # robust marker it can recover from IR.
+    meta_body = Base.deepcopy(body)
+    meta = Expr(:meta, :borrow_checker_unsafe, meta_body)
+    return esc(Expr(:block, meta, body.args...))
 end
