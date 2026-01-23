@@ -752,12 +752,10 @@ uphold the usual invariants is on you.
 macro unsafe(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
 
-    body = (ex isa Expr && ex.head === :block) ? ex : Expr(:block, ex)
-
     # Record the annotated AST in metadata (not executed), but execute the real block.
     # This keeps `@unsafe` allocation-free while still giving the borrow checker a
     # robust marker it can recover from IR.
-    meta_body = Base.deepcopy(body)
-    meta = Expr(:meta, :borrow_checker_unsafe, meta_body)
+    body = (ex isa Expr && ex.head === :block) ? ex : Expr(:block, ex)
+    meta = Expr(:meta, :borrow_checker_unsafe, Base.deepcopy(body))
     return esc(Expr(:block, meta, body.args...))
 end

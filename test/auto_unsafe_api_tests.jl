@@ -89,4 +89,13 @@
 
     @test !occursin("borrow_checker_unsafe", sprint(show, _BCUnsafeDisabled.expanded))
     @test _BCUnsafeDisabled.f() == [1, 2, 3, 1]
+
+    BorrowChecker.@safe function _bc_unsafe_line_mask_demo()
+        x = [1, 2, 3]
+        y = x
+        @unsafe begin push!(x, 1) end; push!(x, 2) # shares a source line with the unsafe block
+        return y
+    end
+
+    @test_throws BorrowChecker.Auto.BorrowCheckError _bc_unsafe_line_mask_demo()
 end

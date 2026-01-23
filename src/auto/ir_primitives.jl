@@ -331,6 +331,25 @@ function _collect_linenodes!(acc::Set{Tuple{Symbol,Int}}, ex)
     end
 end
 
+function _collect_unsafe_calls_by_line!(acc::Dict{Tuple{Symbol,Int},Vector{Any}}, ex)
+    line = nothing
+    if ex isa Expr && ex.head === :block
+        for a in ex.args
+            if a isa LineNumberNode
+                line = (a.file, Int(a.line))
+                continue
+            end
+            if a isa Expr && a.head === :line
+                continue
+            end
+            if line !== nothing && a isa Expr && a.head === :call
+                push!(get!(acc, line, Any[]), a)
+            end
+        end
+    end
+    return acc
+end
+
 function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
     if li isa LineNumberNode
         return (li.file, Int(li.line))
@@ -352,6 +371,61 @@ function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
     return nothing
 end
 
+function _raw_line_id(ir::CC.IRCode, idx::Int)
+    try
+        inst = ir[Core.SSAValue(idx)]
+        return _inst_get(inst, :line, nothing)
+    catch
+        return nothing
+    end
+end
+
+function _call_name(x)::Union{Nothing,Symbol}
+    if x isa Symbol
+        return x
+    elseif x isa GlobalRef
+        return x.name
+    else
+        return nothing
+    end
+end
+
+function _call_sig(ex)::Union{Nothing,Tuple{Symbol,Int,Vector{Any}}}
+    ex isa Expr && ex.head === :call || return nothing
+    isempty(ex.args) && return nothing
+    name = _call_name(ex.args[1])
+    name === nothing && return nothing
+    nargs = length(ex.args) - 1
+    lits = Any[]
+    for j in 2:length(ex.args)
+        a = ex.args[j]
+        if a isa QuoteNode
+            push!(lits, a.value)
+        elseif a isa Number || a isa String
+            push!(lits, a)
+        else
+            push!(lits, nothing)
+        end
+    end
+    return (name, nargs, lits)
+end
+
+function _call_sig_matches(stmt_sig, ex_sig)::Bool
+    stmt_sig === nothing && return false
+    ex_sig === nothing && return false
+    (stmt_sig[1] == ex_sig[1]) || return false
+    (stmt_sig[2] == ex_sig[2]) || return false
+    stmt_lits = stmt_sig[3]
+    ex_lits = ex_sig[3]
+    length(stmt_lits) == length(ex_lits) || return false
+    for i in 1:length(ex_lits)
+        ex_lit = ex_lits[i]
+        ex_lit === nothing && continue
+        stmt_lits[i] == ex_lit || return false
+    end
+    return true
+end
+
 """Return a statement mask `unsafe_stmt[i]` indicating that IR stmt `i` is inside an `@unsafe` region."""
 function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
     nstmts = length(ir.stmts)
@@ -367,6 +441,7 @@ function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
     # method body as unchecked.
     all_unsafe = false
     linenodes = Set{Tuple{Symbol,Int}}()
+    unsafe_calls_by_line = Dict{Tuple{Symbol,Int},Vector{Any}}()
 
     for m in meta
         (m isa Expr && m.head === :meta && !isempty(m.args)) || continue
@@ -377,17 +452,54 @@ function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
         end
         # Convention: `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
         _collect_linenodes!(linenodes, m.args[2])
+        _collect_unsafe_calls_by_line!(unsafe_calls_by_line, m.args[2])
     end
 
     all_unsafe && return trues(nstmts)
     isempty(linenodes) && return falses(nstmts)
+
+    # For each unsafe source line, try to narrow masking to only those IR statements that
+    # correspond to call expressions found in the `@unsafe` AST. This avoids masking
+    # unrelated statements that happen to share the same (file,line) (e.g. `@unsafe ...; stmt`).
+    raw_ids_by_line = Dict{Tuple{Symbol,Int},Set{Any}}()
+    if !isempty(unsafe_calls_by_line)
+        for i in 1:nstmts
+            li = _stmt_lineinfo(ir, i)
+            lt = (li === nothing) ? nothing : _line_tuple(li)
+            lt === nothing && continue
+            lt in linenodes || continue
+            calls = get(unsafe_calls_by_line, lt, nothing)
+            calls === nothing && continue
+
+            stmt = ir[Core.SSAValue(i)][:stmt]
+            stmt_sig = _call_sig(stmt)
+            stmt_sig === nothing && continue
+
+            for ex in calls
+                ex_sig = _call_sig(ex)
+                _call_sig_matches(stmt_sig, ex_sig) || continue
+                raw = _raw_line_id(ir, i)
+                raw === nothing && continue
+                push!(get!(raw_ids_by_line, lt, Set{Any}()), raw)
+                break
+            end
+        end
+    end
 
     unsafe_stmt = falses(nstmts)
     for i in 1:nstmts
         li = _stmt_lineinfo(ir, i)
         lt = (li === nothing) ? nothing : _line_tuple(li)
         lt === nothing && continue
-        (lt in linenodes) && (unsafe_stmt[i] = true)
+        lt in linenodes || continue
+
+        ids = get(raw_ids_by_line, lt, nothing)
+        if ids !== nothing
+            raw = _raw_line_id(ir, i)
+            (raw !== nothing && raw in ids) && (unsafe_stmt[i] = true)
+        else
+            unsafe_stmt[i] = true
+        end
     end
     return unsafe_stmt
 end
