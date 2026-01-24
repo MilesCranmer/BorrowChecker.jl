@@ -347,33 +347,13 @@ function _unsafe_prefix_counts_from_block!(acc::Dict{Tuple{Symbol,Int},Int}, ex)
 end
 
 function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
-    if li isa LineNumberNode
-        return (li.file, Int(li.line))
-    end
-    if li isa Core.LineInfoNode
-        file = try
-            getproperty(li, :file)
-        catch
-            return nothing
-        end
-        line = try
-            getproperty(li, :line)
-        catch
-            return nothing
-        end
-        file_sym = (file isa Symbol) ? file : Symbol(file)
-        return (file_sym, Int(line))
-    end
-    return nothing
+    @assert li isa LineNumberNode
+    return (li.file, Int(li.line))
 end
 
 function _raw_line_id(ir::CC.IRCode, idx::Int)
-    try
-        inst = ir[Core.SSAValue(idx)]
-        return _inst_get(inst, :line, nothing)
-    catch
-        return nothing
-    end
+    inst = ir[Core.SSAValue(idx)]
+    return _inst_get(inst, :line, nothing)
 end
 
 """Return a statement mask `unsafe_stmt[i]` indicating that IR stmt `i` is inside an `@unsafe` region."""
@@ -381,11 +361,7 @@ function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
     nstmts = length(ir.stmts)
     (nstmts == 0) && return Bool[]
 
-    meta = try
-        getproperty(ir, :meta)
-    catch
-        Any[]
-    end
+    meta = getproperty(ir, :meta)
 
     # If a method contains a bare `Expr(:meta, :borrow_checker_unsafe)`, treat the entire
     # method body as unchecked.
