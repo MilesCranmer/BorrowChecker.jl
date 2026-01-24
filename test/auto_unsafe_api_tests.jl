@@ -116,9 +116,5 @@ end
         return a
     end
 
-    @test_broken try
-        add_halves!([1, 2, 3, 4, 5, 6])[1:3] == [5, 7, 9]
-    catch
-        false
-    end
+    @test add_halves!([1, 2, 3, 4, 5, 6])[1:3] == [5, 7, 9]
 end

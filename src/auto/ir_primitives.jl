@@ -346,9 +346,19 @@ function _unsafe_prefix_counts_from_block!(acc::Dict{Tuple{Symbol,Int},Int}, ex)
     return acc
 end
 
-function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
-    @assert li isa LineNumberNode
-    return (li.file, Int(li.line))
+@inline function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
+    if li isa LineNumberNode
+        return (li.file, Int(li.line))
+    end
+
+    if li isa Core.LineInfoNode
+        file = getproperty(li, :file)
+        line = getproperty(li, :line)
+        line isa Integer || return nothing
+        return ((file isa Symbol) ? file : Symbol(file), Int(line))
+    end
+
+    return nothing
 end
 
 function _raw_line_id(ir::CC.IRCode, idx::Int)
@@ -356,105 +366,162 @@ function _raw_line_id(ir::CC.IRCode, idx::Int)
     return _inst_get(inst, :line, nothing)
 end
 
+function _unsafe_loc_site(
+    ir::CC.IRCode,
+    raw0,
+    pc::Int,
+    linenodes::Set{Tuple{Symbol,Int}},
+)::Tuple{Union{Nothing,Tuple{Symbol,Int}},Any}
+    raw = raw0
+    match_lt = nothing
+    match_site = nothing
+
+    seen = Base.IdSet{Any}()
+    depth = 0
+    while raw !== nothing && depth < 64
+        if raw in seen
+            break
+        end
+        push!(seen, raw)
+
+        li = _normalize_lineinfo(ir, raw, pc)
+        li === nothing && break
+
+        lt = _line_tuple(li)
+        if lt !== nothing && lt in linenodes
+            match_lt = lt
+            match_site = raw
+        end
+
+        if li isa Core.LineInfoNode && Base.hasproperty(li, :inlined_at)
+            ia = getproperty(li, :inlined_at)
+            if ia === nothing || (ia isa Integer && ia == 0)
+                break
+            end
+            raw = ia
+        else
+            break
+        end
+
+        depth += 1
+    end
+
+    return match_lt, match_site
+end
+
 """Return a statement mask `unsafe_stmt[i]` indicating that IR stmt `i` is inside an `@unsafe` region."""
 function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
     nstmts = length(ir.stmts)
     (nstmts == 0) && return Bool[]
 
-    meta = getproperty(ir, :meta)
-
     # If a method contains a bare `Expr(:meta, :borrow_checker_unsafe)`, treat the entire
     # method body as unchecked.
-    all_unsafe = false
-    linenodes = Set{Tuple{Symbol,Int}}()
-    prefix_counts = Dict{Tuple{Symbol,Int},Int}()
+    meta = ir.meta
 
+    unsafe_blocks = Any[]
     for m in meta
         (m isa Expr && m.head === :meta && !isempty(m.args)) || continue
         m.args[1] === BC_UNSAFE_META || continue
         if length(m.args) == 1
-            all_unsafe = true
-            break
+            return trues(nstmts)
         end
         # Convention: `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
-        blk = m.args[2]
-        _collect_linenodes!(linenodes, blk)
-        _unsafe_prefix_counts_from_block!(prefix_counts, blk)
+        push!(unsafe_blocks, m.args[2])
     end
 
-    all_unsafe && return trues(nstmts)
-    isempty(linenodes) && return falses(nstmts)
-
-    # Collect, for each unsafe (file,line), the ordered list of distinct low-level
-    # location IDs that appear on that line in IR.
-    raw_order = Dict{Tuple{Symbol,Int},Vector{Any}}()
-    raw_seen = Dict{Tuple{Symbol,Int},Set{Any}}()
-
-    for i in 1:nstmts
-        li = _stmt_lineinfo(ir, i)
-        lt = (li === nothing) ? nothing : _line_tuple(li)
-        lt === nothing && continue
-        lt in linenodes || continue
-
-        stmt = ir[Core.SSAValue(i)][:stmt]
-        stmt === nothing && continue
-
-        raw = _raw_line_id(ir, i)
-        raw === nothing && continue
-        (raw isa Integer && raw == 0) && continue
-
-        seen = get!(raw_seen, lt, Set{Any}())
-        if !(raw in seen)
-            push!(get!(raw_order, lt, Any[]), raw)
-            push!(seen, raw)
-        end
-    end
-
-    # Decide, per unsafe (file,line), whether we can mask the whole line or need to
-    # disambiguate using a prefix of statement locations.
-    full_line = Set{Tuple{Symbol,Int}}()
-    raw_prefix = Dict{Tuple{Symbol,Int},Set{Any}}()
-
-    for lt in linenodes
-        k = get(prefix_counts, lt, nothing)
-        raw_ids = get(raw_order, lt, nothing)
-
-        if k === nothing || raw_ids === nothing || isempty(raw_ids)
-            push!(full_line, lt)
-            continue
-        end
-
-        if k >= length(raw_ids)
-            push!(full_line, lt)
-            continue
-        end
-
-        s = Set{Any}()
-        for j in 1:k
-            push!(s, raw_ids[j])
-        end
-        raw_prefix[lt] = s
-    end
+    isempty(unsafe_blocks) && return falses(nstmts)
 
     unsafe_stmt = falses(nstmts)
-    for i in 1:nstmts
-        li = _stmt_lineinfo(ir, i)
-        lt = (li === nothing) ? nothing : _line_tuple(li)
-        lt === nothing && continue
-        lt in linenodes || continue
 
-        if lt in full_line
-            unsafe_stmt[i] = true
+    for blk in unsafe_blocks
+        linenodes = Set{Tuple{Symbol,Int}}()
+        _collect_linenodes!(linenodes, blk)
+        isempty(linenodes) && continue
+
+        # Disambiguation is only needed for single-line `@unsafe` regions (e.g. `@unsafe ...; stmt`).
+        # For multi-line blocks, it is safe to treat the whole (file,line) as unsafe.
+        if length(linenodes) > 1
+            for i in 1:nstmts
+                raw0 = _raw_line_id(ir, i)
+                if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
+                    li = _stmt_lineinfo(ir, i)
+                    lt = (li === nothing) ? nothing : _line_tuple(li)
+                    (lt !== nothing && lt in linenodes) && (unsafe_stmt[i] = true)
+                    continue
+                end
+
+                lt, _site = _unsafe_loc_site(ir, raw0, i, linenodes)
+                (lt !== nothing) && (unsafe_stmt[i] = true)
+            end
             continue
         end
 
-        raw = _raw_line_id(ir, i)
-        (raw === nothing || (raw isa Integer && raw == 0)) &&
-            (unsafe_stmt[i] = true; continue)
+        prefix_counts = Dict{Tuple{Symbol,Int},Int}()
+        _unsafe_prefix_counts_from_block!(prefix_counts, blk)
 
-        ids = get(raw_prefix, lt, nothing)
-        (ids !== nothing && raw in ids) && (unsafe_stmt[i] = true)
+        # Collect distinct "site" keys for the (single) unsafe line in IR order.
+        site_order = Any[]
+        site_seen = Set{Any}()
+        site_missing = false
+
+        for i in 1:nstmts
+            stmt = ir[Core.SSAValue(i)][:stmt]
+            stmt === nothing && continue
+
+            raw0 = _raw_line_id(ir, i)
+            if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
+                li = _stmt_lineinfo(ir, i)
+                lt = (li === nothing) ? nothing : _line_tuple(li)
+                if lt !== nothing && lt in linenodes
+                    site_missing = true
+                end
+                continue
+            end
+
+            lt, site = _unsafe_loc_site(ir, raw0, i, linenodes)
+            lt === nothing && continue
+
+            if site === nothing
+                site_missing = true
+                continue
+            end
+
+            if !(site in site_seen)
+                push!(site_order, site)
+                push!(site_seen, site)
+            end
+        end
+
+        lt = first(linenodes)
+        k = get(prefix_counts, lt, nothing)
+
+        full_line = site_missing || k === nothing || isempty(site_order) || k >= length(site_order)
+        prefix_sites = full_line ? nothing : Set(site_order[1:k])
+
+        for i in 1:nstmts
+            raw0 = _raw_line_id(ir, i)
+            if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
+                li = _stmt_lineinfo(ir, i)
+                lt = (li === nothing) ? nothing : _line_tuple(li)
+                (lt !== nothing && lt in linenodes) && (unsafe_stmt[i] = true)
+                continue
+            end
+
+            lt_i, site = _unsafe_loc_site(ir, raw0, i, linenodes)
+            lt_i === nothing && continue
+
+            if full_line
+                unsafe_stmt[i] = true
+                continue
+            end
+
+            # If we cannot recover a site key, fall back to masking conservatively.
+            site === nothing && (unsafe_stmt[i] = true; continue)
+
+            (site in prefix_sites) && (unsafe_stmt[i] = true)
+        end
     end
+
     return unsafe_stmt
 end
 
