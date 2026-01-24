@@ -276,3 +276,14 @@ function _ensure_registry_initialized()
     end
     return nothing
 end
+
+
+# === `@unsafe` (auto-IR) support ===
+#
+# `BorrowChecker.@unsafe` expands to an `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
+# marker plus the *real* executable block. The compiler preserves `Expr(:meta, ...)`
+# entries in `IRCode.meta`.
+#
+# We interpret these markers as "do not borrow-check statements whose source locations
+# come from the annotated block".
+const BC_UNSAFE_META = :borrow_checker_unsafe

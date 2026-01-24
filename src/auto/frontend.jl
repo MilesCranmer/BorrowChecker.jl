@@ -449,13 +449,13 @@ function _instrument_assignments(ex, cfg_tag)
         if first isa Expr &&
             first.head === :meta &&
             !isempty(first.args) &&
-            first.args[1] === :borrow_checker_unsafe
+            first.args[1] === BC_UNSAFE_META
             return ex
         end
     end
 
     # Avoid recursing into the stored meta AST for `@unsafe`.
-    if ex.head === :meta && !isempty(ex.args) && ex.args[1] === :borrow_checker_unsafe
+    if ex.head === :meta && !isempty(ex.args) && ex.args[1] === BC_UNSAFE_META
         return ex
     end
 
@@ -762,6 +762,6 @@ macro unsafe(ex)
     else
         Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
     end
-    meta = Expr(:meta, :borrow_checker_unsafe, Base.deepcopy(body))
+    meta = Expr(:meta, BC_UNSAFE_META, Base.deepcopy(body))
     return esc(Expr(:block, meta, body.args...))
 end

@@ -307,16 +307,6 @@ function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
     end
 end
 
-# === `@unsafe` (auto-IR) support ===
-#
-# `BorrowChecker.@unsafe` expands to an `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
-# marker plus the *real* executable block. The compiler preserves `Expr(:meta, ...)`
-# entries in `IRCode.meta`.
-#
-# We interpret these markers as "do not borrow-check statements whose source locations
-# come from the annotated block".
-const BC_UNSAFE_META = :borrow_checker_unsafe
-
 function _collect_linenodes!(acc::Set{Tuple{Symbol,Int}}, ex)
     if ex isa LineNumberNode
         ex.line > 0 && push!(acc, (ex.file, Int(ex.line)))
