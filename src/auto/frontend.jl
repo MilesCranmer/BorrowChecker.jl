@@ -755,7 +755,13 @@ macro unsafe(ex)
     # Record the annotated AST in metadata (not executed), but execute the real block.
     # This keeps `@unsafe` allocation-free while still giving the borrow checker a
     # robust marker it can recover from IR.
-    body = (ex isa Expr && ex.head === :block) ? ex : Expr(:block, ex)
+    # Ensure the stored AST has a concrete source location even for one-liners
+    # (`@unsafe expr`), where `expr` often contains no `LineNumberNode`s on its own.
+    body = if (ex isa Expr && ex.head === :block)
+        ex
+    else
+        Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
+    end
     meta = Expr(:meta, :borrow_checker_unsafe, Base.deepcopy(body))
     return esc(Expr(:block, meta, body.args...))
 end
