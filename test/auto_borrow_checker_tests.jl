@@ -1456,6 +1456,41 @@
         @test isnothing(err)
     end
 
+    @testset "PhiCNode liveness accounting" begin
+        BorrowChecker.@safe function _bc_phicnode_liveness(x)
+            y = x
+            try
+                error("boom")
+            catch
+                return y
+            end
+        end
+
+        @test _bc_phicnode_liveness(1) == 1
+    end
+
+    @testset "apply_iterate + kwcall callee scanning" begin
+        mod = Module(:_BCAutoCalleeScanMod)
+        Core.eval(mod, :(using BorrowChecker))
+
+        Base.include_string(
+            mod,
+            """
+            g(a, b, c) = a + b + c
+            kwsum(; x, y) = x + y
+
+            BorrowChecker.@safe scope = :module function caller(t::Tuple{Int,Int,Int})
+                s = g(t...)
+                return kwsum(; x=s, y=1)
+            end
+            """,
+            "REPL[1001]",
+        )
+
+        caller = getfield(mod, :caller)
+        @test caller((1, 2, 3)) == 7
+    end
+
     @testset "Core.throw_inexacterror does not BorrowCheckError" begin
         # This should throw an `InexactError` at runtime, but borrow checking (including
         # recursive checking of user code) should not fail.

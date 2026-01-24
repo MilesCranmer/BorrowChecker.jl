@@ -44,26 +44,15 @@ function _compute_liveness(
                 # Conservatively attribute each value to predecessor blocks.
                 vals = getfield(stmt, :values)
                 preds = blocks[b].preds
-                if length(vals) == length(preds)
-                    for k in 1:length(vals)
-                        isassigned(vals, k) || continue
-                        v = vals[k]
-                        h = _handle_index(v, nargs, track_arg, track_ssa)
-                        h == 0 && continue
-                        pred_bb = preds[k]
+                @assert length(vals) != length(preds) "Unexpected IR: PhiCNode.values length unexpectedly matches predecessor count."
+                for k in 1:length(vals)
+                    isassigned(vals, k) || continue
+                    v = vals[k]
+                    h = _handle_index(v, nargs, track_arg, track_ssa)
+                    h == 0 && continue
+                    for pred_bb in preds
                         (1 <= pred_bb <= nblocks) || continue
                         push!(phi_edge_use[pred_bb], h)
-                    end
-                else
-                    for k in 1:length(vals)
-                        isassigned(vals, k) || continue
-                        v = vals[k]
-                        h = _handle_index(v, nargs, track_arg, track_ssa)
-                        h == 0 && continue
-                        for pred_bb in preds
-                            (1 <= pred_bb <= nblocks) || continue
-                            push!(phi_edge_use[pred_bb], h)
-                        end
                     end
                 end
             else

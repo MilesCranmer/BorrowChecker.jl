@@ -37,7 +37,7 @@ function _tt_module(tt::Type{<:Tuple})
         targ = Base.unwrap_unionall(dt.parameters[1])
         targ isa DataType && (m = targ.name.module)
     end
-    return nothing
+    return m
 end
 
 function _module_is_under(m::Module, root::Module)::Bool
