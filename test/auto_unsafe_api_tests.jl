@@ -93,7 +93,9 @@
     BorrowChecker.@safe function _bc_unsafe_line_mask_demo()
         x = [1, 2, 3]
         y = x
+        #! format: off
         @unsafe begin push!(x, 1) end; push!(x, 2) # shares a source line with the unsafe block
+        #! format: on
         return y
     end
 

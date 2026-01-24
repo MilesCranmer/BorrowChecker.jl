@@ -277,7 +277,6 @@ function _ensure_registry_initialized()
     return nothing
 end
 
-
 # === `@unsafe` (auto-IR) support ===
 #
 # `BorrowChecker.@unsafe` expands to an `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`

@@ -1069,13 +1069,13 @@
         return sum(f_kwcall_ok(; x=x, y=y))
     end
 
-            @safe function _bc_ok_kwcall_mut()
+    @safe function _bc_ok_kwcall_mut()
         x = [1, 2, 3]
         y = copy(x)
         return sum(f_kwcall_ok_mut(; x=x, y=y))
     end
 
-            @safe function _bc_bad_kwcall_alias_should_error()
+    @safe function _bc_bad_kwcall_alias_should_error()
         x = [1, 2, 3]
         y = x
         return sum(f_kwcall_alias_bad(; x=x, y=y))
@@ -1088,7 +1088,7 @@
     @testset "escape/store is treated as consume (move)" begin
         empty!(_BC_ESCAPE_CACHE)
 
-                @safe function _bc_escape_after_store_should_error()
+        @safe function _bc_escape_after_store_should_error()
             x = [1, 2, 3]
             _bc_consumes(x)
             return x
@@ -1100,7 +1100,7 @@
     @testset "escape/store does not move non-owned values" begin
         empty!(_BC_ESCAPE_CACHE)
 
-                @safe function _bc_escape_bits_ok()
+        @safe function _bc_escape_bits_ok()
             x = (1, 2, 3)
             _bc_consumes(x)
             return x
@@ -1110,7 +1110,7 @@
     end
 
     @testset "setfield!/Ref store moves owned values" begin
-                @safe function _bc_ref_store_moves_owned()
+        @safe function _bc_ref_store_moves_owned()
             r = Ref{Any}()
             x = [1, 2, 3]
             r[] = x
@@ -1121,7 +1121,7 @@
     end
 
     @testset "setfield!/Ref store does not move isbits" begin
-                @safe function _bc_ref_store_bits_ok()
+        @safe function _bc_ref_store_bits_ok()
             r = Ref{Any}()
             x = (1, 2, 3)
             r[] = x
@@ -1132,7 +1132,7 @@
     end
 
     @testset "mutable field store moves owned values" begin
-                @safe function _bc_mutable_field_store_moves_owned()
+        @safe function _bc_mutable_field_store_moves_owned()
             c = C(nothing)
             x = [1, 2, 3]
             c.v = x
@@ -1143,7 +1143,7 @@
     end
 
     @testset "unknown call does not consume non-owned values" begin
-                @safe function _bc_unknown_call_bits_ok(vf)
+        @safe function _bc_unknown_call_bits_ok(vf)
             x = (1, 2, 3)
             f = only(vf)
             f(x)
@@ -1154,7 +1154,7 @@
     end
 
     @testset "foreigncall treated as write (uniqueness enforced)" begin
-                @safe function _bc_foreigncall_bad(flag::Bool)
+        @safe function _bc_foreigncall_bad(flag::Bool)
             x = [1, 2, 3]
             y = x
             if flag
@@ -1163,7 +1163,7 @@
             return y
         end
 
-                @safe function _bc_foreigncall_ok(flag::Bool)
+        @safe function _bc_foreigncall_ok(flag::Bool)
             x = [1, 2, 3]
             if flag
                 ccall(:jl_typeof_str, Cstring, (Any,), x)
@@ -1186,7 +1186,7 @@
         # - `Core.UpsilonNode` (val)
         # - `Core.GotoIfNot` (cond)
         # - `Tuple` recursion
-                @safe function _bc_foreigncall_node_constants_ok()
+        @safe function _bc_foreigncall_node_constants_ok()
             ccall(
                 :jl_typeof_str,
                 Cstring,
@@ -1208,7 +1208,7 @@
     @testset "immutable wrapper containing owned field is owned" begin
         empty!(_BC_ESCAPE_CACHE)
 
-                @safe function _bc_escape_wrap_should_error()
+        @safe function _bc_escape_wrap_should_error()
             w = Wrap([1, 2, 3])
             _bc_consumes(w)
             return w
@@ -1220,7 +1220,7 @@
     @testset "symbols are not moved" begin
         empty!(_BC_ESCAPE_CACHE)
 
-                @safe function _bc_escape_symbol_ok()
+        @safe function _bc_escape_symbol_ok()
             x = :a
             _bc_consumes(x)
             return x
@@ -1232,7 +1232,7 @@
     @testset "Dict setindex! key escapes" begin
         empty!(D)
 
-                @safe function _bc_dict_key_escape_should_error()
+        @safe function _bc_dict_key_escape_should_error()
             x = [1, 2, 3]
             D[x] = 4
             return x
@@ -1242,7 +1242,7 @@
 
         empty!(D)
 
-                @safe function _bc_dict_key_copy_ok()
+        @safe function _bc_dict_key_copy_ok()
             x = [1, 2, 3]
             D[copy(x)] = 4
             return x
@@ -1252,14 +1252,14 @@
     end
 
     @testset "Tasks are shareable handles (do not trigger move/escape errors)" begin
-                @safe function _bc_async_handle_ok()
+        @safe function _bc_async_handle_ok()
             t = @async 1
             return fetch(t)
         end
 
         @test _bc_async_handle_ok() == 1
 
-                @safe function _bc_async_copy_after_spawn_bad()
+        @safe function _bc_async_copy_after_spawn_bad()
             x = [1, 2, 3]
             t = @async begin
                 push!(x, 4)
@@ -1271,7 +1271,7 @@
 
         @test_throws BorrowCheckError _bc_async_copy_after_spawn_bad()
 
-                @safe function _bc_async_copy_before_spawn_ok()
+        @safe function _bc_async_copy_before_spawn_ok()
             x = [1, 2, 3]
             y = copy(x)
             t = @async begin
@@ -1285,7 +1285,7 @@
     end
 
     @testset "Atomics are shareable handles (aliasing is allowed)" begin
-                @safe function _bc_atomic_alias_ok()
+        @safe function _bc_atomic_alias_ok()
             a = Threads.Atomic{Int}(0)
             b = a
             Threads.atomic_add!(a, 1)

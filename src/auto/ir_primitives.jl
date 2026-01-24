@@ -449,7 +449,8 @@ function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
         end
 
         raw = _raw_line_id(ir, i)
-        (raw === nothing || (raw isa Integer && raw == 0)) && (unsafe_stmt[i] = true; continue)
+        (raw === nothing || (raw isa Integer && raw == 0)) &&
+            (unsafe_stmt[i] = true; continue)
 
         ids = get(raw_prefix, lt, nothing)
         (ids !== nothing && raw in ids) && (unsafe_stmt[i] = true)

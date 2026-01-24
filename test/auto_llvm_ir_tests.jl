@@ -59,10 +59,12 @@ function llvm_ir_unsafe_idempotent()
     safe_unsafe = Core.eval(m, :f_safe_unsafe)
 
     ll_plain = sprint((args...) -> code_llvm(args...; debuginfo=:none), plain, Tuple{})
-    ll_safe_plain =
-        sprint((args...) -> code_llvm(args...; debuginfo=:none), safe_plain, Tuple{})
-    ll_safe_unsafe =
-        sprint((args...) -> code_llvm(args...; debuginfo=:none), safe_unsafe, Tuple{})
+    ll_safe_plain = sprint(
+        (args...) -> code_llvm(args...; debuginfo=:none), safe_plain, Tuple{}
+    )
+    ll_safe_unsafe = sprint(
+        (args...) -> code_llvm(args...; debuginfo=:none), safe_unsafe, Tuple{}
+    )
 
     function normalize_llvm(ll::AbstractString)
         lines = split(ll, "\n")

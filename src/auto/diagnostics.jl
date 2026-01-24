@@ -298,7 +298,9 @@ function _print_source_context(io::IO, tt, li; context::Int=0)
 
                 if first_idx != 0
                     for j in first_idx:length(ci.code)
-                        scopes = Base.Compiler.IRShow.buildLineInfoNode(ci.debuginfo, def, j)
+                        scopes = Base.Compiler.IRShow.buildLineInfoNode(
+                            ci.debuginfo, def, j
+                        )
                         if !isempty(scopes)
                             li = scopes[1]
                             last_file = li.file
