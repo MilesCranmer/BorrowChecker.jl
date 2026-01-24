@@ -1,4 +1,4 @@
-@testitem "DynamicExpressions integration" tags = [:auto] begin
+@testitem "DynamicExpressions integration" tags = [:auto, :slow] begin
     using TestItems
     using BorrowChecker
 

@@ -32,6 +32,8 @@ end
 
 const testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
 const only_auto = lowercase(get(ENV, "BORROWCHECKER_ONLY_AUTO", "")) in ("1", "true", "yes")
+const in_ci = lowercase(get(ENV, "CI", "")) in ("1", "true", "yes")
+const include_slow = lowercase(get(ENV, "BORROWCHECKER_INCLUDE_SLOW", "")) in ("1", "true", "yes") || !in_ci
 const auto_supported = VERSION >= v"1.12.0" && isdefined(Base, :code_ircode_by_type)
 
 if only_auto && !auto_supported
@@ -41,9 +43,11 @@ end
 filter = if !isempty(testitem_name_filter)
     ti -> ti.name == testitem_name_filter && (auto_supported || !(:auto in ti.tags))
 elseif only_auto
-    ti -> :auto in ti.tags
+    ti -> :auto in ti.tags && (include_slow || !(:slow in ti.tags))
 elseif !auto_supported
-    ti -> !(:auto in ti.tags)
+    ti -> !(:auto in ti.tags) && (include_slow || !(:slow in ti.tags))
+elseif !include_slow
+    ti -> !(:slow in ti.tags)
 else
     nothing
 end
