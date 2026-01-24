@@ -13,6 +13,7 @@ include("auto_llvm_tests.jl")
 include("auto_printing_tests.jl")
 include("auto_hygiene_integration_tests.jl")
 include("dynamic_expressions_integration_tests.jl")
+include("auto_unsafe_api_tests.jl")
 
 @static if VERSION < v"1.14.0-"
     @testitem "Aqua" begin

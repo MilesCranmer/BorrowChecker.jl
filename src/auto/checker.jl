@@ -1,4 +1,10 @@
-function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+function _compute_liveness(
+    ir::CC.IRCode,
+    nargs::Int,
+    track_arg,
+    track_ssa;
+    unsafe_stmt::Union{Nothing,AbstractVector{Bool}}=nothing,
+)
     blocks = ir.cfg.blocks
     nblocks = length(blocks)
 
@@ -16,6 +22,9 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
     for b in 1:nblocks
         r = blocks[b].stmts
         for idx in r
+            if unsafe_stmt !== nothing && unsafe_stmt[idx]
+                continue
+            end
             stmt = ir[Core.SSAValue(idx)][:stmt]
             if stmt isa Core.PhiNode
                 edges = getfield(stmt, :edges)
@@ -35,26 +44,15 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                 # Conservatively attribute each value to predecessor blocks.
                 vals = getfield(stmt, :values)
                 preds = blocks[b].preds
-                if length(vals) == length(preds)
-                    for k in 1:length(vals)
-                        isassigned(vals, k) || continue
-                        v = vals[k]
-                        h = _handle_index(v, nargs, track_arg, track_ssa)
-                        h == 0 && continue
-                        pred_bb = preds[k]
+                @assert length(vals) != length(preds) "Unexpected IR: PhiCNode.values length unexpectedly matches predecessor count."
+                for k in 1:length(vals)
+                    isassigned(vals, k) || continue
+                    v = vals[k]
+                    h = _handle_index(v, nargs, track_arg, track_ssa)
+                    h == 0 && continue
+                    for pred_bb in preds
                         (1 <= pred_bb <= nblocks) || continue
                         push!(phi_edge_use[pred_bb], h)
-                    end
-                else
-                    for k in 1:length(vals)
-                        isassigned(vals, k) || continue
-                        v = vals[k]
-                        h = _handle_index(v, nargs, track_arg, track_ssa)
-                        h == 0 && continue
-                        for pred_bb in preds
-                            (1 <= pred_bb <= nblocks) || continue
-                            push!(phi_edge_use[pred_bb], h)
-                        end
                     end
                 end
             else
@@ -72,6 +70,9 @@ function _compute_liveness(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
                 push!(seen_defs, hdef)
             end
             stmt = ir[Core.SSAValue(idx)][:stmt]
+            if unsafe_stmt !== nothing && unsafe_stmt[idx]
+                continue
+            end
             if stmt isa Core.PhiNode || stmt isa Core.PhiCNode
                 continue
             end
@@ -121,11 +122,18 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
 
     track_arg, track_ssa = compute_tracking_masks(ir)
 
-    uf = UnionFind(nargs + nstmts)
-    _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs)
-    origins = _binding_origins(ir, nargs, track_arg, track_ssa)
+    # Statements inside `@unsafe` regions are treated as opaque: we do not validate
+    # borrow rules within them, and we avoid propagating aliasing/escape facts from
+    # within them into the surrounding checked code.
+    unsafe_stmt = _unsafe_stmt_mask(ir)
 
-    live_in, live_out = _compute_liveness(ir, nargs, track_arg, track_ssa)
+    uf = UnionFind(nargs + nstmts)
+    _build_alias_classes!(uf, ir, cfg, track_arg, track_ssa, nargs; unsafe_stmt=unsafe_stmt)
+    origins = _binding_origins(ir, nargs, track_arg, track_ssa; unsafe_stmt=unsafe_stmt)
+
+    live_in, live_out = _compute_liveness(
+        ir, nargs, track_arg, track_ssa; unsafe_stmt=unsafe_stmt
+    )
 
     viols = BorrowViolation[]
 
@@ -135,7 +143,9 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
         for idx in reverse(blocks[b].stmts)
             stmt = ir[Core.SSAValue(idx)][:stmt]
 
-            uses = if (stmt isa Core.PhiNode || stmt isa Core.PhiCNode)
+            in_unsafe = (1 <= idx <= length(unsafe_stmt)) && unsafe_stmt[idx]
+
+            uses = if in_unsafe || (stmt isa Core.PhiNode || stmt isa Core.PhiCNode)
                 BitSet()
             else
                 _used_handles(stmt, ir, nargs, track_arg, track_ssa)
@@ -143,20 +153,22 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
             live_during = BitSet(live)
             union!(live_during, uses)
 
-            _check_stmt!(
-                viols,
-                ir,
-                idx,
-                stmt,
-                uf,
-                origins,
-                cfg,
-                nargs,
-                track_arg,
-                track_ssa,
-                live,
-                live_during,
-            )
+            if !in_unsafe
+                _check_stmt!(
+                    viols,
+                    ir,
+                    idx,
+                    stmt,
+                    uf,
+                    origins,
+                    cfg,
+                    nargs,
+                    track_arg,
+                    track_ssa,
+                    live,
+                    live_during,
+                )
+            end
 
             if 1 <= idx <= length(track_ssa) && track_ssa[idx]
                 delete!(live, _ssa_handle(nargs, idx))

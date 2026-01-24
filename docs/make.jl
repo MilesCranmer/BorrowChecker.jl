@@ -41,7 +41,7 @@ makedocs(;
         assets=String[],
         repolink="https://github.com/mcranmer/BorrowChecker.jl",
     ),
-    pages=["Home" => "index.md", "`@auto`" => "auto.md", "API Reference" => "api.md"],
+    pages=["Home" => "index.md", "`@safe`" => "auto.md", "API Reference" => "api.md"],
     warnonly=[:missing_docs],  # Allow missing docstrings
 )
 

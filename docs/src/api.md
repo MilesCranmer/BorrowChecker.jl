@@ -36,7 +36,7 @@ BorrowChecker.@spawn
 ## IR Borrow Checker
 
 ```@docs
-BorrowChecker.Auto.@auto
+BorrowChecker.Auto.@safe
 ```
 
 ## Types

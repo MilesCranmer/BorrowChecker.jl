@@ -37,7 +37,7 @@ function _tt_module(tt::Type{<:Tuple})
         targ = Base.unwrap_unionall(dt.parameters[1])
         targ isa DataType && (m = targ.name.module)
     end
-    return nothing
+    return m
 end
 
 function _module_is_under(m::Module, root::Module)::Bool
@@ -158,8 +158,11 @@ end
 function _check_ir_callees!(ir::CC.IRCode, cfg::Config, world::UInt)
     (cfg.scope === :none || cfg.scope === :function) && return nothing
 
+    unsafe_stmt = _unsafe_stmt_mask(ir)
+
     nstmts = length(ir.stmts)
     for i in 1:nstmts
+        (1 <= i <= length(unsafe_stmt) && unsafe_stmt[i]) && continue
         stmt = ir[Core.SSAValue(i)][:stmt]
         head, mi, raw_args = _call_parts(stmt)
         raw_args === nothing && continue
@@ -364,7 +367,7 @@ end
 function _tt_expr_from_signature(sig, cfg_tag)
     call = _sig_call(sig)
     call isa Expr && call.head === :call ||
-        error("@auto currently supports standard function signatures")
+        error("@safe currently supports standard function signatures")
     fval = _fval_expr_from_sigcall(call)
 
     params = Any[cfg_tag, :(Core.Typeof($fval))]
@@ -437,6 +440,37 @@ function _instrument_assignments(ex, cfg_tag)
 
     if ex.head === :quote || ex.head === :inert
         return ex
+    end
+
+    # Already-expanded `@unsafe` regions: these are blocks that start with our meta marker.
+    # Avoid instrumenting the unsafe region (including the stored meta AST).
+    if ex.head === :block && !isempty(ex.args)
+        first = ex.args[1]
+        if first isa Expr &&
+            first.head === :meta &&
+            !isempty(first.args) &&
+            first.args[1] === BC_UNSAFE_META
+            return ex
+        end
+    end
+
+    # Avoid recursing into the stored meta AST for `@unsafe`.
+    if ex.head === :meta && !isempty(ex.args) && ex.args[1] === BC_UNSAFE_META
+        return ex
+    end
+
+    # `@unsafe ...` regions are deliberately excluded from `@safe`'s recursive
+    # instrumentation (no prologue checks for inner lambdas/functions, and we do
+    # not insert `__bc_bind__` barriers inside).
+    if ex.head === :macrocall
+        # Forms:
+        #   @unsafe begin ... end
+        #   Mod.@unsafe begin ... end
+        # AST forms use `Symbol("@unsafe")` or a `GlobalRef` for qualified macros.
+        m = ex.args[1]
+        if m === Symbol("@unsafe") || (m isa GlobalRef && m.name === Symbol("@unsafe"))
+            return ex
+        end
     end
 
     if ex.head === :function
@@ -519,7 +553,7 @@ function _parse_cfg_value(x, calling_module)
 end
 
 """
-Parse `@auto` macro options into `Config` field overrides.
+Parse `@safe` macro options into `Config` field overrides.
 
 Returns a fully-specified `Config`.
 """
@@ -554,12 +588,12 @@ function parse_config(options, calling_module)::Config
             end
         end
         error(
-            "@auto only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
+            "@safe only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
         )
     end
 
     scope ∈ (:none, :function, :module, :user, :all) || error(
-        "invalid `scope` for @auto: $scope (expected :none, :function, :module, :user, or :all)",
+        "invalid `scope` for @safe: $scope (expected :none, :function, :module, :user, or :all)",
     )
 
     root_module = (scope === :module) ? calling_module : cfg0.root_module
@@ -611,13 +645,13 @@ function _auto(args...; calling_module, source_info=nothing)
         return Expr(:function, sig, inst_body)
     end
 
-    return error("@auto must wrap a function/method definition")
+    return error("@safe must wrap a function/method definition")
 end
 
 """
 Automatically borrow-check a function (best-effort).
 
-`BorrowChecker.@auto` is a *drop-in tripwire* for existing code:
+`BorrowChecker.@safe` is a *drop-in tripwire* for existing code:
 
 - **Aliasing violations**: mutating a value while another live binding may observe that mutation.
 - **Escapes / “moves”**: storing a mutable value somewhere that outlives the current scope
@@ -633,9 +667,9 @@ part of the checked-cache key).
 
 - `scope` (default: `:function`): controls whether the checker recursively borrow-checks
   callees (call-graph traversal).
-  - `:none`: disable `@auto` entirely (no IR borrow-checking; returns the original definition).
+  - `:none`: disable `@safe` entirely (no IR borrow-checking; returns the original definition).
   - `:function`: check only the annotated method.
-  - `:module`: recursively check callees whose defining module matches the module where `@auto` is used.
+  - `:module`: recursively check callees whose defining module matches the module where `@safe` is used.
   - `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
   - `:all`: recursively check callees across all modules (very aggressive).
 - `max_summary_depth` (default: `12`): limits recursive effect summarization depth used
@@ -648,11 +682,11 @@ part of the checked-cache key).
 Examples:
 
 ```julia
-BorrowChecker.@auto scope=:module function f(x)
+BorrowChecker.@safe scope=:module function f(x)
     g(x)
 end
 
-BorrowChecker.@auto max_summary_depth=4 optimize_until="compact 1" function h(x)
+BorrowChecker.@safe max_summary_depth=4 optimize_until="compact 1" function h(x)
     g(x)
 end
 ```
@@ -664,7 +698,7 @@ end
 `optimize_until` (default: `BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until`) controls
 which compiler pass to stop at when fetching IR via `Base.code_ircode_by_type`.
 
-Pass names vary across Julia versions; `@auto` tries to normalize common spellings like
+Pass names vary across Julia versions; `@safe` tries to normalize common spellings like
 `"compact 1"` / `"compact_1"` when possible.
 
 !!! warning
@@ -672,6 +706,62 @@ Pass names vary across Julia versions; `@auto` tries to normalize common spellin
     false positives. It is intended for development and testing, and does not guarantee
     memory safety.
 """
-macro auto(args...)
+macro safe(args...)
     return esc(_auto(args...; calling_module=__module__, source_info=__source__))
+end
+
+"""
+    BorrowChecker.@auto [options...] function f(args...)
+        ...
+    end
+
+Deprecated alias for [`BorrowChecker.@safe`](@ref). Emits a depwarn and forwards.
+"""
+macro auto(args...)
+    Base.depwarn(
+        "`BorrowChecker.@auto` is deprecated; use `BorrowChecker.@safe` instead.", :auto
+    )
+    return esc(_auto(args...; calling_module=__module__, source_info=__source__))
+end
+
+"""
+    @unsafe begin
+        ...
+    end
+
+Mark a lexical region as *unchecked* by `BorrowChecker.@safe`.
+
+Semantics (auto-IR checker only):
+
+- The borrow checker does **not** validate aliasing / uniqueness rules for statements
+  inside the `@unsafe` region.
+- The borrow checker does **not** enforce escape/consume ("move") rules inside the
+  `@unsafe` region.
+- The unsafe region is treated as **opaque** to surrounding checked code: effects inside
+  the region (writes, consumes, escapes, new aliases) are not propagated outward into the
+  surrounding analysis.
+- The checker does **not** recursively borrow-check callees that are only reachable from
+  within the `@unsafe` region.
+- The unsafe region is still executed normally at runtime and evaluates to the value of
+  its last expression (like a `begin ... end` block).
+
+This is intentionally analogous to `@inbounds`: it is an escape hatch for low-level
+code or for cases where the checker is overly conservative. The responsibility to
+uphold the usual invariants is on you.
+"""
+macro unsafe(ex)
+    is_borrow_checker_enabled(__module__) || return esc(ex)
+
+    # Record the annotated AST in metadata (not executed), but execute the real block.
+    # This keeps `@unsafe` allocation-free while still giving the borrow checker a
+    # robust marker it can recover from IR.
+    # Ensure the stored AST has a concrete source location even for one-liners
+    # (`@unsafe expr`), where `expr` often contains no `LineNumberNode`s on its own.
+    body = if (ex isa Expr && ex.head === :block)
+        ex
+    else
+        Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
+    end
+    meta = Expr(:meta, BC_UNSAFE_META, Base.deepcopy(body))
+    return esc(Expr(:block, meta, body.args...))
 end

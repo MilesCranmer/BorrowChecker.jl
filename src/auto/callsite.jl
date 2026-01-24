@@ -141,7 +141,7 @@ function _resolve_callee(@nospecialize(stmt), ir::CC.IRCode)
 
     # Some calls remain "dynamic" in IR because the callee is a mutable global binding
     # (e.g. `Main.eachindex`), even though at runtime it usually points to a concrete
-    # function value like `Base.eachindex`. For `@auto`, resolve such callees from the
+    # function value like `Base.eachindex`. For `@safe`, resolve such callees from the
     # current binding to avoid spurious "unknown call" conservatism.
     if fexpr isa GlobalRef
         try

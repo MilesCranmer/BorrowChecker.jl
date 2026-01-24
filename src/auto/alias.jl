@@ -149,6 +149,7 @@ function _build_alias_classes!(
     track_arg,
     track_ssa,
     nargs::Int;
+    unsafe_stmt::Union{Nothing,AbstractVector{Bool}}=nothing,
     depth::Int=0,
     budget_state=nothing,
 )
@@ -156,6 +157,10 @@ function _build_alias_classes!(
 
     nstmts = length(ir.stmts)
     for i in 1:nstmts
+        if unsafe_stmt !== nothing && unsafe_stmt[i]
+            # Opaque/unchecked region: do not propagate aliases from within.
+            continue
+        end
         out_h = track_ssa[i] ? _ssa_handle(nargs, i) : 0
         out_h == 0 && continue
 
@@ -254,7 +259,13 @@ function _build_alias_classes!(
     return uf
 end
 
-function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
+function _binding_origins(
+    ir::CC.IRCode,
+    nargs::Int,
+    track_arg,
+    track_ssa;
+    unsafe_stmt::Union{Nothing,AbstractVector{Bool}}=nothing,
+)
     nstmts = length(ir.stmts)
     origins = collect(1:(nargs + nstmts))
     closure_field_origins = Dict{Symbol,Int}()
@@ -263,6 +274,12 @@ function _binding_origins(ir::CC.IRCode, nargs::Int, track_arg, track_ssa)
         track_ssa[idx] || continue
         hdef = _ssa_handle(nargs, idx)
         stmt = ir[Core.SSAValue(idx)][:stmt]
+
+        if unsafe_stmt !== nothing && unsafe_stmt[idx]
+            # In unchecked regions, treat new tracked SSA values as fresh bindings.
+            origins[hdef] = hdef
+            continue
+        end
 
         if stmt isa Core.PiNode
             hsrc = _handle_index(stmt.val, nargs, track_arg, track_ssa)

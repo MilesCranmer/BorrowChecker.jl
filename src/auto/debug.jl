@@ -5,7 +5,7 @@ function _auto_debug_path(warn::Bool=false)
     if isempty(p)
         path = joinpath(tempdir(), "BorrowChecker.auto.debug.$(getpid()).jsonl")
         warn && @warn(
-            "BorrowChecker.@auto debug enabled; writing JSONL debug log to $path",
+            "BorrowChecker.@safe debug enabled; writing JSONL debug log to $path",
             maxlog = 1,
         )
         return path

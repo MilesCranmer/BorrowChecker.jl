@@ -195,7 +195,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
     elseif length(matches) > 1
         throw(
             ArgumentError(
-                "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is ambiguous. " *
+                "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is ambiguous. " *
                 "Candidates: $(join(matches, ", "))",
             ),
         )
@@ -203,7 +203,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
 
     throw(
         ArgumentError(
-            "BorrowChecker.@auto: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
+            "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
             "Known passes: $(join(pass_names, ", "))",
         ),
     )
@@ -807,9 +807,22 @@ function _summarize_ir_effects(
     nstmts = length(ir.stmts)
     track_arg, track_ssa = compute_tracking_masks(ir)
 
+    # Treat `@unsafe` regions as opaque/effectless for summary purposes.
+    # This matches the main checker behavior: effects inside the region are not
+    # propagated outward (the user is taking responsibility for invariants).
+    unsafe_stmt = _unsafe_stmt_mask(ir)
+
     uf = UnionFind(nargs + nstmts)
     _build_alias_classes!(
-        uf, ir, cfg, track_arg, track_ssa, nargs; depth=depth, budget_state=budget_state
+        uf,
+        ir,
+        cfg,
+        track_arg,
+        track_ssa,
+        nargs;
+        unsafe_stmt=unsafe_stmt,
+        depth=depth,
+        budget_state=budget_state,
     )
 
     writes = BitSet()
@@ -817,6 +830,7 @@ function _summarize_ir_effects(
     ret_aliases = BitSet()
 
     for i in 1:nstmts
+        (1 <= i <= length(unsafe_stmt) && unsafe_stmt[i]) && continue
         stmt = ir[Core.SSAValue(i)][:stmt]
         if stmt isa Expr && stmt.head === :foreigncall
             name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)

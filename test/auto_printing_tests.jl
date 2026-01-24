@@ -1,4 +1,4 @@
-@testitem "Auto @auto printing" tags = [:auto] begin
+@testitem "Auto @safe printing" tags = [:auto] begin
     using TestItems
     using BorrowChecker
 
@@ -39,11 +39,11 @@
 
     @testset "BorrowCheckError includes REPL context (real checker)" begin
         mod = Module(:_BCPrintRealMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
+        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
         Base.include_string(
             mod,
             """
-            @auto function foo()
+            @safe function foo()
                 x = [1, 2, 3]
                 y = x
                 push!(x, 9)
@@ -69,11 +69,11 @@
 
     @testset "BorrowCheckError prints multiple violations" begin
         mod = Module(:_BCPrintMultiMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @auto))
+        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
         Base.include_string(
             mod,
             """
-            @auto function multi()
+            @safe function multi()
                 x = [1, 2, 3]
                 y = x
                 push!(x, 9)
@@ -111,11 +111,11 @@
             path,
             """
             module _BCFilePrintMod
-            using BorrowChecker.Auto: @auto
+            using BorrowChecker.Auto: @safe
 
             f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 
-            @auto function foo()
+            @safe function foo()
                 x = [1, 2, 3]
                 y = x
                 return sum(f(; x=x, y=y))
@@ -170,11 +170,11 @@
 
         repltask = @async REPL.run_repl(repl)
 
-        write(input.in, "using BorrowChecker.Auto: @auto\r")
+        write(input.in, "using BorrowChecker.Auto: @safe\r")
         write(input.in, "f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)\r")
         write(
             input.in,
-            "@auto function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
+            "@safe function foo()\n    x = [1,2,3]\n    y = x\n    return sum(f(; x=x, y=y))\nend\r",
         )
         write(input.in, "foo()\r")
         close(input.in)
@@ -254,6 +254,59 @@
             try
                 Base.active_repl = old_repl
             catch
+            end
+        end
+    end
+
+    @testset "REPL history source fallback (scan history)" begin
+        # Exercise the non-`start_idx` fallback paths in `_try_repl_source_lines`.
+        #
+        # We arrange things so:
+        # - `hp.start_idx` does not exist, so the direct indexing heuristic is skipped.
+        # - The `(n, n-1)` candidates are unusable for the requested line.
+        # - A later multi-line history entry is usable, so the scan fallback returns it.
+
+        struct _BCHist2
+            history::Vector{Any}
+        end
+        struct _BCMode2
+            hist::_BCHist2
+        end
+        struct _BCInterface2
+            modes::Vector{Any}
+        end
+        struct _BCRepl2
+            interface::_BCInterface2
+        end
+
+        old_repl = isdefined(Base, :active_repl) ? Base.active_repl : nothing
+        try
+            history = Any[
+                "x = 1",
+                "y = 2",
+                # `REPL[6]` first tries (n, n-1) = (6, 5). Make both unusable.
+                "line1\n#= REPL[6]:2 =#\nline3\n",  # line 2 is a line marker => unusable
+                "z = 4",
+                "line1\n\nline3\n",  # line 2 is empty => unusable
+                "w = 6",
+                # Scan fallback should find this usable multi-line entry for line 2.
+                "line1\nSENTINEL_REPL_FALLBACK\nline3\n",
+            ]
+
+            Base.active_repl = _BCRepl2(_BCInterface2(Any[_BCMode2(_BCHist2(history))]))
+
+            li = LineNumberNode(2, Symbol("REPL[6]"))
+            v = BorrowViolation(1, "msg", li, :(dummy_stmt))
+            e = BorrowCheckError(Any, [v])
+
+            s = sprint(showerror, e)
+            @test occursin("SENTINEL_REPL_FALLBACK", s)
+        finally
+            if isdefined(Base, :active_repl)
+                try
+                    Base.active_repl = old_repl
+                catch
+                end
             end
         end
     end
