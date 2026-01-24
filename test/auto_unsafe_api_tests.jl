@@ -101,3 +101,24 @@
 
     @test_throws BorrowChecker.Auto.BorrowCheckError _bc_unsafe_line_mask_demo()
 end
+
+@testitem "More complex unsafe branches" tags = [:auto] begin
+    using Test
+    using BorrowChecker
+
+    @safe function add_halves!(a::Vector)
+        n = length(a) ÷ 2
+        @unsafe begin
+            left = @view a[1:n]
+            right = @view a[(n + 1):(2n)]
+            left .+= right
+        end
+        return a
+    end
+
+    @test_broken try
+        add_halves!([1, 2, 3, 4, 5, 6])[1:3] == [5, 7, 9]
+    catch
+        false
+    end
+end
