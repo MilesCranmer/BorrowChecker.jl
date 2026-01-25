@@ -312,13 +312,6 @@ function _raw_line_id(ir::CC.IRCode, idx::Int)
     return _inst_get(inst, :line, nothing)
 end
 
-@inline function _lineinfo_inlined_at(li)
-    if li isa Core.LineInfoNode && Base.hasproperty(li, :inlined_at)
-        return getproperty(li, :inlined_at)
-    end
-    return nothing
-end
-
 function _debuginfo_has_unsafe_file(
     ir::CC.IRCode, pc::Int, unsafe_files::Set{Symbol}, debuginfo_builder
 )::Union{Bool,Nothing}
@@ -333,49 +326,6 @@ function _debuginfo_has_unsafe_file(
     return false
 end
 
-function _raw_chain_has_unsafe_file(
-    ir::CC.IRCode, raw, unsafe_files::Set{Symbol}
-)::Union{Bool,Nothing}
-    seen = Base.IdSet{Any}()
-    depth = 0
-    while raw !== nothing && depth < 64
-        raw in seen && break
-        push!(seen, raw)
-
-        if raw isa LineNumberNode
-            return raw.file in unsafe_files
-        end
-
-        if raw isa Core.LineInfoNode
-            file = getproperty(raw, :file)
-            file_sym = (file isa Symbol) ? file : Symbol(file)
-            (file_sym in unsafe_files) && return true
-
-            raw = _lineinfo_inlined_at(raw)
-            (raw isa Integer && raw == 0) && break
-            depth += 1
-            continue
-        end
-
-        if raw isa Integer
-            rawi = Int(raw)
-            rawi <= 0 && break
-            Base.hasproperty(ir, :linetable) || break
-            linetable = getproperty(ir, :linetable)
-            rawi <= length(linetable) || break
-            raw = linetable[rawi]
-            depth += 1
-            continue
-        end
-
-        raw isa NTuple{3,<:Integer} && return nothing
-
-        break
-    end
-
-    return nothing
-end
-
 function _stmt_unsafe_status(
     ir::CC.IRCode, idx::Int, raw, unsafe_files::Set{Symbol}, debuginfo_builder
 )::Union{Bool,Nothing}
@@ -384,14 +334,12 @@ function _stmt_unsafe_status(
     has = _debuginfo_has_unsafe_file(ir, idx, unsafe_files, debuginfo_builder)
     has !== nothing && return has
 
-    if raw isa NTuple{3,<:Integer}
-        pc = Int(raw[1])
-        has = _debuginfo_has_unsafe_file(ir, pc, unsafe_files, debuginfo_builder)
-        has !== nothing && return has
-        return nothing
-    end
+    @assert raw isa NTuple{3,<:Integer} "Expected NTuple{3,<:Integer} in _stmt_unsafe_status, got $(typeof(raw))"
 
-    return _raw_chain_has_unsafe_file(ir, raw, unsafe_files)
+    pc = Int(raw[1])
+    has = _debuginfo_has_unsafe_file(ir, pc, unsafe_files, debuginfo_builder)
+    has !== nothing && return has
+    return nothing
 end
 
 function _propagate_unlabeled_unsafe!(
