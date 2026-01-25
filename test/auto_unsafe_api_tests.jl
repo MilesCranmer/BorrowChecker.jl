@@ -110,6 +110,7 @@ end
 @testitem "More complex unsafe branches" tags = [:auto] begin
     using Test
     using BorrowChecker
+    using BorrowChecker.Auto: BorrowCheckError
 
     @safe function add_halves!(a::Vector)
         n = length(a) ÷ 2
@@ -133,5 +134,21 @@ end
         return a
     end
 
-    @test_throws BorrowChecker.Auto.BorrowCheckError add_halves_bad!([1, 2, 3, 4, 5, 6])
+    @test_throws BorrowCheckError add_halves_bad!([1, 2, 3, 4, 5, 6])
+
+    @safe function _bc_unsafe_within_tuple()
+        x = [1, 2, 3]
+        y = x
+        ((@unsafe push!(x, 1)), push!(x, 2))
+        return y
+    end
+    @test_throws BorrowCheckError _bc_unsafe_within_tuple()
+
+    @safe function _bc_unsafe_within_tuple_2()
+        x = [1, 2, 3]
+        y = x
+        ((@unsafe push!(x, 1)), (@unsafe push!(x, 2)))
+        return y
+    end
+    @test _bc_unsafe_within_tuple_2() == [1, 2, 3, 1, 2]
 end
