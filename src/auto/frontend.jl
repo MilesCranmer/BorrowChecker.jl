@@ -749,7 +749,6 @@ This is intentionally analogous to `@inbounds`: it is an escape hatch for low-le
 code or for cases where the checker is overly conservative. The responsibility to
 uphold the usual invariants is on you.
 """
-
 macro unsafe(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
 
