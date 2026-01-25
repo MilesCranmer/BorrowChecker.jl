@@ -7,6 +7,11 @@
     @test Symbol("@safe") in names(BorrowChecker.Auto)
     @test Symbol("@unsafe") in names(BorrowChecker.Auto)
 
+    # Regression test: `@unsafe` should be valid at module top-level (no `local` binding).
+    @test (@eval BorrowChecker.@unsafe begin
+        1 + 2
+    end) == 3
+
     @test_deprecated macroexpand(
         @__MODULE__, :(BorrowChecker.@auto function _bc_depwarn_auto()
             return 1

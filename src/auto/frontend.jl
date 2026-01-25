@@ -770,11 +770,11 @@ macro unsafe(ex)
     end
 
     meta = Expr(:meta, BC_UNSAFE_META, unsafe_file)
-    push_loc = Expr(:meta, :push_loc, unsafe_file, BC_UNSAFE_META)
+    push_loc = Expr(:meta, :push_loc, unsafe_file, __source__.line)
     pop_loc = Expr(:meta, :pop_loc)
 
-    # Ensure the block evaluates to the user's last expression, not the trailing `:pop_loc`.
-    val = gensym(:bc_unsafe_val)
-    val_bind = Expr(:local, Expr(:(=), val, body0))
-    return esc(Expr(:block, meta, push_loc, val_bind, pop_loc, val))
+    # `@unsafe` must behave like a plain `begin ... end` (no new scope), but we also need
+    # to emit `:pop_loc` after the region without changing the block's value.
+    inner = Expr(:ref, Expr(:tuple, body0, pop_loc), 1)
+    return esc(Expr(:block, meta, push_loc, inner))
 end
