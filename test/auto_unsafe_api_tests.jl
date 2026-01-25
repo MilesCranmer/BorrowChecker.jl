@@ -122,4 +122,16 @@ end
     end
 
     @test add_halves!([1, 2, 3, 4, 5, 6])[1:3] == [5, 7, 9]
+
+    @safe function add_halves_bad!(a::Vector)
+        n = length(a) ÷ 2
+        begin
+            left = @view a[1:n]
+            right = @view a[(n + 1):(2n)]
+            left .+= right
+        end
+        return a
+    end
+
+    @test_throws BorrowChecker.Auto.BorrowCheckError add_halves_bad!([1, 2, 3, 4, 5, 6])
 end
