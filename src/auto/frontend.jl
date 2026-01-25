@@ -765,9 +765,7 @@ macro unsafe(ex)
     end
     if isempty(body0.args) || !(body0.args[1] isa LineNumberNode)
         body0 = Expr(
-            :block,
-            LineNumberNode(__source__.line, __source__.file),
-            body0.args...,
+            :block, LineNumberNode(__source__.line, __source__.file), body0.args...
         )
     end
 

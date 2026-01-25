@@ -457,13 +457,14 @@ function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
 
     isempty(unsafe_files) && return falses(nstmts)
 
-    debuginfo_builder = if isdefined(CC, :IRShow) && isdefined(CC.IRShow, :buildLineInfoNode)
-        CC.IRShow.buildLineInfoNode
-    elseif isdefined(CC, :buildLineInfoNode)
-        CC.buildLineInfoNode
-    else
-        nothing
-    end
+    debuginfo_builder =
+        if isdefined(CC, :IRShow) && isdefined(CC.IRShow, :buildLineInfoNode)
+            CC.IRShow.buildLineInfoNode
+        elseif isdefined(CC, :buildLineInfoNode)
+            CC.buildLineInfoNode
+        else
+            nothing
+        end
 
     unsafe_stmt = falses(nstmts)
     known_stmt = falses(nstmts)
