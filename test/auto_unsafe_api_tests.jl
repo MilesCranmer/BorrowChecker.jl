@@ -7,6 +7,11 @@
     @test Symbol("@safe") in names(BorrowChecker.Auto)
     @test Symbol("@unsafe") in names(BorrowChecker.Auto)
 
+    # Regression test: `@unsafe` should be valid at module top-level (no `local` binding).
+    @test (@eval BorrowChecker.@unsafe begin
+        1 + 2
+    end) == 3
+
     @test_deprecated macroexpand(
         @__MODULE__, :(BorrowChecker.@auto function _bc_depwarn_auto()
             return 1
@@ -100,4 +105,50 @@
     end
 
     @test_throws BorrowChecker.Auto.BorrowCheckError _bc_unsafe_line_mask_demo()
+end
+
+@testitem "More complex unsafe branches" tags = [:auto] begin
+    using Test
+    using BorrowChecker
+    using BorrowChecker.Auto: BorrowCheckError
+
+    @safe function add_halves!(a::Vector)
+        n = length(a) ÷ 2
+        @unsafe begin
+            left = @view a[1:n]
+            right = @view a[(n + 1):(2n)]
+            left .+= right
+        end
+        return a
+    end
+
+    @test add_halves!([1, 2, 3, 4, 5, 6])[1:3] == [5, 7, 9]
+
+    @safe function add_halves_bad!(a::Vector)
+        n = length(a) ÷ 2
+        begin
+            left = @view a[1:n]
+            right = @view a[(n + 1):(2n)]
+            left .+= right
+        end
+        return a
+    end
+
+    @test_throws BorrowCheckError add_halves_bad!([1, 2, 3, 4, 5, 6])
+
+    @safe function _bc_unsafe_within_tuple()
+        x = [1, 2, 3]
+        y = x
+        ((@unsafe push!(x, 1)), push!(x, 2))
+        return y
+    end
+    @test_throws BorrowCheckError _bc_unsafe_within_tuple()
+
+    @safe function _bc_unsafe_within_tuple_2()
+        x = [1, 2, 3]
+        y = x
+        ((@unsafe push!(x, 1)), (@unsafe push!(x, 2)))
+        return y
+    end
+    @test _bc_unsafe_within_tuple_2() == [1, 2, 3, 1, 2]
 end
