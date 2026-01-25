@@ -307,222 +307,178 @@ function _stmt_lineinfo(ir::CC.IRCode, idx::Int)
     end
 end
 
-function _collect_linenodes!(acc::Set{Tuple{Symbol,Int}}, ex)
-    if ex isa LineNumberNode
-        ex.line > 0 && push!(acc, (ex.file, Int(ex.line)))
-        return acc
-    elseif ex isa Expr
-        for a in ex.args
-            _collect_linenodes!(acc, a)
-        end
-        return acc
-    else
-        return acc
-    end
-end
-
-"""Count top-level statements in a `:block` AST by their active (file,line).
-
-This is used to disambiguate cases where unsafe and safe statements share a source line
-(e.g. `@unsafe ...; stmt`). We conservatively assume the unsafe region corresponds to the
-first `k` statement locations on that line, where `k` is the number of top-level
-statements in the unsafe block for that line.
-"""
-function _unsafe_prefix_counts_from_block!(acc::Dict{Tuple{Symbol,Int},Int}, ex)
-    line = nothing
-    if ex isa Expr && ex.head === :block
-        for a in ex.args
-            if a isa LineNumberNode
-                a.line > 0 && (line = (a.file, Int(a.line)))
-                continue
-            end
-            if a isa Expr && a.head === :line
-                continue
-            end
-            line === nothing && continue
-            acc[line] = get(acc, line, 0) + 1
-        end
-    end
-    return acc
-end
-
-@inline function _line_tuple(li)::Union{Nothing,Tuple{Symbol,Int}}
-    if li isa LineNumberNode
-        return (li.file, Int(li.line))
-    end
-
-    if li isa Core.LineInfoNode
-        file = getproperty(li, :file)
-        line = getproperty(li, :line)
-        line isa Integer || return nothing
-        return ((file isa Symbol) ? file : Symbol(file), Int(line))
-    end
-
-    return nothing
-end
-
 function _raw_line_id(ir::CC.IRCode, idx::Int)
     inst = ir[Core.SSAValue(idx)]
     return _inst_get(inst, :line, nothing)
 end
 
-function _unsafe_loc_site(
-    ir::CC.IRCode,
-    raw0,
-    pc::Int,
-    linenodes::Set{Tuple{Symbol,Int}},
-)::Tuple{Union{Nothing,Tuple{Symbol,Int}},Any}
-    raw = raw0
-    match_lt = nothing
-    match_site = nothing
+@inline function _lineinfo_inlined_at(li)
+    if li isa Core.LineInfoNode && Base.hasproperty(li, :inlined_at)
+        return getproperty(li, :inlined_at)
+    end
+    return nothing
+end
 
+function _debuginfo_has_unsafe_file(
+    ir::CC.IRCode, pc::Int, unsafe_files::Set{Symbol}, debuginfo_builder
+)::Union{Bool,Nothing}
+    (debuginfo_builder === nothing || pc <= 0) && return nothing
+    stack = debuginfo_builder(ir.debuginfo, nothing, pc)
+    isempty(stack) && return nothing
+    for node in stack
+        file = getproperty(node, :file)
+        file_sym = (file isa Symbol) ? file : Symbol(file)
+        (file_sym in unsafe_files) && return true
+    end
+    return false
+end
+
+function _raw_chain_has_unsafe_file(
+    ir::CC.IRCode, raw, unsafe_files::Set{Symbol}
+)::Union{Bool,Nothing}
     seen = Base.IdSet{Any}()
     depth = 0
     while raw !== nothing && depth < 64
-        if raw in seen
-            break
-        end
+        raw in seen && break
         push!(seen, raw)
 
-        li = _normalize_lineinfo(ir, raw, pc)
-        li === nothing && break
-
-        lt = _line_tuple(li)
-        if lt !== nothing && lt in linenodes
-            match_lt = lt
-            match_site = raw
+        if raw isa LineNumberNode
+            return raw.file in unsafe_files
         end
 
-        if li isa Core.LineInfoNode && Base.hasproperty(li, :inlined_at)
-            ia = getproperty(li, :inlined_at)
-            if ia === nothing || (ia isa Integer && ia == 0)
-                break
-            end
-            raw = ia
-        else
-            break
+        if raw isa Core.LineInfoNode
+            file = getproperty(raw, :file)
+            file_sym = (file isa Symbol) ? file : Symbol(file)
+            (file_sym in unsafe_files) && return true
+
+            raw = _lineinfo_inlined_at(raw)
+            (raw isa Integer && raw == 0) && break
+            depth += 1
+            continue
         end
 
-        depth += 1
+        if raw isa Integer
+            rawi = Int(raw)
+            rawi <= 0 && break
+            Base.hasproperty(ir, :linetable) || break
+            linetable = getproperty(ir, :linetable)
+            rawi <= length(linetable) || break
+            raw = linetable[rawi]
+            depth += 1
+            continue
+        end
+
+        raw isa NTuple{3,<:Integer} && return nothing
+
+        break
     end
 
-    return match_lt, match_site
+    return nothing
 end
 
-"""Return a statement mask `unsafe_stmt[i]` indicating that IR stmt `i` is inside an `@unsafe` region."""
+function _stmt_unsafe_status(
+    ir::CC.IRCode, idx::Int, raw, unsafe_files::Set{Symbol}, debuginfo_builder
+)::Union{Bool,Nothing}
+    # Prefer the IR statement index for `debuginfo`: this is what `IRShow.buildLineInfoNode`
+    # expects, and it's the most robust to debug-info compression.
+    has = _debuginfo_has_unsafe_file(ir, idx, unsafe_files, debuginfo_builder)
+    has !== nothing && return has
+
+    if raw isa NTuple{3,<:Integer}
+        pc = Int(raw[1])
+        has = _debuginfo_has_unsafe_file(ir, pc, unsafe_files, debuginfo_builder)
+        has !== nothing && return has
+        return nothing
+    end
+
+    return _raw_chain_has_unsafe_file(ir, raw, unsafe_files)
+end
+
+function _propagate_unlabeled_unsafe!(
+    unsafe_stmt::AbstractVector{Bool}, known_stmt::AbstractVector{Bool}, ir::CC.IRCode
+)
+    blocks = ir.cfg.blocks
+    for b in 1:length(blocks)
+        r = blocks[b].stmts
+
+        first_known = 0
+        first_status = false
+        for idx in r
+            if known_stmt[idx]
+                first_known = idx
+                first_status = unsafe_stmt[idx]
+                break
+            end
+        end
+        first_known == 0 && continue
+
+        # Leading unlabeled nodes inherit from first known stmt.
+        for idx in r
+            idx == first_known && break
+            known_stmt[idx] || (unsafe_stmt[idx] |= first_status)
+        end
+
+        # Interior unlabeled nodes inherit from the most recent known stmt.
+        cur = first_status
+        for idx in r
+            if known_stmt[idx]
+                cur = unsafe_stmt[idx]
+            else
+                unsafe_stmt[idx] |= cur
+            end
+        end
+    end
+
+    return unsafe_stmt
+end
+
+"""Return a statement mask `unsafe_stmt[i]` indicating IR stmt `i` is inside an `@unsafe` region."""
 function _unsafe_stmt_mask(ir::CC.IRCode)::Vector{Bool}
     nstmts = length(ir.stmts)
     (nstmts == 0) && return Bool[]
 
-    # If a method contains a bare `Expr(:meta, :borrow_checker_unsafe)`, treat the entire
-    # method body as unchecked.
     meta = ir.meta
 
-    unsafe_blocks = Any[]
+    unsafe_files = Set{Symbol}()
     for m in meta
         (m isa Expr && m.head === :meta && !isempty(m.args)) || continue
         m.args[1] === BC_UNSAFE_META || continue
         if length(m.args) == 1
             return trues(nstmts)
         end
-        # Convention: `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
-        push!(unsafe_blocks, m.args[2])
+        for j in 2:length(m.args)
+            a = m.args[j]
+            if a isa Symbol
+                push!(unsafe_files, a)
+                break
+            end
+        end
     end
 
-    isempty(unsafe_blocks) && return falses(nstmts)
+    isempty(unsafe_files) && return falses(nstmts)
+
+    debuginfo_builder = if isdefined(CC, :IRShow) && isdefined(CC.IRShow, :buildLineInfoNode)
+        CC.IRShow.buildLineInfoNode
+    elseif isdefined(CC, :buildLineInfoNode)
+        CC.buildLineInfoNode
+    else
+        nothing
+    end
 
     unsafe_stmt = falses(nstmts)
+    known_stmt = falses(nstmts)
+    for i in 1:nstmts
+        raw = _raw_line_id(ir, i)
+        raw === nothing && continue
+        (raw isa Integer && raw == 0) && continue
 
-    for blk in unsafe_blocks
-        linenodes = Set{Tuple{Symbol,Int}}()
-        _collect_linenodes!(linenodes, blk)
-        isempty(linenodes) && continue
-
-        # Disambiguation is only needed for single-line `@unsafe` regions (e.g. `@unsafe ...; stmt`).
-        # For multi-line blocks, it is safe to treat the whole (file,line) as unsafe.
-        if length(linenodes) > 1
-            for i in 1:nstmts
-                raw0 = _raw_line_id(ir, i)
-                if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
-                    li = _stmt_lineinfo(ir, i)
-                    lt = (li === nothing) ? nothing : _line_tuple(li)
-                    (lt !== nothing && lt in linenodes) && (unsafe_stmt[i] = true)
-                    continue
-                end
-
-                lt, _site = _unsafe_loc_site(ir, raw0, i, linenodes)
-                (lt !== nothing) && (unsafe_stmt[i] = true)
-            end
-            continue
-        end
-
-        prefix_counts = Dict{Tuple{Symbol,Int},Int}()
-        _unsafe_prefix_counts_from_block!(prefix_counts, blk)
-
-        # Collect distinct "site" keys for the (single) unsafe line in IR order.
-        site_order = Any[]
-        site_seen = Set{Any}()
-        site_missing = false
-
-        for i in 1:nstmts
-            stmt = ir[Core.SSAValue(i)][:stmt]
-            stmt === nothing && continue
-
-            raw0 = _raw_line_id(ir, i)
-            if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
-                li = _stmt_lineinfo(ir, i)
-                lt = (li === nothing) ? nothing : _line_tuple(li)
-                if lt !== nothing && lt in linenodes
-                    site_missing = true
-                end
-                continue
-            end
-
-            lt, site = _unsafe_loc_site(ir, raw0, i, linenodes)
-            lt === nothing && continue
-
-            if site === nothing
-                site_missing = true
-                continue
-            end
-
-            if !(site in site_seen)
-                push!(site_order, site)
-                push!(site_seen, site)
-            end
-        end
-
-        lt = first(linenodes)
-        k = get(prefix_counts, lt, nothing)
-
-        full_line = site_missing || k === nothing || isempty(site_order) || k >= length(site_order)
-        prefix_sites = full_line ? nothing : Set(site_order[1:k])
-
-        for i in 1:nstmts
-            raw0 = _raw_line_id(ir, i)
-            if raw0 === nothing || (raw0 isa Integer && raw0 == 0)
-                li = _stmt_lineinfo(ir, i)
-                lt = (li === nothing) ? nothing : _line_tuple(li)
-                (lt !== nothing && lt in linenodes) && (unsafe_stmt[i] = true)
-                continue
-            end
-
-            lt_i, site = _unsafe_loc_site(ir, raw0, i, linenodes)
-            lt_i === nothing && continue
-
-            if full_line
-                unsafe_stmt[i] = true
-                continue
-            end
-
-            # If we cannot recover a site key, fall back to masking conservatively.
-            site === nothing && (unsafe_stmt[i] = true; continue)
-
-            (site in prefix_sites) && (unsafe_stmt[i] = true)
-        end
+        status = _stmt_unsafe_status(ir, i, raw, unsafe_files, debuginfo_builder)
+        status === nothing && continue
+        known_stmt[i] = true
+        unsafe_stmt[i] = status
     end
 
-    return unsafe_stmt
+    return _propagate_unlabeled_unsafe!(unsafe_stmt, known_stmt, ir)
 end
 
 mutable struct UnionFind

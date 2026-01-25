@@ -279,10 +279,10 @@ end
 
 # === `@unsafe` (auto-IR) support ===
 #
-# `BorrowChecker.@unsafe` expands to an `Expr(:meta, :borrow_checker_unsafe, <block-ast>)`
-# marker plus the *real* executable block. The compiler preserves `Expr(:meta, ...)`
-# entries in `IRCode.meta`.
+# `BorrowChecker.@unsafe` expands to:
+#   - `Expr(:meta, :borrow_checker_unsafe, unsafe_file_sym)` (not executed)
+#   - `Expr(:meta, :push_loc, unsafe_file_sym, :borrow_checker_unsafe)` / `Expr(:meta, :pop_loc)` (not executed)
+#   - the real executable block (executed normally)
 #
-# We interpret these markers as "do not borrow-check statements whose source locations
-# come from the annotated block".
+# The compiler preserves `Expr(:meta, ...)` entries in `IRCode.meta`.
 const BC_UNSAFE_META = :borrow_checker_unsafe

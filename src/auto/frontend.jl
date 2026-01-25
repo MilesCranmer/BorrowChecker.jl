@@ -749,19 +749,35 @@ This is intentionally analogous to `@inbounds`: it is an escape hatch for low-le
 code or for cases where the checker is overly conservative. The responsibility to
 uphold the usual invariants is on you.
 """
+
 macro unsafe(ex)
     is_borrow_checker_enabled(__module__) || return esc(ex)
 
-    # Record the annotated AST in metadata (not executed), but execute the real block.
-    # This keeps `@unsafe` allocation-free while still giving the borrow checker a
-    # robust marker it can recover from IR.
-    # Ensure the stored AST has a concrete source location even for one-liners
-    # (`@unsafe expr`), where `expr` often contains no `LineNumberNode`s on its own.
-    body = if (ex isa Expr && ex.head === :block)
+    # Tag unsafe regions via debug "location stack" metadata (`:push_loc` / `:pop_loc`)
+    # plus a unique synthetic file symbol. This survives `@safe` macro rewriting,
+    # handles same-line `;` cases, and remains visible through inlining.
+    unsafe_file = gensym(:borrow_checker_unsafe_file)
+
+    # Normalize to a block and ensure it has a leading line node (important for one-liners).
+    body0 = if (ex isa Expr && ex.head === :block)
         ex
     else
-        Expr(:block, LineNumberNode(__source__.line, __source__.file), ex)
+        Expr(:block, ex)
     end
-    meta = Expr(:meta, BC_UNSAFE_META, Base.deepcopy(body))
-    return esc(Expr(:block, meta, body.args...))
+    if isempty(body0.args) || !(body0.args[1] isa LineNumberNode)
+        body0 = Expr(
+            :block,
+            LineNumberNode(__source__.line, __source__.file),
+            body0.args...,
+        )
+    end
+
+    meta = Expr(:meta, BC_UNSAFE_META, unsafe_file)
+    push_loc = Expr(:meta, :push_loc, unsafe_file, BC_UNSAFE_META)
+    pop_loc = Expr(:meta, :pop_loc)
+
+    # Ensure the block evaluates to the user's last expression, not the trailing `:pop_loc`.
+    val = gensym(:bc_unsafe_val)
+    val_bind = Expr(:local, Expr(:(=), val, body0))
+    return esc(Expr(:block, meta, push_loc, val_bind, pop_loc, val))
 end
