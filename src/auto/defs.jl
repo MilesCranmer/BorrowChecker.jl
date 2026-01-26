@@ -51,6 +51,13 @@ end
             x
         end
     end
+    # Type objects are also immutable
+    if T <: Type
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
     if isdefined(Base, :inferencebarrier)
         return quote
             Base.@_inline_meta
