@@ -978,6 +978,14 @@
     @test _bc_ok_closure_body_0arg() == [1, 2, 3]
     @test _bc_ok_closure_body_with_arg([1, 2, 3]) == [1, 2, 3]
 
+    # Regression test for https://github.com/MilesCranmer/BorrowChecker.jl/issues/49
+    BorrowChecker.Auto.@safe function _bc_eltype_used_in_array_constructor(x)
+        T = eltype(x)
+        y = Vector{T}(x)
+        return y
+    end
+    @test _bc_eltype_used_in_array_constructor([1, 2]) == [1, 2]
+
     BorrowChecker.Auto.@safe function _bc_ok_phi_ternary(cond::Bool)
         x = [1, 2, 3]
         y = cond ? x : x
