@@ -435,6 +435,16 @@ function _instrument_lambda(ex::Expr, cfg_tag)
     return Expr(:block, fdef, fname)
 end
 
+function _assignment_dest_symbol(lhs)
+    if lhs isa Symbol
+        return lhs
+    end
+    if lhs isa Expr && lhs.head === :(::) && !isempty(lhs.args) && lhs.args[1] isa Symbol
+        return lhs.args[1]::Symbol
+    end
+    return :anonymous
+end
+
 function _instrument_assignments(ex, cfg_tag)
     ex isa Expr || return ex
 
@@ -494,6 +504,7 @@ function _instrument_assignments(ex, cfg_tag)
         end
         lhs2 = _instrument_assignments(lhs, cfg_tag)
         rhs2 = _instrument_assignments(rhs, cfg_tag)
+        dest = _assignment_dest_symbol(lhs)
 
         # If the RHS is an instrumented lambda block, don't wrap it in `__bc_bind__`.
         # Wrapping forces the value to `Any` and breaks call resolution, which makes
@@ -515,7 +526,7 @@ function _instrument_assignments(ex, cfg_tag)
         end
 
         bind_ref = GlobalRef(@__MODULE__, :__bc_bind__)
-        return Expr(:(=), lhs2, Expr(:call, bind_ref, rhs2))
+        return Expr(:(=), lhs2, Expr(:call, bind_ref, rhs2, QuoteNode(dest)))
     end
 
     # Recurse

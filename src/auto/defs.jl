@@ -71,6 +71,28 @@ end
     end
 end
 
+@generated function __bc_bind__(x::T, dest::Symbol) where {T}
+    # Like the 1-arg version, but carries a compile-time destination name for diagnostics.
+    # `dest` is intentionally ignored; it only exists to preserve binding provenance.
+    if Base.isbitstype(T)
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+    if isdefined(Base, :inferencebarrier)
+        return quote
+            Base.@_inline_meta
+            Base.inferencebarrier(x)::T
+        end
+    else
+        return quote
+            Base.@_inline_meta
+            x
+        end
+    end
+end
+
 struct EffectSummary
     # Indices are in the *raw call argument list* used by the SSA form:
     # raw_args[1] is the function value, raw_args[2] is the first user argument, etc.

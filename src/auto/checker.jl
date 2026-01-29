@@ -180,6 +180,104 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
     return viols
 end
 
+function _method_arg_symbols(ir::CC.IRCode)
+    mi = try
+        getproperty(getproperty(ir, :debuginfo), :def)
+    catch
+        nothing
+    end
+    mi isa Core.MethodInstance || return nothing
+    m = try
+        getproperty(mi, :def)
+    catch
+        nothing
+    end
+    m isa Method || return nothing
+    slot_syms = try
+        getproperty(m, :slot_syms)
+    catch
+        nothing
+    end
+    slot_syms isa AbstractString || return nothing
+    names = split(String(slot_syms), '\0'; keepempty=false)
+    return names
+end
+
+function _handle_var_symbol(ir::CC.IRCode, nargs::Int, hv::Int)::Symbol
+    hv == 0 && return :anonymous
+
+    if hv <= nargs
+        names = _method_arg_symbols(ir)
+        if names !== nothing && hv <= length(names)
+            nm = names[hv]
+            nm == "#self#" && return :anonymous
+            return Symbol(nm)
+        end
+        return :anonymous
+    end
+
+    sid = hv - nargs
+    (1 <= sid <= length(ir.stmts)) || return :anonymous
+    stmt = try
+        ir[Core.SSAValue(sid)][:stmt]
+    catch
+        nothing
+    end
+    stmt isa Expr || return :anonymous
+    (stmt.head === :call || stmt.head === :invoke) || return :anonymous
+
+    f = _resolve_callee(stmt, ir)
+    f === __bc_bind__ || return :anonymous
+
+    length(stmt.args) >= 3 || return :anonymous
+    dest = stmt.args[3]
+    if dest isa QuoteNode && dest.value isa Symbol
+        return dest.value
+    elseif dest isa Symbol
+        return dest
+    end
+
+    return :anonymous
+end
+
+function _handle_def_lineinfo(ir::CC.IRCode, nargs::Int, hv::Int)
+    if hv > nargs
+        sid = hv - nargs
+        return _stmt_lineinfo(ir, sid)
+    end
+
+    mi = try
+        getproperty(getproperty(ir, :debuginfo), :def)
+    catch
+        nothing
+    end
+    mi isa Core.MethodInstance || return nothing
+    m = try
+        getproperty(mi, :def)
+    catch
+        nothing
+    end
+    m isa Method || return nothing
+
+    file = getproperty(m, :file)
+    line = getproperty(m, :line)
+    file isa Symbol || return nothing
+    line isa Integer || return nothing
+    return LineNumberNode(Int(line), file)
+end
+
+function _quoted_var(sym::Symbol)
+    return sym === :anonymous ? "value" : "`$(sym)`"
+end
+
+function _alias_conflict_msg(
+    context::String, problem_var::Symbol, other_var::Symbol
+)::String
+    lhs = _quoted_var(problem_var)
+    rhs = other_var === :anonymous ? "another live binding" : "`$(other_var)`"
+    return "cannot perform $context: $(lhs) is aliased by $(rhs)"
+end
+
 function _args_safe_under_unknown_consume(
     args, nargs, track_arg, track_ssa, uf, origins, live_during::BitSet, live_after::BitSet
 )::Bool
@@ -230,10 +328,24 @@ function _call_safe_under_unknown_consume(
 end
 
 function _push_violation!(
-    viols::Vector{BorrowViolation}, ir::CC.IRCode, idx::Int, stmt, msg::String
+    viols::Vector{BorrowViolation},
+    ir::CC.IRCode,
+    idx::Int,
+    stmt,
+    msg::String;
+    kind::Symbol=:generic,
+    problem_var::Symbol=:anonymous,
+    other_var::Symbol=:anonymous,
+    other_lineinfo=nothing,
+    problem_argpos::Int=0,
 )
     li = _stmt_lineinfo(ir, idx)
-    push!(viols, BorrowViolation(idx, msg, li, stmt))
+    push!(
+        viols,
+        BorrowViolation(
+            idx, msg, li, stmt, kind, problem_var, other_var, other_lineinfo, problem_argpos
+        ),
+    )
     return nothing
 end
 
@@ -273,19 +385,36 @@ function _check_stmt!(
             end
 
             for (hroot, allowed) in roots_allowed
+                best_h2 = 0
+                best_other_var = :anonymous
                 for h2 in live_during
                     (h2 == out_h) && continue
                     (h2 == 1) && continue
                     if _uf_find(uf, h2) == hroot && !(origins[h2] in allowed)
-                        _push_violation!(
-                            viols,
-                            ir,
-                            idx,
-                            stmt,
-                            "cannot perform $context: value is aliased by another live binding",
-                        )
-                        return reps
+                        cand_other_var = _handle_var_symbol(ir, nargs, h2)
+                        if best_h2 == 0 ||
+                            (best_other_var == :anonymous && cand_other_var != :anonymous)
+                            best_h2 = h2
+                            best_other_var = cand_other_var
+                        end
                     end
+                end
+                if best_h2 != 0
+                    rep = reps[hroot]
+                    problem_var = _handle_var_symbol(ir, nargs, rep)
+                    other_li = _handle_def_lineinfo(ir, nargs, best_h2)
+                    _push_violation!(
+                        viols,
+                        ir,
+                        idx,
+                        stmt,
+                        _alias_conflict_msg(context, problem_var, best_other_var);
+                        kind=:alias_conflict,
+                        problem_var,
+                        other_var=best_other_var,
+                        other_lineinfo=other_li,
+                    )
+                    return reps
                 end
             end
 
@@ -460,12 +589,21 @@ function _check_call_eval_order_moves!(
             deps = _backward_used_handles(raw_args[q], ir, nargs, track_arg, track_ssa)
             for hq in deps
                 _uf_find(uf, hq) == rp || continue
+                problem_var = _handle_var_symbol(ir, nargs, hp)
+                problem_var === :anonymous &&
+                    (problem_var = _handle_var_symbol(ir, nargs, hq))
+                msg =
+                    "call argument uses $(_quoted_var(problem_var)) after it was moved by an earlier argument " *
+                    "(arg $p before arg $q)"
                 _push_violation!(
                     viols,
                     ir,
                     idx,
                     stmt,
-                    "call argument uses a value after it was moved by an earlier argument",
+                    msg;
+                    kind=:eval_order_use_after_move,
+                    problem_var,
+                    problem_argpos=q,
                 )
                 return nothing
             end
@@ -487,21 +625,38 @@ function _require_unique!(
     context::String,
     ignore_h::Int=0,
 )
+    nargs = length(ir.argtypes)
     rv = _uf_find(uf, hv)
     ohv = origins[hv]
+    best_h2 = 0
+    best_other_var = :anonymous
     for h2 in live_during
         (h2 == hv || h2 == ignore_h || h2 == 1) && continue
         if _uf_find(uf, h2) == rv && origins[h2] != ohv
-            _push_violation!(
-                viols,
-                ir,
-                idx,
-                stmt,
-                "cannot perform $context: value is aliased by another live binding",
-            )
-            return nothing
+            cand_other_var = _handle_var_symbol(ir, nargs, h2)
+            if best_h2 == 0 ||
+                (best_other_var == :anonymous && cand_other_var != :anonymous)
+                best_h2 = h2
+                best_other_var = cand_other_var
+            end
         end
     end
+    best_h2 == 0 && return nothing
+
+    problem_var = _handle_var_symbol(ir, nargs, hv)
+    other_li = _handle_def_lineinfo(ir, nargs, best_h2)
+    _push_violation!(
+        viols,
+        ir,
+        idx,
+        stmt,
+        _alias_conflict_msg(context, problem_var, best_other_var);
+        kind=:alias_conflict,
+        problem_var,
+        other_var=best_other_var,
+        other_lineinfo=other_li,
+    )
+    return nothing
 end
 
 function _require_not_used_later!(
@@ -514,17 +669,39 @@ function _require_not_used_later!(
     hv::Int,
     live_after::BitSet,
 )
+    nargs = length(ir.argtypes)
     rv = _uf_find(uf, hv)
+    best_h2 = 0
+    best_other_var = :anonymous
     for h2 in live_after
-        if _uf_find(uf, h2) == rv
-            _push_violation!(
-                viols,
-                ir,
-                idx,
-                stmt,
-                "value escapes/consumed by unknown call; it (or an alias) is used later",
-            )
-            return nothing
+        _uf_find(uf, h2) == rv || continue
+
+        cand_other_var = _handle_var_symbol(ir, nargs, h2)
+        if best_h2 == 0 || (best_other_var == :anonymous && cand_other_var != :anonymous)
+            best_h2 = h2
+            best_other_var = cand_other_var
         end
     end
+
+    best_h2 == 0 && return nothing
+
+    problem_var = _handle_var_symbol(ir, nargs, hv)
+    other_li = _handle_def_lineinfo(ir, nargs, best_h2)
+    msg = if best_other_var === :anonymous
+        "value escapes/consumed by unknown call; it (or an alias) is used later"
+    else
+        "value escapes/consumed by unknown call: $(_quoted_var(problem_var)) is later used via `$(best_other_var)`"
+    end
+    _push_violation!(
+        viols,
+        ir,
+        idx,
+        stmt,
+        msg;
+        kind=:unknown_consume_later_use,
+        problem_var,
+        other_var=best_other_var,
+        other_lineinfo=other_li,
+    )
+    return nothing
 end
