@@ -49,6 +49,10 @@
 
     @test _bc_safe_with_unsafe_inner_should_pass() == [1, 2, 3, 1]
 
+    # One-line method form should also be accepted by `@safe` (exercises method-definition matcher).
+    BorrowChecker.@safe _bc_safe_oneliner(x) = x + 1
+    @test _bc_safe_oneliner(1) == 2
+
     let unsafe_call = macroexpand(@__MODULE__, :(BorrowChecker.@unsafe begin
             push!(x, 1)
         end))
@@ -62,6 +66,66 @@
     end
 
     @test _bc_safe_with_preexpanded_unsafe_should_pass() == [1, 2, 3, 1]
+
+    BorrowChecker.@unsafe function _bc_unsafe_function_definition()
+        x = [1, 2, 3]
+        y = x
+        push!(x, 1) # would normally be a borrow-check violation
+        return y
+    end
+
+    BorrowChecker.@safe scope=:all function _bc_call_unsafe_function_scope_all_should_pass()
+        return _bc_unsafe_function_definition()
+    end
+
+    @test _bc_call_unsafe_function_scope_all_should_pass() == [1, 2, 3, 1]
+
+    BorrowChecker.@unsafe _bc_unsafe_function_definition_short() = _bc_unsafe_function_definition()
+    @test _bc_unsafe_function_definition_short() == [1, 2, 3, 1]
+
+    function unwrap_escape(ex)
+        return (ex isa Expr && ex.head === :escape) ? ex.args[1] : ex
+    end
+
+    let ex = unwrap_escape(macroexpand(@__MODULE__, :(BorrowChecker.@unsafe function _bc_unsafe_def_macroexpand()
+            return 1
+        end)))
+        @test ex isa Expr && ex.head === :function
+        body = ex.args[2]
+        @test body isa Expr && body.head === :block
+        @test body.args[1] == Expr(:meta, :borrow_checker_unsafe)
+        @test !any(a -> a isa LineNumberNode, body.args[1:1]) # meta first
+        @test any(a -> a isa LineNumberNode, body.args)
+    end
+
+    let ex = unwrap_escape(macroexpand(@__MODULE__, :(BorrowChecker.@unsafe _bc_unsafe_def_oneliner_macroexpand() = (1 + 2))))
+        @test ex isa Expr && ex.head === :function
+        body = ex.args[2]
+        @test body isa Expr && body.head === :block
+        @test body.args[1] == Expr(:meta, :borrow_checker_unsafe)
+        @test any(a -> a isa LineNumberNode, body.args)
+    end
+
+    # Exercise the fallback lineinfo insertion in `@unsafe` by passing a programmatically
+    # constructed function body that lacks a leading LineNumberNode.
+    let fname = gensym(:_bc_unsafe_no_lineinfo)
+        sig = Expr(:call, fname)
+        raw_body = Expr(
+            :block,
+            :(x = [1, 2, 3]),
+            :(y = x),
+            :(push!(x, 1)),
+            :(y),
+        )
+        def = Expr(:function, sig, raw_body)
+        @eval BorrowChecker.@unsafe $def
+
+        @eval BorrowChecker.@safe scope=:all function $(Symbol(fname, :_caller))()
+            return $fname()
+        end
+
+        @test @eval($(Symbol(fname, :_caller))()) == [1, 2, 3, 1]
+    end
 
     @eval BorrowChecker.@safe function _bc_bare_meta_unsafe_whole_method_should_pass()
         $(Expr(:meta, :borrow_checker_unsafe))

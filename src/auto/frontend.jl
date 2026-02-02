@@ -552,6 +552,27 @@ function _parse_cfg_value(x, calling_module)
     end
 end
 
+function _match_method_definition(ex)
+    if ex isa Expr && ex.head === :function
+        return (; sig=ex.args[1], body=ex.args[2])
+    end
+    if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
+        return (; sig=ex.args[1], body=ex.args[2])
+    end
+    return nothing
+end
+
+function _unsafe_method_body(body, source_info)
+    meta = Expr(:meta, BC_UNSAFE_META)
+    body_block = (body isa Expr && body.head === :block) ? body : Expr(:block, body)
+    if isempty(body_block.args) || !(body_block.args[1] isa LineNumberNode)
+        body_block = Expr(
+            :block, LineNumberNode(source_info.line, source_info.file), body_block.args...
+        )
+    end
+    return Expr(:block, meta, body_block.args...)
+end
+
 """
 Parse `@safe` macro options into `Config` field overrides.
 
@@ -629,18 +650,10 @@ function _auto(args...; calling_module, source_info=nothing)
         )
     end
 
-    # Function form
-    if ex isa Expr && ex.head === :function
-        sig = ex.args[1]
-        body = ex.args[2]
-        inst_body = _prepend_check_stmt(sig, body, cfg_tag, cfg.debug)
-        return Expr(:function, sig, inst_body)
-    end
-
-    # One-line method form: f(args...) = body
-    if ex isa Expr && ex.head === :(=) && _is_method_definition_lhs(ex.args[1])
-        sig = ex.args[1]
-        body = ex.args[2]
+    mdef = _match_method_definition(ex)
+    if mdef !== nothing
+        sig = mdef.sig
+        body = mdef.body
         inst_body = _prepend_check_stmt(sig, body, cfg_tag, cfg.debug)
         return Expr(:function, sig, inst_body)
     end
@@ -749,9 +762,7 @@ This is intentionally analogous to `@inbounds`: it is an escape hatch for low-le
 code or for cases where the checker is overly conservative. The responsibility to
 uphold the usual invariants is on you.
 """
-macro unsafe(ex)
-    is_borrow_checker_enabled(__module__) || return esc(ex)
-
+function _unsafe_region_expr(ex, source_info)
     # Tag unsafe regions via debug "location stack" metadata (`:push_loc` / `:pop_loc`)
     # plus a unique synthetic file symbol. This survives `@safe` macro rewriting,
     # handles same-line `;` cases, and remains visible through inlining.
@@ -765,16 +776,33 @@ macro unsafe(ex)
     end
     if isempty(body0.args) || !(body0.args[1] isa LineNumberNode)
         body0 = Expr(
-            :block, LineNumberNode(__source__.line, __source__.file), body0.args...
+            :block, LineNumberNode(source_info.line, source_info.file), body0.args...
         )
     end
 
     meta = Expr(:meta, BC_UNSAFE_META, unsafe_file)
-    push_loc = Expr(:meta, :push_loc, unsafe_file, __source__.line)
+    push_loc = Expr(:meta, :push_loc, unsafe_file, source_info.line)
     pop_loc = Expr(:meta, :pop_loc)
 
     # `@unsafe` must behave like a plain `begin ... end` (no new scope), but we also need
     # to emit `:pop_loc` after the region without changing the block's value.
     inner = Expr(:ref, Expr(:tuple, body0, pop_loc), 1)
-    return esc(Expr(:block, meta, push_loc, inner))
+    return Expr(:block, meta, push_loc, inner)
+end
+
+macro unsafe(ex)
+    is_borrow_checker_enabled(__module__) || return esc(ex)
+
+    # `@unsafe` on method definitions behaves like Rust:
+    # - method body is in an unsafe region
+    # - when borrow-checked, the entire method is treated as unsafe (unchecked)
+    mdef = _match_method_definition(ex)
+    if mdef !== nothing
+        sig = mdef.sig
+        body = mdef.body
+        new_body = _unsafe_method_body(body, __source__)
+        return esc(Expr(:function, sig, new_body))
+    end
+
+    return esc(_unsafe_region_expr(ex, __source__))
 end
