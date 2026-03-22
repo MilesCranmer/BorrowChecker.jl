@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: MilesCranmerBot/release-please
-          ref: julia-release-type-stable
+          ref: 911ad18bdc3bb52bfef564cfbcb35f31aac01df3
           path: release-please-src
 
       - uses: actions/setup-node@v4
