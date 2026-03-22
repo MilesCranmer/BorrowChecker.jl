@@ -38,7 +38,7 @@ jobs:
 
       - name: Create or update release PR
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
           node release-please-src/build/src/bin/release-please.js release-pr \
             --token "$GITHUB_TOKEN" \
@@ -49,7 +49,7 @@ jobs:
 
       - name: Create GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
           node release-please-src/build/src/bin/release-please.js github-release \
             --token "$GITHUB_TOKEN" \
