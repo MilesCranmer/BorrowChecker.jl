@@ -20,12 +20,14 @@ const SRCFILE_CACHE = Lockable(Dict{String,CachedFileLines}())
 
 @inline function _lineinfo_file_line(li)
     file = try
-        String(getproperty(li, :file))
+        f = getproperty(li, :file)
+        f === nothing ? nothing : String(f)
     catch
         nothing
     end
     line = try
-        Int(getproperty(li, :line))
+        l = getproperty(li, :line)
+        l === nothing ? nothing : Int(l)
     catch
         nothing
     end
