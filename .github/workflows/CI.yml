@@ -46,7 +46,7 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: "Run tests + coverage"
         run: |
@@ -93,7 +93,7 @@ jobs:
         with:
           version: 'nightly'
           arch: x64
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - name: "Run tests (nightly)"
         run: |
