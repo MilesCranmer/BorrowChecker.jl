@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.4...v0.4.5) (2026-03-23)
+
+
+### Bug Fixes
+
+* handle missing LineNumberNode file/line ([#58](https://github.com/MilesCranmer/BorrowChecker.jl/issues/58)) ([855c156](https://github.com/MilesCranmer/BorrowChecker.jl/commit/855c1562ce7af4e1e1660ee81bbeb7912333833d))
+
 ## [0.4.4](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.3...v0.4.4) (2026-01-26)
 
 
