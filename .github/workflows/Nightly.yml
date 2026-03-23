@@ -1,0 +1,31 @@
+name: Nightly
+on:
+  schedule:
+    # Run once per day (UTC). GitHub may delay scheduled workflows slightly.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: julia-nightly-ubuntu-x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: 'nightly'
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run tests (Julia nightly)
+        run: |
+          julia --color=yes --threads=auto --check-bounds=yes --depwarn=yes -e '
+            import Pkg
+            Pkg.activate(".")
+            Pkg.test()'
+        shell: bash
