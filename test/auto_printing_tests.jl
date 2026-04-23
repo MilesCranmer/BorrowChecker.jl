@@ -103,6 +103,87 @@
         @test count("cannot perform write", s) >= 2
     end
 
+    @testset "BorrowCheckError underlines only offending tuple argument" begin
+        (path, io) = mktemp()
+        close(io)
+
+        write(path, "(; x=x, y=x, z=x)\n")
+        li = LineNumberNode(1, Symbol(path))
+        v = BorrowViolation(
+            9,
+            "call argument uses `x` after it was moved by an earlier argument (arg 2 before arg 3)",
+            li,
+            :(Core.tuple(x, x, x)),
+            :eval_order_use_after_move,
+            :x,
+            :anonymous,
+            nothing,
+            3,
+        )
+        e = BorrowCheckError(Any, [v])
+
+        s = sprint(io -> showerror(IOContext(io, :color => true), e))
+        needle = "\e[4m" * "x" * "\e[24m"
+        @test count(needle, s) == 1
+        @test occursin("y=$(needle)", s)
+        @test !occursin("x=$(needle)", s)
+        @test !occursin("z=$(needle)", s)
+    end
+
+    @testset "BorrowCheckError argpos underlining is kind-agnostic (adversarial)" begin
+        (path, io) = mktemp()
+        close(io)
+
+        # This uses a non-eval-order violation kind but still supplies `problem_argpos`.
+        # Old/special-cased underlining would underline all RHS `x` occurrences here.
+        write(path, "(; x=x, y=x, z=x)\n")
+        li = LineNumberNode(1, Symbol(path))
+        v = BorrowViolation(
+            9,
+            "cannot perform write: `x` is aliased by another live binding",
+            li,
+            :(Core.tuple(x, x, x)),
+            :alias_conflict,
+            :x,
+            :anonymous,
+            nothing,
+            3,
+        )
+        e = BorrowCheckError(Any, [v])
+
+        s = sprint(io -> showerror(IOContext(io, :color => true), e))
+        needle = "\e[4m" * "x" * "\e[24m"
+        @test count(needle, s) == 1
+        @test occursin("y=$(needle)", s)
+        @test !occursin("x=$(needle)", s)
+        @test !occursin("z=$(needle)", s)
+    end
+
+    @testset "BorrowCheckError argpos underlining works for calls (adversarial)" begin
+        (path, io) = mktemp()
+        close(io)
+
+        write(path, "f(x, x, x)\n")
+        li = LineNumberNode(1, Symbol(path))
+        v = BorrowViolation(
+            9,
+            "cannot perform write: `x` is aliased by another live binding",
+            li,
+            :(f(x, x, x)),
+            :alias_conflict,
+            :x,
+            :anonymous,
+            nothing,
+            3,
+        )
+        e = BorrowCheckError(Any, [v])
+
+        s = sprint(io -> showerror(IOContext(io, :color => true), e))
+        needle = "\e[4m" * "x" * "\e[24m"
+        @test count(needle, s) == 1
+        @test occursin("f(x, $(needle), x)", s)
+    end
+
     @testset "BorrowCheckError prints file-backed source context (real checker)" begin
         (path, io) = mktemp()
         close(io)
