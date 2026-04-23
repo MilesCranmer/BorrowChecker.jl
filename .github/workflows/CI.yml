@@ -42,7 +42,7 @@ jobs:
         if: ${{ matrix.dispatch_doctor == 'disabled' }}
         run: sed -i 's/dispatch_doctor_mode = "error"/dispatch_doctor_mode = "disable"/' test/Project.toml
         shell: bash
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
@@ -89,7 +89,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: 'nightly'
           arch: x64
@@ -112,7 +112,7 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
       - name: Configure doc environment
