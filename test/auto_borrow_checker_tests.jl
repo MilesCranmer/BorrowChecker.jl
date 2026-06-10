@@ -822,6 +822,34 @@
         @test_throws BorrowCheckError m.outer()
     end
 
+    @testset "try/catch/finally PhiCNode liveness does not assert" begin
+        @safe function _bc_try_finally_phicnode_ok()
+            a = [1, 2]
+            try
+                push!(a, 1)
+            catch
+                a = copy(a)
+            finally
+                sum(a)
+            end
+            return a
+        end
+
+        result = try
+            _bc_try_finally_phicnode_ok()
+            :ok
+        catch e
+            if e isa AssertionError
+                :asserted
+            elseif e isa BorrowCheckError
+                :borrow_error
+            else
+                rethrow()
+            end
+        end
+        @test result != :asserted
+    end
+
     @testset "macro one-line method parsing: where clause" begin
         BorrowChecker.Auto.@safe _bc_oneliner_where(x::T) where {T} = x
         @test _bc_oneliner_where(1) == 1
