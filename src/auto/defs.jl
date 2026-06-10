@@ -216,7 +216,7 @@ function _populate_registry!()
         (Core, :memoryrefnew, (2,), (), ()),
         (Core, :memoryref, (2,), (), ()),
         (Core, :memoryrefoffset, (2,), (), ()),
-        (Core, :memoryrefget, (), (), ()),
+        (Core, :memoryrefget, (2,), (), ()),
         (Core, :memoryrefset!, (), (2,), (3,)),
         (Core, :memoryrefswap!, (), (2,), (3,)),
         (Core, :memoryrefmodify!, (), (2,), (4,)),

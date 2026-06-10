@@ -194,6 +194,17 @@
         @test_throws BorrowCheckError _bc_bang_mutates_second_bad()
     end
 
+    @testset "array element extraction preserves aliases" begin
+        @safe function _bc_array_getindex_alias_bad(outer::Vector{Vector{Int}})
+            a = outer[1]
+            b = outer[1]
+            push!(a, 2)
+            return b
+        end
+
+        @test_throws BorrowCheckError _bc_array_getindex_alias_bad([[1]])
+    end
+
     @testset "adversarial overloads (no special-casing overloadables)" begin
         mutable struct _BCGetPropMutates
             x::Vector{Int}
