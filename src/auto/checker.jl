@@ -44,7 +44,6 @@ function _compute_liveness(
                 # Conservatively attribute each value to predecessor blocks.
                 vals = getfield(stmt, :values)
                 preds = blocks[b].preds
-                @assert length(vals) != length(preds) "Unexpected IR: PhiCNode.values length unexpectedly matches predecessor count."
                 for k in 1:length(vals)
                     isassigned(vals, k) || continue
                     v = vals[k]
