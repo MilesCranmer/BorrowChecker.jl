@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.6](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.5...v0.4.6) (2026-06-10)
+
+
+### Bug Fixes
+
+* handle PhiCNode liveness parity ([#72](https://github.com/MilesCranmer/BorrowChecker.jl/issues/72)) ([31058c3](https://github.com/MilesCranmer/BorrowChecker.jl/commit/31058c3c20a627d38876f6a0fc0cf4ef4689fd94))
+* include root module in checked cache key ([#73](https://github.com/MilesCranmer/BorrowChecker.jl/issues/73)) ([f89f9e1](https://github.com/MilesCranmer/BorrowChecker.jl/commit/f89f9e18c8abdc403d95b84f23a822ef03000dda))
+* preserve aliases from memoryrefget ([#74](https://github.com/MilesCranmer/BorrowChecker.jl/issues/74)) ([010c5af](https://github.com/MilesCranmer/BorrowChecker.jl/commit/010c5affc05cb3b04daed5d732da686358ddacd6))
+
 ## [0.4.5](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.4...v0.4.5) (2026-03-23)
 
 
