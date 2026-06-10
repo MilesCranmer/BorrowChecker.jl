@@ -768,6 +768,59 @@
         @test_throws BorrowCheckError m.g()
     end
 
+    @testset "__bc_assert_safe__ cache respects root_module" begin
+        m = Module(gensym(:BCRootCache))
+        other = Module(gensym(:BCOtherRootCache))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(m, :(const CACHE = Dict{Int,Vector{Int}}()))
+        Core.eval(
+            m,
+            quote
+                g() = begin
+                    x = [1, 2, 3]
+                    CACHE[1] = x
+                    push!(x, 4)
+                    return x
+                end
+                helper() = (g(); nothing)
+            end,
+        )
+
+        tt = Tuple{typeof(getfield(m, :helper))}
+
+        function clear_checked_cache!()
+            Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
+                empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+            end
+            empty!(BorrowChecker.Auto.PER_TASK_CHECKED_CACHE[])
+            return nothing
+        end
+
+        function check_with_root(root)
+            try
+                BorrowChecker.Auto.__bc_assert_safe__(
+                    tt;
+                    cfg=BorrowChecker.Auto.Config(; scope=:module, root_module=root),
+                )
+                return :passed
+            catch e
+                e isa BorrowCheckError || rethrow()
+                return :failed
+            end
+        end
+
+        function probe_stable_world()
+            clear_checked_cache!()
+            out_of_scope = check_with_root(other)
+            in_scope_after_cache_hit = check_with_root(m)
+            clear_checked_cache!()
+            in_scope_fresh = check_with_root(m)
+            return (out_of_scope, in_scope_after_cache_hit, in_scope_fresh)
+        end
+
+        @test probe_stable_world() == (:passed, :failed, :failed)
+    end
+
     @testset "scope=:module catches unannotated callee with closure alias" begin
         m = Module(gensym(:BCModuleScope))
         Core.eval(m, :(import BorrowChecker as BC))
