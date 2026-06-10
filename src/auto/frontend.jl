@@ -3,14 +3,14 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const CheckedCacheSig = Tuple{String,Int,Symbol,Bool,Int}
+const CheckedCacheSig = Tuple{String,Int,Symbol,Module,Bool,Int}
 
 @inline function _checked_cache_sig(cfg::Config)
-    # Intentionally ignores `root_module`: we cache only based on the checking policy.
     return (
         cfg.optimize_until,
         cfg.max_summary_depth,
         cfg.scope,
+        cfg.root_module,
         cfg.debug,
         cfg.debug_callee_depth,
     )::CheckedCacheSig
