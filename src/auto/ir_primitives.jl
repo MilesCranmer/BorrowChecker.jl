@@ -100,6 +100,32 @@ Base.@kwdef struct OwnedTypeTracker
     seen::Base.IdSet{Any} = Base.IdSet{Any}()
 end
 
+const OWNED_TYPE_OVERRIDES = Lockable(Base.IdSet{Any}())
+
+"""
+    register_owned_type!(T::Type)
+
+Mark `T` (and its subtypes) as *owned* resource types for `@safe`'s move/consume rules,
+overriding the default classification.
+
+By default, `isbits` values are treated as non-owned "Copy"-like values, so storing them
+somewhere is never a move. That is wrong for pointer-backed `isbits` containers (e.g.
+arena-allocated arrays) where the pointer value represents a uniquely-owned region of
+memory: letting such a value escape its allocation scope is a use-after-free. Registering
+the container type here makes `@safe` apply ownership rules to it.
+"""
+function register_owned_type!(@nospecialize(T::Type))
+    @lock OWNED_TYPE_OVERRIDES push!(OWNED_TYPE_OVERRIDES[], T)
+    return T
+end
+
+function _is_registered_owned_type(@nospecialize(T))::Bool
+    return @lock OWNED_TYPE_OVERRIDES begin
+        overrides = OWNED_TYPE_OVERRIDES[]
+        !isempty(overrides) && any(R -> T <: R, overrides)
+    end
+end
+
 function _is_nonowning_ref_type(@nospecialize(T))::Bool
     if isdefined(Core, :MemoryRef) && (T <: Core.MemoryRef)
         return true
@@ -129,6 +155,10 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
         return tt(Base.unwrap_unionall(T))
     end
     T === Symbol && return false
+
+    # User-registered owned resource types (e.g. pointer-backed arena arrays) take
+    # precedence over the default non-owned classification of `isbits` values.
+    _is_registered_owned_type(T) && return true
 
     # Modules and type objects are globally-shareable handles.
     # Treat them as *not owned* so unknown/dynamic calls don't spuriously consume them.
