@@ -810,8 +810,7 @@
         function check_with_root(root)
             try
                 BorrowChecker.Auto.__bc_assert_safe__(
-                    tt;
-                    cfg=BorrowChecker.Auto.Config(; scope=:module, root_module=root),
+                    tt; cfg=BorrowChecker.Auto.Config(; scope=:module, root_module=root)
                 )
                 return :passed
             catch e
@@ -1647,6 +1646,49 @@
         end
 
         @test_throws BorrowCheckError bc_registry_override()
+    end
+
+    # Pointer-backed isbits containers (e.g. arena-allocated arrays) whose pointer
+    # represents a uniquely-owned resource. By default isbits values are "Copy"-like.
+    struct BCFakeArenaArray
+        ptr::Ptr{Float64}
+        len::Int
+    end
+    struct BCPlainPtrStruct
+        ptr::Ptr{Float64}
+        len::Int
+    end
+
+    @noinline bc_fake_arena_alloc(::Type{T}, n::Int) where {T} = T(Ptr{Float64}(), n)
+    const BC_FAKE_SINK = Ref{Any}(nothing)
+
+    @testset "register_owned_type! API" begin
+        @test !BorrowChecker.Auto.is_owned_type(BCFakeArenaArray)
+        @test BorrowChecker.Auto.register_owned_type!(BCFakeArenaArray) === BCFakeArenaArray
+        @test BorrowChecker.Auto.is_owned_type(BCFakeArenaArray)
+        # Other types keep their default classification.
+        @test !BorrowChecker.Auto.is_owned_type(BCPlainPtrStruct)
+        @test !BorrowChecker.Auto.is_owned_type(Ptr{Float64})
+
+        BorrowChecker.Auto.register_effects!(bc_fake_arena_alloc)
+
+        # Storing an owned-registered value is a move, so using it afterwards
+        # must be flagged...
+        @safe function bc_store_owned_then_use(n)
+            x = bc_fake_arena_alloc(BCFakeArenaArray, n)
+            BC_FAKE_SINK[] = x
+            return x
+        end
+        @test_throws BorrowCheckError bc_store_owned_then_use(3)
+
+        # ...while the identical pattern with a non-registered isbits struct
+        # keeps the default Copy-like semantics.
+        @safe function bc_store_plain_then_use(n)
+            x = bc_fake_arena_alloc(BCPlainPtrStruct, n)
+            BC_FAKE_SINK[] = x
+            return x
+        end
+        @test bc_store_plain_then_use(3) isa BCPlainPtrStruct
     end
 
     @testset "@safe one-line method form" begin
