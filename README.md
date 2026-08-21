@@ -307,6 +307,32 @@ julia> closure_demo()  # errors
 Read-only captures are typically fine.
 </details>
 
+### Opting out: `@unsafe` blocks
+
+The `@unsafe` block follows the same rule as Rust's `unsafe`: the checker stops
+validating the region, and you take responsibility for its invariants.
+Statements inside the block are not checked, and effects inside it (writes,
+consumes, new aliases) do not propagate outward into the surrounding analysis:
+
+```julia
+julia> BorrowChecker.@safe function add_halves!(a::Vector{Float64})
+           n = length(a) ÷ 2
+           @unsafe begin
+               left = @view a[1:n]
+               right = @view a[(n + 1):(2n)]
+               left .+= right
+           end
+           return a
+       end
+```
+
+`@unsafe` also works on a single expression, e.g. to silence one unanalyzable
+call in an otherwise checked function:
+
+```julia
+julia> BorrowChecker.@safe w_gradient(f, x) = @unsafe gradient(f, backend, x)
+```
+
 ## Manual Overlay (explicit ownership/borrow macros)
 
 Alternatively, we can use the manual overlay macros to achieve a more explicit effect. This is much more invasive, but might be useful in teaching you how to think about ownership and borrowing.
