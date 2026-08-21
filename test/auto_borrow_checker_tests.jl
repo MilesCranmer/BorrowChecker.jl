@@ -409,7 +409,7 @@
             return g()
         end
 
-        @test_broken begin
+        @test begin
             try
                 _bc_threads_boxed_range_ok(_BCThreadsBoxedRange(5), false) == 5
             catch
@@ -1838,6 +1838,45 @@
             v = Any[1]
             @test _bc_ptr_from_objref_alias_ok(v)
         end
+    end
+
+    @testset "recursive callee does not spuriously consume" begin
+        m = Module(gensym(:BCRecursionFP))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                # Recursive, read-only walk over an owned (tracked) argument.
+                # The summary of this function must not claim it consumes `v`
+                # merely because the summary computation re-enters itself.
+                function treewalk(v::Vector{Int}, i::Int)
+                    i > length(v) && return 0
+                    return v[i] + treewalk(v, i + 1)
+                end
+            end
+        )
+        Core.eval(m, :(BC.@safe function run_treewalk(v)
+            return treewalk(v, 1)
+        end))
+        Core.eval(m, :(BC.@safe function run_treewalk_use_after(v)
+            r = treewalk(v, 1)
+            return r + length(v)
+        end))
+
+        v = [1, 2, 3]
+        err = try
+            m.run_treewalk(v)
+            nothing
+        catch e
+            e
+        end
+        err2 = try
+            m.run_treewalk_use_after(v)
+            nothing
+        catch e
+            e
+        end
+        @test err2 === nothing || !(err2 isa BC.Auto.BorrowCheckError)
     end
 
     @testset "Known effects registry only uses Core" begin

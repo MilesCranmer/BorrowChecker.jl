@@ -18,7 +18,7 @@ Base.@kwdef struct Config
     optimize_until::String = _default_optimize_until()
 
     "Max depth for recursive effect summarization."
-    max_summary_depth::Int = 12
+    max_summary_depth::Int = 24
 
     "Recursively borrow-check callees (call graph) within this scope."
     scope::Symbol = :function

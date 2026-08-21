@@ -37,7 +37,7 @@ function _with_reflection_ctx(f::Function, world::UInt)
 
     cache = PER_TASK_REFLECTION_CACHE[]
     entry = get!(cache, world) do
-        (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
+        return (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
     end
     ctx_ref[] = (; world=world, interp=entry.interp, methods_cache=entry.methods_cache)
     try
@@ -62,7 +62,7 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
         Base._methods_by_ftype(tt, -1, world)
     else
         get!(methods_cache, tt) do
-            Base._methods_by_ftype(tt, -1, world)
+            return Base._methods_by_ftype(tt, -1, world)
         end
     end
     if isnothing(matches)
@@ -201,7 +201,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
         )
     end
 
-    throw(
+    return throw(
         ArgumentError(
             "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
             "Known passes: $(join(pass_names, ", "))",
@@ -316,8 +316,12 @@ function _summary_cached(
     budget_state !== nothing && budget_state.hit && return nothing
 
     if inprogress_enter(key)
-        _mark_budget_hit!(budget_state)
-        return nothing
+        # Re-entrant summary computation (direct or mutual recursion). Assume the
+        # recursive call contributes no effects and keep computing: this yields an
+        # optimistic fixed point instead of poisoning every caller with the
+        # conservative "unknown call consumes its owned arguments" fallback.
+        # A cycle is not a budget exhaustion, so do not mark the budget here.
+        return EffectSummary()
     end
 
     summ = nothing
@@ -766,6 +770,24 @@ function _effects_for_call(
                 _mark_budget_hit!(budget_state)
             end
         end
+    end
+
+    if budget_state !== nothing && budget_state.hit
+        # The summary computation ran out of depth/budget for this call. That is an
+        # analysis resource limit rather than resolved effects. Assume the call may
+        # WRITE through its owned arguments (mutation cannot be ruled out), but do
+        # not claim a consume/move: unlike writes, consume violations do not require
+        # aliasing evidence, so claiming them here would flag unrelated code.
+        writes = Int[]
+        for p in 2:length(raw_args)
+            v = raw_args[p]
+            h = _handle_index(v, nargs, track_arg, track_ssa)
+            h == 0 && continue
+            Tv = _widenargtype_or_any(v, ir)
+            is_owned_type(Tv) || continue
+            push!(writes, p)
+        end
+        return EffectSummary(; writes=writes)
     end
 
     consumes = Int[]
