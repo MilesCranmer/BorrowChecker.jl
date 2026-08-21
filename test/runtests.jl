@@ -2,12 +2,6 @@ using TestItems
 using TestItemRunner
 using BorrowChecker
 
-include("ownership_tests.jl")
-include("reference_tests.jl")
-include("feature_tests.jl")
-include("integration_tests.jl")
-include("complex_macros.jl")
-include("mutex_tests.jl")
 include("auto_borrow_checker_tests.jl")
 include("auto_llvm_tests.jl")
 include("auto_printing_tests.jl")
