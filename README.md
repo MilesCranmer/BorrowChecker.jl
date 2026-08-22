@@ -84,7 +84,7 @@ The `@safe` checked-cache is keyed by specialization *and these options*, so che
 - **Aliasing violations**: mutating a value while another live binding may observe that mutation.
 - **Escapes / "moves"**: storing a mutable value somewhere that outlives the current scope (e.g. a global cache / a field / a container), then continuing to reference it locally.
 
-This analyzes the compiler’s IR, so it can catch patterns that are "hidden" by lowering (keyword calls, closure captures, views, etc.). It is intentionally **best-effort**: when it cannot determine what a call does, it will be conservative (and may throw false positives). For code where you want a stronger, explicit model, use the manual overlay macros below.
+This analyzes the compiler’s IR, so it can catch patterns that are "hidden" by lowering (keyword calls, closure captures, views, etc.). It is intentionally **best-effort**: when it cannot determine what a call does, it will be conservative (and may throw false positives). For regions where the checker is overly conservative, silence them with [`@unsafe`](@ref-opting-out) blocks.
 
 ### How it works
 
