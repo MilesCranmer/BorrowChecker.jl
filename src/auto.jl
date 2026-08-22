@@ -5,7 +5,7 @@ using DispatchDoctor: @unstable
 
 export @auto, @safe, @unsafe
 
-@static if isdefined(Base, :code_ircode_by_type) && v"1.12.0-" <= VERSION < v"1.15.0-"
+@static if isdefined(Base, :code_ircode_by_type) && v"1.12.0-" <= VERSION < v"1.13.0-"
     @unstable include("auto/auto_ir.jl")
 else
     # COV_EXCL_START
