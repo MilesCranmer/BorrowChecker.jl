@@ -64,6 +64,14 @@ function is_borrow_checker_enabled(calling_module)
     end
 end
 
+"""
+    disable_by_default!(m::Module)
+
+Make all BorrowChecker macros expand to pass-through within module `m` unless a
+`LocalPreferences.toml` explicitly sets `borrow_checker = true`. Intended for
+libraries that ship with checking disabled and enable it in their test suite.
+Must be called before any BorrowChecker macro is used in `m`.
+"""
 function disable_by_default!(m::Module)
     Base.@lock MODULE_CACHE.lock begin
         if haskey(MODULE_CACHE.cache, m) && MODULE_CACHE.cache[m]
