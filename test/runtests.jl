@@ -36,7 +36,7 @@ const auto_supported =
     VERSION >= v"1.12.0-" && VERSION < v"1.13.0-" && isdefined(Base, :code_ircode_by_type)
 
 if only_auto && !auto_supported
-    error("BORROWCHECKER_ONLY_AUTO requires Julia >= 1.12 with Base.code_ircode_by_type")
+    error("BORROWCHECKER_ONLY_AUTO requires Julia 1.12.x with Base.code_ircode_by_type (unsupported on 1.13+)")
 end
 
 filter = if !isempty(testitem_name_filter)

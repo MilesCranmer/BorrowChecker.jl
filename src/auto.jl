@@ -12,7 +12,8 @@ else
     """
     Automatic compiler-IR borrow checker.
 
-    This feature requires `Base.code_ircode_by_type`.
+    This feature requires Julia 1.12.x with `Base.code_ircode_by_type`.
+    On other versions (including 1.13+) this is a warn-and-pass-through stub.
     """
     "Unavailable `@auto` stub for unsupported Julia versions."
     macro auto(args...)
