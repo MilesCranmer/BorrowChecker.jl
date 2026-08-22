@@ -24,11 +24,11 @@ using BorrowChecker: @safe
 end
 ```
 
-On failure, `@safe` throws `BorrowChecker.Auto.BorrowCheckError` with best-effort source context.
+On failure, `@safe` throws `BorrowChecker.BorrowCheckError` with best-effort source context.
 
 ## Options
 
-Options are parsed by the macro and compiled into a `BorrowChecker.Auto.Config`.
+Options are parsed by the macro and compiled into a `BorrowChecker.Config`.
 
 ### `scope`
 
@@ -96,5 +96,5 @@ The checker uses a small registry of effect specs for non-overloadable primitive
 You can add or override specs with:
 
 ```julia
-using BorrowChecker.Auto: register_effects!
+using BorrowChecker: register_effects!
 ```
