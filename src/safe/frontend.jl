@@ -52,7 +52,7 @@ end
 
 function _scope_allows_module(m::Module, cfg::Config)::Bool
     # Never recursively borrow-check BorrowChecker itself.
-    m === Auto && return false
+    m === BorrowChecker && return false
 
     cfg.scope === :all && return true
     if cfg.scope === :none || cfg.scope === :function
@@ -662,7 +662,7 @@ calls are fast. On failure it throws `BorrowCheckError` with best-effort source 
 
 ## Options
 
-Options are parsed by the macro and compiled into a `BorrowChecker.Auto.Config` (and are
+Options are parsed by the macro and compiled into a `BorrowChecker.Config` (and are
 part of the checked-cache key).
 
 - `scope` (default: `:function`): controls whether the checker recursively borrow-checks
@@ -695,7 +695,7 @@ end
 
 ### `optimize_until`
 
-`optimize_until` (default: `BorrowChecker.Auto.DEFAULT_CONFIG.optimize_until`) controls
+`optimize_until` (default: `BorrowChecker.DEFAULT_CONFIG.optimize_until`) controls
 which compiler pass to stop at when fetching IR via `Base.code_ircode_by_type`.
 
 Pass names vary across Julia versions; `@safe` tries to normalize common spellings like

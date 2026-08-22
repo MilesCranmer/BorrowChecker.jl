@@ -37,7 +37,7 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     end
 
     @assert (T isa Type) (
-        "BorrowChecker.Auto: expected `Type` in TypeTracker, got $(typeof(T))"
+        "BorrowChecker: expected `Type` in TypeTracker, got $(typeof(T))"
     )
 
     if T isa UnionAll
@@ -122,7 +122,7 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
     T isa Union && return any(tt, Base.uniontypes(T))
 
     @assert (T isa Type) (
-        "BorrowChecker.Auto: expected `Type` in OwnedTypeTracker, got $(typeof(T))"
+        "BorrowChecker: expected `Type` in OwnedTypeTracker, got $(typeof(T))"
     )
 
     if T isa UnionAll

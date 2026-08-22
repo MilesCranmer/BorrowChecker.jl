@@ -63,7 +63,7 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 
 ### Options
 
-`@safe` supports a few options that are compiled into a `BorrowChecker.Auto.Config`:
+`@safe` supports a few options that are compiled into a `BorrowChecker.Config`:
 
 - `scope` (default `:function`): whether to recursively borrow-check callees (`:none`, `:function`, `:module`, `:user`, `:all`).
 - `max_summary_depth` (default `12`): recursion depth limit for effect summarization when effects cannot be directly resolved.

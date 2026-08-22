@@ -2,18 +2,18 @@
     using TestItems
     using BorrowChecker
 
-    @static if isdefined(BorrowChecker.Auto, :BorrowCheckError)
+    @static if isdefined(BorrowChecker, :BorrowCheckError)
         # This integration test exercises the experimental IR borrow checker on a
         # real external package type (DynamicExpressions.Expression).
 
         using DynamicExpressions
-        using BorrowChecker.Auto: BorrowCheckError
+        using BorrowChecker: BorrowCheckError
 
         operators = OperatorEnum(1 => [exp], 2 => [+, -, *])
         x1 = Expression(Node{Float64}(; feature=1); operators)
         x2 = Expression(Node{Float64}(; feature=2); operators)
 
-        BorrowChecker.Auto.@safe bat(ex) = begin
+        BorrowChecker.@safe bat(ex) = begin
             (c1, r1) = get_scalar_constants(ex)
             ex2 = ex
             set_scalar_constants!(ex, c1 .* 2, r1)
@@ -25,7 +25,7 @@
         # MWE: `copy(::Expression)` currently triggers a spurious "consume" violation when
         # analyzed under `@safe` (likely via the compiler-generated keyword wrapper).
         # This should not be a move/escape: `copy` is expected to produce a fresh object.
-        BorrowChecker.Auto.@safe bc_copy_ok(ex) = copy(ex)
+        BorrowChecker.@safe bc_copy_ok(ex) = copy(ex)
         @test_broken try
             bc_copy_ok(x1)
             true

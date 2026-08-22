@@ -7,9 +7,9 @@ CurrentModule = BorrowChecker
 ## Automatic Checking
 
 ```@docs
-BorrowChecker.Auto.@safe
-BorrowChecker.Auto.@unsafe
-BorrowChecker.Auto.BorrowCheckError
+BorrowChecker.@safe
+BorrowChecker.@unsafe
+BorrowChecker.BorrowCheckError
 ```
 
 ## Preferences

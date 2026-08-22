@@ -1,4 +1,4 @@
-"""BorrowChecker.Auto: IR type refinement.
+"""BorrowChecker: IR type refinement.
 
 Julia's type inference sometimes intentionally loses precision around boxed captured
 variables (`Core.Box`) and inference barriers. That is correct for the compiler, but it

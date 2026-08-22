@@ -100,8 +100,8 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
         if code === nothing
             ir = nothing
             mod = match.method.module
-            @assert (mod === Core || mod === Base || mod === Auto) (
-                "BorrowChecker.Auto: unexpected `typeinf_ircode` returned `nothing` for " *
+            @assert (mod === Core || mod === Base || mod === BorrowChecker) (
+                "BorrowChecker: unexpected `typeinf_ircode` returned `nothing` for " *
                 "non-Base/Core method. method=$(match.method) module=$(mod) tt=$(tt) " *
                 "world=$(world) optimize_until=$(optimize_until)"
             )
@@ -431,7 +431,7 @@ function _summary_for_tt(
                         m = targ.name.module
                     end
                 end
-                if m === Auto || (!allow_core && m === Core)
+                if m === BorrowChecker || (!allow_core && m === Core)
                     return nothing
                 end
             end
@@ -453,7 +453,7 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
     try
         if mi isa Core.MethodInstance
             m = mi.def
-            if (m isa Method) && (m.module === Core || m.module === Auto)
+            if (m isa Method) && (m.module === Core || m.module === BorrowChecker)
                 return nothing
             end
         end
