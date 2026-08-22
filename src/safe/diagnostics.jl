@@ -8,7 +8,7 @@ end
 """
     BorrowCheckError <: Exception
 
-Thrown by [`BorrowChecker.Auto.@safe`](@ref) when a method specialization violates
+Thrown by [`BorrowChecker.@safe`](@ref) when a method specialization violates
 borrow-checking rules. Carries the checked signature (`tt`) and the list of
 individual `BorrowViolation`s; `showerror` renders a source-level diagnostic
 for each violation.

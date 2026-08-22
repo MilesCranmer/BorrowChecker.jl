@@ -3,7 +3,7 @@
     using BorrowChecker
 
     # This test targets error printing helpers in the experimental borrow checker.
-    using BorrowChecker.Auto: BorrowCheckError, BorrowViolation
+    using BorrowChecker: BorrowCheckError, BorrowViolation
 
     @testset "file source line" begin
         (path, io) = mktemp()
@@ -39,7 +39,7 @@
 
     @testset "BorrowCheckError includes REPL context (real checker)" begin
         mod = Module(:_BCPrintRealMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
+        Core.eval(mod, :(using BorrowChecker: @safe))
         Base.include_string(
             mod,
             """
@@ -69,7 +69,7 @@
 
     @testset "BorrowCheckError prints multiple violations" begin
         mod = Module(:_BCPrintMultiMod)
-        Core.eval(mod, :(using BorrowChecker.Auto: @safe))
+        Core.eval(mod, :(using BorrowChecker: @safe))
         Base.include_string(
             mod,
             """
@@ -111,7 +111,7 @@
             path,
             """
             module _BCFilePrintMod
-            using BorrowChecker.Auto: @safe
+            using BorrowChecker: @safe
 
             f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)
 
@@ -170,7 +170,7 @@
 
         repltask = @async REPL.run_repl(repl)
 
-        write(input.in, "using BorrowChecker.Auto: @safe\r")
+        write(input.in, "using BorrowChecker: @safe\r")
         write(input.in, "f(; x, y) = (push!(x, 1); push!(y, 1); x .+ y)\r")
         write(
             input.in,

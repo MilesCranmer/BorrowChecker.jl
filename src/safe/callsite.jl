@@ -477,7 +477,7 @@ function _call_tt_from_raw_args(raw_args, ir::CC.IRCode, f_override=nothing)
                     end
 
                     @assert !(a isa GlobalRef) (
-                        "BorrowChecker.Auto: unexpected GlobalRef callee in call signature inference. " *
+                        "BorrowChecker: unexpected GlobalRef callee in call signature inference. " *
                         "globalref=$(a.mod).$(a.name) inferred=$(t)"
                     )
                 end

@@ -171,8 +171,8 @@ function _populate_registry!()
     # This constructor is internal plumbing and should be treated as pure.
     _known_effects_has(Config) || register_effects!(Config; ret_aliases=())
 
-    if isdefined(Auto, :__bc_assert_safe__)
-        f = Auto.__bc_assert_safe__
+    if isdefined(BorrowChecker, :__bc_assert_safe__)
+        f = BorrowChecker.__bc_assert_safe__
         _known_effects_has(f) || register_effects!(f; ret_aliases=())
     end
 

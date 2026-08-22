@@ -3,7 +3,7 @@
     using BorrowChecker
     using LinearAlgebra
 
-    using BorrowChecker.Auto: BorrowCheckError, @safe
+    using BorrowChecker: BorrowCheckError, @safe
 
     const BC_TEST_TIMINGS =
         lowercase(get(ENV, "BORROWCHECKER_TEST_TIMINGS", "")) in ("1", "true", "yes")
@@ -69,16 +69,16 @@
         using Test
         BC_TEST_TIMING_BASE_DEPTH[] = Test.get_testset_depth()
         _bc_timing_ts = BCTimedTestSet(
-            "BorrowChecker.Auto @safe (timings)"; showtiming=false
+            "BorrowChecker @safe (timings)"; showtiming=false
         )
         Test.push_testset(_bc_timing_ts)
     end
 
     Base.@noinline fakewrite(x) = Base.inferencebarrier(x)
 
-    BorrowChecker.Auto._ensure_registry_initialized()
-    const BC_BUILTIN_EFFECT_KEYS = Base.@lock BorrowChecker.Auto.KNOWN_EFFECTS begin
-        collect(keys(BorrowChecker.Auto.KNOWN_EFFECTS[]))
+    BorrowChecker._ensure_registry_initialized()
+    const BC_BUILTIN_EFFECT_KEYS = Base.@lock BorrowChecker.KNOWN_EFFECTS begin
+        collect(keys(BorrowChecker.KNOWN_EFFECTS[]))
     end
 
     mutable struct Box
@@ -101,21 +101,21 @@
         x::Vector{Int}
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_alias()
+    BorrowChecker.@safe function _bc_bad_alias()
         x = [1, 2, 3]
         y = x
         x[1] = 0
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_copy()
+    BorrowChecker.@safe function _bc_ok_copy()
         x = [1, 2, 3]
         y = copy(x)
         x[1] = 0
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_unknown_call(vf)
+    BorrowChecker.@safe function _bc_bad_unknown_call(vf)
         x = [1, 2, 3]
         f = only(vf)
         f(x)
@@ -123,21 +123,21 @@
         return x
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_alias_mutable_struct()
+    BorrowChecker.@safe function _bc_bad_alias_mutable_struct()
         x = Box(1)
         y = x
         x.x = 0
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_copy_mutable_struct()
+    BorrowChecker.@safe function _bc_ok_copy_mutable_struct()
         x = Box(1)
         y = Box(x.x)
         x.x = 0
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_struct_of_struct()
+    BorrowChecker.@safe function _bc_bad_struct_of_struct()
         a = A(1)
         b = B(a)
         c = b
@@ -145,7 +145,7 @@
         return c
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_struct_of_struct()
+    BorrowChecker.@safe function _bc_ok_struct_of_struct()
         a = A(1)
         b = B(a)
         c = B(A(b.a.x))
@@ -160,7 +160,7 @@
     const D = Dict{Any,Any}()
 
     @testset "g!(y) should not require deleting x" begin
-        BorrowChecker.Auto.@safe function _bc_g_alias_ok()
+        BorrowChecker.@safe function _bc_g_alias_ok()
             x = [1, 2, 3]
             y = x
             g!(y)
@@ -173,7 +173,7 @@
     @testset "effects inferred from IR (no naming heuristics)" begin
         h(x) = (push!(x, 1); nothing)
 
-        BorrowChecker.Auto.@safe function _bc_nonbang_mutator_bad()
+        BorrowChecker.@safe function _bc_nonbang_mutator_bad()
             x = [1, 2, 3]
             y = x
             h(x)
@@ -182,7 +182,7 @@
 
         mut_second!(a, b) = (push!(b, 1); nothing)
 
-        BorrowChecker.Auto.@safe function _bc_bang_mutates_second_bad()
+        BorrowChecker.@safe function _bc_bang_mutates_second_bad()
             x = [1, 2, 3]
             y = [4]
             z = y
@@ -219,7 +219,7 @@
             return getfield(g, s)
         end
 
-        BorrowChecker.Auto.@safe function _bc_getproperty_mutates_bad()
+        BorrowChecker.@safe function _bc_getproperty_mutates_bad()
             g = _BCGetPropMutates([1, 2, 3])
             y = getfield(g, :x)
             g.x  # calls overloaded getproperty (mutates)
@@ -234,7 +234,7 @@
 
         Base.setproperty!(::_BCSetPropDoesNotMutate, ::Symbol, v) = v
 
-        BorrowChecker.Auto.@safe function _bc_setproperty_no_mut_ok()
+        BorrowChecker.@safe function _bc_setproperty_no_mut_ok()
             g = _BCSetPropDoesNotMutate([1, 2, 3])
             y = g
             g.x = [4, 5, 6]  # calls overloaded setproperty! (does not mutate)
@@ -249,7 +249,7 @@
 
         Base.copy(x::_BCCopyAliases) = x
 
-        BorrowChecker.Auto.@safe function _bc_copy_aliases_bad()
+        BorrowChecker.@safe function _bc_copy_aliases_bad()
             x = _BCCopyAliases([1, 2, 3])
             y = copy(x)  # aliases by definition
             x.x[1] = 0
@@ -265,7 +265,7 @@
         Base.iterate(w::_BCIterateWeird) = (push!(getfield(w, :x), 1); (0, w))
         Base.iterate(::_BCIterateWeird, _) = nothing
 
-        BorrowChecker.Auto.@safe function _bc_iterate_mutates_bad()
+        BorrowChecker.@safe function _bc_iterate_mutates_bad()
             w = _BCIterateWeird([1, 2, 3])
             y = w
             iterate(w)  # calls overloaded iterate (mutates)
@@ -336,7 +336,7 @@
     @testset "macro signature parsing: dotted function name" begin
         struct _BCAutoDotT end
 
-        BorrowChecker.Auto.@safe function Base.identity(x::_BCAutoDotT)
+        BorrowChecker.@safe function Base.identity(x::_BCAutoDotT)
             return x
         end
 
@@ -473,19 +473,19 @@
     end
 
     @testset "macro rejects non-function inputs" begin
-        @test_throws LoadError eval(:(BorrowChecker.Auto.@safe begin
+        @test_throws LoadError eval(:(BorrowChecker.@safe begin
             x = 1
         end))
     end
 
     @testset "macro option parsing: Config overrides" begin
-        BorrowChecker.Auto.@safe max_summary_depth = 1 function _bc_macro_opt_max_depth(x)
+        BorrowChecker.@safe max_summary_depth = 1 function _bc_macro_opt_max_depth(x)
             return x
         end
         @test _bc_macro_opt_max_depth(1) == 1
 
-        opt = BorrowChecker.Auto.Config().optimize_until
-        @eval BorrowChecker.Auto.@safe(
+        opt = BorrowChecker.Config().optimize_until
+        @eval BorrowChecker.@safe(
             optimize_until = $opt, _bc_macro_opt_optimize_until(x) = x
         )
         @test _bc_macro_opt_optimize_until(2) == 2
@@ -679,7 +679,7 @@
 
     @testset "scope=:none disables @safe" begin
         # This would normally fail borrow checking due to aliasing + mutation.
-        BorrowChecker.Auto.@safe scope = :none function _bc_auto_disabled()
+        BorrowChecker.@safe scope = :none function _bc_auto_disabled()
             x = [1, 2, 3]
             y = fakewrite(x)
             x[1] = 0
@@ -800,18 +800,18 @@
         tt = Tuple{typeof(getfield(m, :helper))}
 
         function clear_checked_cache!()
-            Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
-                empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+            Base.@lock BorrowChecker.CHECKED_CACHE begin
+                empty!(BorrowChecker.CHECKED_CACHE[])
             end
-            empty!(BorrowChecker.Auto.PER_TASK_CHECKED_CACHE[])
+            empty!(BorrowChecker.PER_TASK_CHECKED_CACHE[])
             return nothing
         end
 
         function check_with_root(root)
             try
-                BorrowChecker.Auto.__bc_assert_safe__(
+                BorrowChecker.__bc_assert_safe__(
                     tt;
-                    cfg=BorrowChecker.Auto.Config(; scope=:module, root_module=root),
+                    cfg=BorrowChecker.Config(; scope=:module, root_module=root),
                 )
                 return :passed
             catch e
@@ -904,12 +904,12 @@
     end
 
     @testset "macro one-line method parsing: where clause" begin
-        BorrowChecker.Auto.@safe _bc_oneliner_where(x::T) where {T} = x
+        BorrowChecker.@safe _bc_oneliner_where(x::T) where {T} = x
         @test _bc_oneliner_where(1) == 1
     end
 
     @testset "macro one-line method parsing: return type" begin
-        BorrowChecker.Auto.@safe _bc_oneliner_ret(x)::Int = x
+        BorrowChecker.@safe _bc_oneliner_ret(x)::Int = x
         @test _bc_oneliner_ret(1) == 1
     end
 
@@ -930,7 +930,7 @@
 
         eval(
             quote
-                BorrowChecker.Auto.@safe function _bc_lambda_arglist_nothing()
+                BorrowChecker.@safe function _bc_lambda_arglist_nothing()
                     f = $fexpr
                     return f()
                 end
@@ -952,7 +952,7 @@
     end
 
     @testset "nested function definitions are instrumented" begin
-        BorrowChecker.Auto.@safe function _bc_nested_function_bad()
+        BorrowChecker.@safe function _bc_nested_function_bad()
             function _bc_inner()
                 x = [1, 2, 3]
                 y = x
@@ -966,7 +966,7 @@
     end
 
     @testset "local one-line method definitions are instrumented" begin
-        BorrowChecker.Auto.@safe function _bc_local_oneliner_bad()
+        BorrowChecker.@safe function _bc_local_oneliner_bad()
             _bc_inner() = begin
                 x = [1, 2, 3]
                 y = x
@@ -1025,7 +1025,7 @@
     @test_throws BorrowCheckError _bc_bad_struct_of_struct()
     @test _bc_ok_struct_of_struct().a.x == 1
 
-    BorrowChecker.Auto.@safe function _bc_bad_closure_body_0arg()
+    BorrowChecker.@safe function _bc_bad_closure_body_0arg()
         f = () -> begin
             x = [1, 2, 3]
             y = x
@@ -1035,7 +1035,7 @@
         return f()
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_closure_body_with_arg(z)
+    BorrowChecker.@safe function _bc_bad_closure_body_with_arg(z)
         f = () -> begin
             x = z
             y = x
@@ -1045,7 +1045,7 @@
         return f()
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_closure_body_0arg()
+    BorrowChecker.@safe function _bc_ok_closure_body_0arg()
         f = () -> begin
             x = [1, 2, 3]
             y = copy(x)
@@ -1055,7 +1055,7 @@
         return f()
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_closure_body_with_arg(z)
+    BorrowChecker.@safe function _bc_ok_closure_body_with_arg(z)
         f = () -> begin
             x = copy(z)
             y = copy(x)
@@ -1071,14 +1071,14 @@
     @test _bc_ok_closure_body_with_arg([1, 2, 3]) == [1, 2, 3]
 
     # Regression test for https://github.com/MilesCranmer/BorrowChecker.jl/issues/49
-    BorrowChecker.Auto.@safe function _bc_eltype_used_in_array_constructor(x)
+    BorrowChecker.@safe function _bc_eltype_used_in_array_constructor(x)
         T = eltype(x)
         y = Vector{T}(x)
         return y
     end
     @test _bc_eltype_used_in_array_constructor([1, 2]) == [1, 2]
 
-    BorrowChecker.Auto.@safe function _bc_ok_phi_ternary(cond::Bool)
+    BorrowChecker.@safe function _bc_ok_phi_ternary(cond::Bool)
         x = [1, 2, 3]
         y = cond ? x : x
         push!(y, 1)
@@ -1087,21 +1087,21 @@
 
     @noinline _ret1(x) = x
 
-    BorrowChecker.Auto.@safe function _bc_ok_identity_call()
+    BorrowChecker.@safe function _bc_ok_identity_call()
         x = [1, 2, 3]
         y = _ret1(x)
         push!(y, 1)
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_view_alias()
+    BorrowChecker.@safe function _bc_bad_view_alias()
         x = [1, 2, 3, 4]
         y = view(x, 1:2)
         push!(x, 9)
         return collect(y)
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_closure_capture()
+    BorrowChecker.@safe function _bc_bad_closure_capture()
         x = [1, 2, 3]
         y = x
         f = () -> (push!(x, 9); nothing)
@@ -1109,7 +1109,7 @@
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_bad_closure_capture_nested()
+    BorrowChecker.@safe function _bc_bad_closure_capture_nested()
         x = [1, 2, 3]
         y = x
         f = () -> begin
@@ -1121,7 +1121,7 @@
         return y
     end
 
-    BorrowChecker.Auto.@safe function _bc_ok_closure_capture_readonly()
+    BorrowChecker.@safe function _bc_ok_closure_capture_readonly()
         x = [1, 2, 3]
         y = x
         f = () -> begin
@@ -1399,18 +1399,18 @@
         local_f(x) = x
         tt = Tuple{typeof(local_f),Int}
 
-        BorrowChecker.Auto.__bc_assert_safe__(tt)
+        BorrowChecker.__bc_assert_safe__(tt)
         GC.gc()
 
-        alloc = @allocated BorrowChecker.Auto.__bc_assert_safe__(tt)
+        alloc = @allocated BorrowChecker.__bc_assert_safe__(tt)
         @test alloc < 200_000
     end
 
     @testset "__bc_assert_safe__ thread-safety" begin
         Threads.nthreads() < 2 && return nothing
 
-        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
-            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+        Base.@lock BorrowChecker.CHECKED_CACHE begin
+            empty!(BorrowChecker.CHECKED_CACHE[])
         end
 
         fs = [
@@ -1435,7 +1435,7 @@
             turn = (which == 1) ? turn1 : turn2
             for _ in 1:length(tts)
                 idx = take!(turn)
-                BorrowChecker.Auto.__bc_assert_safe__(tts[idx])
+                BorrowChecker.__bc_assert_safe__(tts[idx])
                 put!(done, idx)
             end
             return nothing
@@ -1459,8 +1459,8 @@
         wait(task2)
 
         # Free-for-all: lots of concurrent hits/misses should not throw or deadlock.
-        Base.@lock BorrowChecker.Auto.CHECKED_CACHE begin
-            empty!(BorrowChecker.Auto.CHECKED_CACHE[])
+        Base.@lock BorrowChecker.CHECKED_CACHE begin
+            empty!(BorrowChecker.CHECKED_CACHE[])
         end
 
         nworkers = 16
@@ -1471,7 +1471,7 @@
                 err = nothing
                 try
                     for j in 1:jobs
-                        BorrowChecker.Auto.__bc_assert_safe__(tts[(j % length(tts)) + 1])
+                        BorrowChecker.__bc_assert_safe__(tts[(j % length(tts)) + 1])
                     end
                 catch e
                     err = e
@@ -1532,16 +1532,16 @@
     end
 
     @testset "scope=:user excludes Core/Base recursion" begin
-        cfg = BorrowChecker.Auto.Config(; scope=:user)
-        @test BorrowChecker.Auto._scope_allows_module(Core, cfg) == false
-        @test BorrowChecker.Auto._scope_allows_module(Base, cfg) == false
-        @test BorrowChecker.Auto._scope_allows_module(Main, cfg) == true
+        cfg = BorrowChecker.Config(; scope=:user)
+        @test BorrowChecker._scope_allows_module(Core, cfg) == false
+        @test BorrowChecker._scope_allows_module(Base, cfg) == false
+        @test BorrowChecker._scope_allows_module(Main, cfg) == true
 
         @static if isdefined(Core, :Compiler)
-            @test BorrowChecker.Auto._scope_allows_module(Core.Compiler, cfg) == false
+            @test BorrowChecker._scope_allows_module(Core.Compiler, cfg) == false
         end
         @static if isdefined(Base, :Iterators)
-            @test BorrowChecker.Auto._scope_allows_module(Base.Iterators, cfg) == false
+            @test BorrowChecker._scope_allows_module(Base.Iterators, cfg) == false
         end
     end
 
@@ -1599,44 +1599,44 @@
     end
 
     @testset "summary cache determinism" begin
-        Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
-            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_cache)
-            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
-            empty!(BorrowChecker.Auto.SUMMARY_STATE[].summary_inprogress)
-            empty!(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_inprogress)
+        Base.@lock BorrowChecker.SUMMARY_STATE begin
+            empty!(BorrowChecker.SUMMARY_STATE[].summary_cache)
+            empty!(BorrowChecker.SUMMARY_STATE[].tt_summary_cache)
+            empty!(BorrowChecker.SUMMARY_STATE[].summary_inprogress)
+            empty!(BorrowChecker.SUMMARY_STATE[].tt_summary_inprogress)
         end
 
         deep1(x) = x
         deep2(x) = deep1(x)
         deep3(x) = deep2(x)
 
-        cfg = BorrowChecker.Auto.Config(; max_summary_depth=2)
+        cfg = BorrowChecker.Config(; max_summary_depth=2)
         tt = Tuple{typeof(deep3),Vector{Int}}
 
-        BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
+        BorrowChecker._summary_for_tt(tt, cfg; depth=cfg.max_summary_depth)
 
         function latest_entry()
-            Base.@lock BorrowChecker.Auto.SUMMARY_STATE begin
+            Base.@lock BorrowChecker.SUMMARY_STATE begin
                 best_key = nothing
-                for k in keys(BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache)
+                for k in keys(BorrowChecker.SUMMARY_STATE[].tt_summary_cache)
                     (k[1] === tt && k[3] == cfg) || continue
                     (best_key === nothing || k[2] > best_key[2]) && (best_key = k)
                 end
                 best_key === nothing && error("missing cache entry")
-                return BorrowChecker.Auto.SUMMARY_STATE[].tt_summary_cache[best_key]
+                return BorrowChecker.SUMMARY_STATE[].tt_summary_cache[best_key]
             end
         end
 
         entry1 = latest_entry()
         @test entry1.over_budget == true
 
-        BorrowChecker.Auto._summary_for_tt(tt, cfg; depth=0)
+        BorrowChecker._summary_for_tt(tt, cfg; depth=0)
         entry2 = latest_entry()
         @test entry2.over_budget == false
     end
 
     @testset "Registry override API" begin
-        BorrowChecker.Auto.register_effects!(fakewrite; writes=(2,))
+        BorrowChecker.register_effects!(fakewrite; writes=(2,))
 
         @safe function bc_registry_override()
             x = [1, 2, 3]
@@ -1651,7 +1651,7 @@
 
     @testset "@safe one-line method form" begin
         # Hits the `ex.head === :(=)` + `_is_method_definition_lhs` branch in the macro.
-        BorrowChecker.Auto.@safe _bc_oneliner_bad() = begin
+        BorrowChecker.@safe _bc_oneliner_bad() = begin
             x = [1, 2, 3]
             y = x
             x[1] = 0
@@ -1841,9 +1841,9 @@
     end
 
     @testset "Known effects registry only uses Core" begin
-        allowed_auto = Set{Any}([BorrowChecker.Auto.Config, BorrowChecker.Auto.__bc_bind__])
-        if isdefined(BorrowChecker.Auto, :__bc_assert_safe__)
-            push!(allowed_auto, BorrowChecker.Auto.__bc_assert_safe__)
+        allowed_auto = Set{Any}([BorrowChecker.Config, BorrowChecker.__bc_bind__])
+        if isdefined(BorrowChecker, :__bc_assert_safe__)
+            push!(allowed_auto, BorrowChecker.__bc_assert_safe__)
         end
 
         bad = Any[]
@@ -1854,7 +1854,7 @@
                 nothing
             end
 
-            if m === BorrowChecker.Auto
+            if m === BorrowChecker
                 (f in allowed_auto) || push!(bad, (f, m))
                 continue
             end

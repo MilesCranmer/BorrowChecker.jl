@@ -4,8 +4,8 @@
 
     @test Symbol("@safe") in names(BorrowChecker)
     @test Symbol("@unsafe") in names(BorrowChecker)
-    @test Symbol("@safe") in names(BorrowChecker.Auto)
-    @test Symbol("@unsafe") in names(BorrowChecker.Auto)
+    @test Symbol("@safe") in names(BorrowChecker)
+    @test Symbol("@unsafe") in names(BorrowChecker)
 
     # Regression test: `@unsafe` should be valid at module top-level (no `local` binding).
     @test (@eval BorrowChecker.@unsafe begin
@@ -25,7 +25,7 @@
         return y
     end
 
-    @test_throws BorrowChecker.Auto.BorrowCheckError _bc_safe_violation_should_error()
+    @test_throws BorrowChecker.BorrowCheckError _bc_safe_violation_should_error()
 
     BorrowChecker.@safe function _bc_safe_with_unsafe_should_pass()
         x = [1, 2, 3]
@@ -104,13 +104,13 @@
         return y
     end
 
-    @test_throws BorrowChecker.Auto.BorrowCheckError _bc_unsafe_line_mask_demo()
+    @test_throws BorrowChecker.BorrowCheckError _bc_unsafe_line_mask_demo()
 end
 
 @testitem "More complex unsafe branches" tags = [:auto] begin
     using Test
     using BorrowChecker
-    using BorrowChecker.Auto: BorrowCheckError
+    using BorrowChecker: BorrowCheckError
 
     @safe function add_halves!(a::Vector)
         n = length(a) ÷ 2
