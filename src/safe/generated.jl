@@ -17,6 +17,21 @@ Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
 Compiler.get_inference_world(interp::BCInterp) = interp.world
 Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
+
+# Julia 1.13+ (post-rc): `lookup_local_inference_result` expects an
+# `InferenceCache` with a `get_indices(cache, mi)` index. Our local cache is a
+# plain vector, so provide the lookup directly.
+@static if isdefined(Core.Compiler, :get_indices)
+    function Compiler.get_indices(
+        cache::Vector{Compiler.InferenceResult}, mi::Core.MethodInstance
+    )
+        indices = Int[]
+        for i in eachindex(cache)
+            cache[i].linfo === mi && push!(indices, i)
+        end
+        return indices
+    end
+end
 Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
