@@ -56,7 +56,7 @@ In BorrowChecker.jl, we demonstrate an implementation of some of these ideas. Th
 
 ## Automatic Checking: `BorrowChecker.@safe`
 
-`BorrowChecker.@safe` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime. This requires Julia 1.12.x (on 1.13+ the checker falls back to warn-and-pass-through stubs until support lands).
+`BorrowChecker.@safe` automatically instruments a function by analyzing the compiler IR and runs a best-effort borrow check at runtime. This requires Julia 1.12 or 1.13 (on newer versions the checker falls back to warn-and-pass-through stubs until support lands).
 
 > [!WARNING]
 > This macro is highly experimental and compiler-dependent. There are likely bugs and false positives. It is intended for development and testing, and does not guarantee memory safety.

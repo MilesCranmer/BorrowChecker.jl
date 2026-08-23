@@ -1840,6 +1840,47 @@
         end
     end
 
+    @testset "String arguments are not owned" begin
+        @test !BorrowChecker.is_owned_type(String)
+        @test !BorrowChecker.is_owned_type(SubString{String})
+        @test !BorrowChecker.is_tracked_type(String)
+
+        m = Module(gensym(:BCStringFP))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                opaque(s::AbstractString) = (len(s), s)
+                len(s) = length(s)
+            end
+        )
+        Core.eval(m, :(BC.@safe function forward_string(s)
+            return opaque(s)
+        end))
+
+        @test Base.invokelatest(m.forward_string, "hello") == (5, "hello")
+    end
+
+    @testset "String escape into cache is allowed" begin
+        m = Module(gensym(:BCStringEscape))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                const STR_CACHE = Dict{String,Int}()
+                stash(s) = (STR_CACHE[s] = length(s); nothing)
+            end
+        )
+        Core.eval(m, :(BC.@safe function stash_and_reuse(s)
+            stash(s)
+            return s
+        end))
+
+        key = "key"
+        @test Base.invokelatest(m.stash_and_reuse, key) === key
+        @test getfield(m, :STR_CACHE)[key] == length(key)
+    end
+
     @testset "Known effects registry only uses Core" begin
         allowed_auto = Set{Any}([BorrowChecker.Config, BorrowChecker.__bc_bind__])
         if isdefined(BorrowChecker, :__bc_assert_safe__)

@@ -2,11 +2,18 @@ using Core.Compiler
 using Core.IR
 
 struct BCInterpOwner end
+
+@static if isdefined(Core.Compiler, :InferenceCache)
+    const BCInfCache = Core.Compiler.InferenceCache
+else
+    const BCInfCache = Vector{Core.Compiler.InferenceResult}
+end
+
 Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
     world::UInt = Base.get_world_counter()
     inf_params::Compiler.InferenceParams = Compiler.InferenceParams()
     opt_params::Compiler.OptimizationParams = Compiler.OptimizationParams()
-    inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[]
+    inf_cache::BCInfCache = BCInfCache()
     codegen_cache::IdDict{CodeInstance,CodeInfo} = IdDict{CodeInstance,CodeInfo}()
 end
 Base.Experimental.@MethodTable BCMT
@@ -17,6 +24,7 @@ Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
 Compiler.get_inference_world(interp::BCInterp) = interp.world
 Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
+
 Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
@@ -92,7 +100,12 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     else
         Expr(Symbol("with-static-parameters"), lambda, spnames...)
     end
-    ci = Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    loc = LineNumberNode(0, Symbol(@__FILE__))
+    ci = if applicable(Base.generated_body_to_codeinfo, ex, @__MODULE__(), isva, loc)
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva, loc)
+    else
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    end
     @assert ci isa Core.CodeInfo "Failed to create a CodeInfo from the given expression. This might mean it contains a closure or comprehension?\n Offending expression: $e"
     return ci
 end
