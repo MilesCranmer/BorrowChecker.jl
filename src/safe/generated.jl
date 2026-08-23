@@ -38,7 +38,10 @@ Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
     function Compiler.get_indices(cache::BCInfCache, mi::Core.MethodInstance)
         indices = Int[]
         for i in eachindex(cache)
-            cache[i].linfo === mi && push!(indices, i)
+            entry = cache[i]
+            (entry isa Core.Compiler.InferenceResult ?
+                entry.linfo === mi : entry.result.linfo === mi) &&
+            push!(indices, i)
         end
         return indices
     end
@@ -66,8 +69,8 @@ end
             cached_result.linfo === mi || continue
             cached_result.cache_world == world || continue
             valid_worlds = cached isa Core.Compiler.InferenceResult ?
-                cached_result.valid_worlds : proof_worlds(cached.proof)
-            world in valid_worlds || continue
+                cached_result.valid_worlds :
+                Compiler.proof_worlds(cached.proof)
             cache_argtypes = cached_result.argtypes
             length(cache_argtypes) == nargtypes || continue
             cache_overridden_by_const = cached_result.overridden_by_const
@@ -166,8 +169,10 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     else
         Expr(Symbol("with-static-parameters"), lambda, spnames...)
     end
-    ci = if applicable(Base.generated_body_to_codeinfo, ex, @__MODULE__(), isva, LineNumberNode(0))
-        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva, LineNumberNode(0))
+    # Nightly requires an explicit source location; `nothing` is rejected.
+    loc = LineNumberNode(0, Symbol(@__FILE__))
+    ci = if applicable(Base.generated_body_to_codeinfo, ex, @__MODULE__(), isva, loc)
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva, loc)
     else
         Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
     end
