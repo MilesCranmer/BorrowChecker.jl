@@ -37,7 +37,7 @@ jobs:
             arch: x64
             dispatch_doctor: 'enabled'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: "Disable DispatchDoctor if needed"
         if: ${{ matrix.dispatch_doctor == 'disabled' }}
         run: sed -i 's/dispatch_doctor_mode = "error"/dispatch_doctor_mode = "disable"/' test/Project.toml
@@ -67,7 +67,7 @@ jobs:
       - test
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Download all coverage artifacts
         uses: actions/download-artifact@v8
         with:
@@ -88,7 +88,7 @@ jobs:
     timeout-minutes: 70
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: 'nightly'
@@ -111,7 +111,7 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
