@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.6...v0.5.0) (2026-08-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* dissolve Auto submodule; the library is @safe ([#87](https://github.com/MilesCranmer/BorrowChecker.jl/issues/87))
+* remove manual ownership overlay; package is `@safe`-only ([#82](https://github.com/MilesCranmer/BorrowChecker.jl/issues/82))
+
+### Features
+
+* remove manual ownership overlay; package is `[@safe](https://github.com/safe)`-only ([#82](https://github.com/MilesCranmer/BorrowChecker.jl/issues/82)) ([6900ec6](https://github.com/MilesCranmer/BorrowChecker.jl/commit/6900ec69263604e4e96e13b8e56f9cb1585c8812))
+* support Julia 1.13 ([#88](https://github.com/MilesCranmer/BorrowChecker.jl/issues/88)) ([1edc999](https://github.com/MilesCranmer/BorrowChecker.jl/commit/1edc999dc9952501f8e767c49a38f2e40e0171ba))
+
+
+### Code Refactoring
+
+* dissolve Auto submodule; the library is [@safe](https://github.com/safe) ([#87](https://github.com/MilesCranmer/BorrowChecker.jl/issues/87)) ([51073b3](https://github.com/MilesCranmer/BorrowChecker.jl/commit/51073b3638837ea49b2994376d4a9e5c46547e84))
+
 ## [0.4.6](https://github.com/MilesCranmer/BorrowChecker.jl/compare/v0.4.5...v0.4.6) (2026-06-10)
 
 
