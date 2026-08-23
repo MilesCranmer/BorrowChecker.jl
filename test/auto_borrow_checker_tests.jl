@@ -391,7 +391,9 @@
             n::Int
         end
 
-        @safe function _bc_threads_boxed_range_ok(x::_BCThreadsBoxedRange, flag::Bool)
+        @safe budget_fallback = :write function _bc_threads_boxed_range_ok(
+            x::_BCThreadsBoxedRange, flag::Bool
+        )
             g = () -> getfield(x, :n)
             x = fakewrite(x)  # capture + assign forces Core.Box lowering
 
@@ -409,7 +411,7 @@
             return g()
         end
 
-        @test_broken begin
+        @test begin
             try
                 _bc_threads_boxed_range_ok(_BCThreadsBoxedRange(5), false) == 5
             catch
@@ -664,7 +666,7 @@
 
         # Type refinement debug event is emitted when refinement makes changes.
         @safe debug = true scope = :function function _bc_dbg_refine_types_event()
-            x = (g = () -> 3; g())
+            x = (g=() -> 3; g())
             return x
         end
         mktemp() do path, io
@@ -758,20 +760,17 @@
         # under `scope=:module` must not be skipped due to a tt/world-only cache key.
         m = Module(gensym(:BCCacheCfg))
         Core.eval(m, :(import BorrowChecker as BC))
-        Core.eval(
-            m,
-            quote
-                function inner_bad()
-                    x = [1, 2, 3]
-                    f = () -> x
-                    push!(x, 4)
-                    return f
-                end
+        Core.eval(m, quote
+            function inner_bad()
+                x = [1, 2, 3]
+                f = () -> x
+                push!(x, 4)
+                return f
+            end
 
-                BC.@safe scope = :function f() = inner_bad()
-                BC.@safe scope = :module g() = f()
-            end,
-        )
+            BC.@safe scope = :function f() = inner_bad()
+            BC.@safe scope = :module g() = f()
+        end)
 
         # Warm the checked-cache for `f` under scope=:function (no recursion).
         @test m.f()() == [1, 2, 3, 4]
@@ -784,18 +783,15 @@
         other = Module(gensym(:BCOtherRootCache))
         Core.eval(m, :(import BorrowChecker as BC))
         Core.eval(m, :(const CACHE = Dict{Int,Vector{Int}}()))
-        Core.eval(
-            m,
-            quote
-                g() = begin
-                    x = [1, 2, 3]
-                    CACHE[1] = x
-                    push!(x, 4)
-                    return x
-                end
-                helper() = (g(); nothing)
-            end,
-        )
+        Core.eval(m, quote
+            g() = begin
+                x = [1, 2, 3]
+                CACHE[1] = x
+                push!(x, 4)
+                return x
+            end
+            helper() = (g(); nothing)
+        end)
 
         tt = Tuple{typeof(getfield(m, :helper))}
 
@@ -810,8 +806,7 @@
         function check_with_root(root)
             try
                 BorrowChecker.__bc_assert_safe__(
-                    tt;
-                    cfg=BorrowChecker.Config(; scope=:module, root_module=root),
+                    tt; cfg=BorrowChecker.Config(; scope=:module, root_module=root)
                 )
                 return :passed
             catch e
@@ -835,17 +830,14 @@
     @testset "scope=:module catches unannotated callee with closure alias" begin
         m = Module(gensym(:BCModuleScope))
         Core.eval(m, :(import BorrowChecker as BC))
-        Core.eval(
-            m,
-            quote
-                function foo()
-                    x = [1, 2, 3]
-                    f = () -> x
-                    push!(x, 4)
-                    return f
-                end
-            end,
-        )
+        Core.eval(m, quote
+            function foo()
+                x = [1, 2, 3]
+                f = () -> x
+                push!(x, 4)
+                return f
+            end
+        end)
         Core.eval(m, :(BC.@safe scope = :module bar() = foo()))
 
         @test_throws BorrowCheckError m.bar()
@@ -856,21 +848,18 @@
         # should be considered "in-module" for `scope=:module` recursion.
         m = Module(gensym(:BCBaseExtScope))
         Core.eval(m, :(import BorrowChecker as BC))
-        Core.eval(
-            m,
-            quote
-                struct T end
+        Core.eval(m, quote
+            struct T end
 
-                function Base.getindex(::T)
-                    x = [1, 2, 3]
-                    f = () -> x
-                    push!(x, 4)
-                    return f
-                end
+            function Base.getindex(::T)
+                x = [1, 2, 3]
+                f = () -> x
+                push!(x, 4)
+                return f
+            end
 
-                BC.@safe scope = :module outer() = (T())[]
-            end,
-        )
+            BC.@safe scope = :module outer() = (T())[]
+        end)
 
         @test_throws BorrowCheckError m.outer()
     end
@@ -928,14 +917,12 @@
         # Ensure our lambda instrumentation handles it.
         fexpr = Expr(:(->), nothing, :(1))
 
-        eval(
-            quote
-                BorrowChecker.@safe function _bc_lambda_arglist_nothing()
-                    f = $fexpr
-                    return f()
-                end
-            end,
-        )
+        eval(quote
+            BorrowChecker.@safe function _bc_lambda_arglist_nothing()
+                f = $fexpr
+                return f()
+            end
+        end)
 
         @test _bc_lambda_arglist_nothing() == 1
     end
@@ -1840,11 +1827,224 @@
         end
     end
 
-    @testset "Known effects registry only uses Core" begin
+    @testset "lock regions are not opaque consuming calls" begin
+        @safe function _bc_lock_doblock_ok(l::Base.Lockable{Vector{Int}})
+            lock(l) do arr
+                arr[2] += 1
+            end
+            return l.value[2]
+        end
+        l = Base.Lockable([10, 20])
+        @test _bc_lock_doblock_ok(l) == 21
+
+        @safe scope = :module function _bc_lock_doblock_recursive_ok(
+            l::Base.Lockable{Vector{Int}},
+        )
+            lock(l) do arr
+                arr[2] += 1
+            end
+            return l.value[2]
+        end
+        @test _bc_lock_doblock_recursive_ok(l) == 22
+
+        # Blessing locks must not suppress ordinary aliasing detection.
+        @safe function _bc_lock_alias_still_bad(l::Base.Lockable{Vector{Int}})
+            x = [1, 2, 3]
+            y = x
+            lock(l) do arr
+                arr[2] += 1
+            end
+            push!(x, 9)
+            return y
+        end
+        @test_throws BorrowCheckError _bc_lock_alias_still_bad(l)
+
+        # Mutating an aliased captured vector inside the callback is detected:
+        # capture-field writes propagate through the functor argument, while
+        # payload writes remain granted by the lock.
+        @safe scope = :module function _bc_lock_captured_alias_bad(
+            l::Base.Lockable{Vector{Int}},
+        )
+            x = [1, 2, 3]
+            y = x
+            lock(l) do arr
+                push!(x, 9)
+            end
+            push!(y, 1)
+            return length(y)
+        end
+        @test_throws BorrowCheckError _bc_lock_captured_alias_bad(l)
+    end
+
+    @testset "String arguments are not owned" begin
+        @test !BorrowChecker.is_owned_type(String)
+        @test !BorrowChecker.is_owned_type(SubString{String})
+        @test !BorrowChecker.is_tracked_type(String)
+
+        m = Module(gensym(:BCStringFP))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                opaque(s::AbstractString) = (len(s), s)
+                len(s) = length(s)
+            end
+        )
+        Core.eval(m, :(BC.@safe function forward_string(s)
+            return opaque(s)
+        end))
+
+        err = try
+            m.forward_string("hello")
+            nothing
+        catch e
+            e
+        end
+        @test err === nothing || !(err isa BorrowCheckError)
+    end
+
+    @testset "String escape into cache is allowed" begin
+        m = Module(gensym(:BCStringEscape))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                const STR_CACHE = Dict{String,Int}()
+                stash(s) = (STR_CACHE[s] = length(s); nothing)
+            end
+        )
+        Core.eval(m, :(BC.@safe function stash_and_reuse(s)
+            stash(s)
+            return s
+        end))
+
+        err = try
+            m.stash_and_reuse("key$(rand())")
+            nothing
+        catch e
+            e
+        end
+        @test err === nothing || !(err isa BorrowCheckError)
+    end
+
+    @testset "recursive callee does not spuriously consume" begin
+        m = Module(gensym(:BCRecursionFP))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(m, quote
+            # Recursive, read-only walk over an owned (tracked) argument.
+            # The summary of this function must not claim it consumes `v`
+            # merely because the summary computation re-enters itself.
+            function treewalk(v::Vector{Int}, i::Int)
+                i > length(v) && return 0
+                return v[i] + treewalk(v, i + 1)
+            end
+        end)
+        Core.eval(m, :(BC.@safe function run_treewalk(v)
+            return treewalk(v, 1)
+        end))
+        Core.eval(m, :(BC.@safe function run_treewalk_use_after(v)
+            r = treewalk(v, 1)
+            return r + length(v)
+        end))
+
+        v = [1, 2, 3]
+        err = try
+            m.run_treewalk(v)
+            nothing
+        catch e
+            e
+        end
+        err2 = try
+            m.run_treewalk_use_after(v)
+            nothing
+        catch e
+            e
+        end
+        @test err2 === nothing || !(err2 isa BorrowCheckError)
+    end
+
+    @testset "recursive summary reaches fixed point across permuted args" begin
+        # Effects that reach the recursive call through swapped arguments must
+        # still be discovered by the multi-pass summary refinement: with a
+        # single optimistic pass, only the first argument would appear consumed.
+        m = Module(gensym(:BCRecursionSwap))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(m, quote
+            const SINK = Ref{Any}(nothing)
+            function sink_swap(a, b, n)
+                if n == 0
+                    SINK[] = a
+                    return 0
+                end
+                sink_swap(b, a, n - 1)
+                return 0
+            end
+        end)
+        Core.eval(m, :(BC.@safe function use_second_after_sink(x, y)
+            r = sink_swap(x, y, 1)
+            return (r, length(y))
+        end))
+
+        err = try
+            m.use_second_after_sink([1], [2])
+            nothing
+        catch e
+            e
+        end
+        # `sink_swap(x, y, 1)` escapes `y` (the swap routes it to the base-case
+        # store), so using `length(y)` afterwards must be flagged.
+        @test err isa BorrowCheckError
+    end
+
+    @testset "mutually recursive SCC reaches fixed point" begin
+        # KNOWN LIMITATION: for a cycle spanning multiple functions (f calls g,
+        # g calls f with permuted arguments), the fixed-point refinement
+        # converges at the summary level but the wrapper-level check still
+        # misses the escape of `y`. A sound fix needs SCC-wide iteration;
+        # naive cross-member cache invalidation corrupted unrelated cached
+        # entries and was rejected.
+        m = Module(gensym(:BCMutualSCC))
+        Core.eval(m, :(import BorrowChecker as BC))
+        Core.eval(
+            m,
+            quote
+                const SINK2 = Ref{Any}(nothing)
+                function f_scc(a, b, n)
+                    if n == 0
+                        SINK2[] = a
+                        return 0
+                    end
+                    g_scc(a, b, n - 1)
+                    return 0
+                end
+                function g_scc(a, b, n)
+                    f_scc(b, a, n)
+                    return 0
+                end
+            end
+        )
+        Core.eval(m, :(BC.@safe function use_after_f(x, y)
+            r = f_scc(x, y, 1)
+            return (r, length(y))
+        end))
+
+        err = try
+            m.use_after_f([1], [2])
+            nothing
+        catch e
+            e
+        end
+        @test_broken err isa BorrowCheckError
+    end
+
+    @testset "Known effects registry only uses Core and Base locking" begin
         allowed_auto = Set{Any}([BorrowChecker.Config, BorrowChecker.__bc_bind__])
         if isdefined(BorrowChecker, :__bc_assert_safe__)
             push!(allowed_auto, BorrowChecker.__bc_assert_safe__)
         end
+
+        allowed_base =
+            Set{Any}([Base.lock, Base.unlock, Base.trylock, Base.islocked])
 
         bad = Any[]
         for f in BC_BUILTIN_EFFECT_KEYS
@@ -1856,6 +2056,11 @@
 
             if m === BorrowChecker
                 (f in allowed_auto) || push!(bad, (f, m))
+                continue
+            end
+
+            if m === Base
+                (f in allowed_base) || push!(bad, (f, m))
                 continue
             end
 

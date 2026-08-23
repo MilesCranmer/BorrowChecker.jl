@@ -2,31 +2,131 @@ using Core.Compiler
 using Core.IR
 
 struct BCInterpOwner end
+
+@static if isdefined(Core.Compiler, :InferenceCache)
+    # Julia 1.13+ (post-rc): the local inference cache stores `InferenceCacheEntry`
+    # (`InferenceResult` or `LocalInferenceResult`) and lookup goes through
+    # `get_indices(cache, mi)`.
+    const BCInfCacheEntry =
+        isdefined(Core.Compiler, :InferenceCacheEntry) ?
+        Core.Compiler.InferenceCacheEntry : Core.Compiler.InferenceResult
+    const BCInfCache = Vector{BCInfCacheEntry}
+else
+    const BCInfCache = Vector{Core.Compiler.InferenceResult}
+end
+
 Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
     world::UInt = Base.get_world_counter()
     inf_params::Compiler.InferenceParams = Compiler.InferenceParams()
     opt_params::Compiler.OptimizationParams = Compiler.OptimizationParams()
-    inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[]
+    inf_cache::BCInfCache = BCInfCache()
     codegen_cache::IdDict{CodeInstance,CodeInfo} = IdDict{CodeInstance,CodeInfo}()
 end
 Base.Experimental.@MethodTable BCMT
 
-struct GeneratedCfgTag{S,MSD,OPT,DBG,DCD} end
+struct GeneratedCfgTag{S,MSD,BF,OPT,DBG,DCD} end
 
 Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
 Compiler.get_inference_world(interp::BCInterp) = interp.world
 Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
+
+# Julia 1.13+ (post-rc): `lookup_local_inference_result` expects an
+# `InferenceCache` with a `get_indices(cache, mi)` index. Our local cache is a
+# plain vector, so provide the lookup directly.
+@static if isdefined(Core.Compiler, :get_indices)
+    function Compiler.get_indices(cache::BCInfCache, mi::Core.MethodInstance)
+        indices = Int[]
+        for i in eachindex(cache)
+            entry = cache[i]
+            (entry isa Core.Compiler.InferenceResult ?
+                entry.linfo === mi : entry.result.linfo === mi) &&
+            push!(indices, i)
+        end
+        return indices
+    end
+end
+
+@static if isdefined(Core.Compiler, :lookup_local_inference_result) &&
+    isdefined(Core.Compiler, :InferenceCache)
+    # Nightly's `lookup_local_inference_result` indexes `cache.results`, which
+    # only exists on `InferenceCache`. Provide the vector-cache equivalent.
+    function Compiler.lookup_local_inference_result(
+        interp::BCInterp, mi::Core.MethodInstance
+    )
+        cache = Compiler.get_inference_cache(interp)
+        world = Compiler.get_inference_world(interp)
+        for i in length(cache):-1:1
+            cached = cache[i]
+            cached isa Core.Compiler.LocalInferenceResult || continue
+            result = cached.result
+            result.overridden_by_const === nothing || continue
+            result.cache_world == world || continue
+            world in Compiler.proof_worlds(cached.proof) || continue
+            return cached
+        end
+        return nothing
+    end
+end
+
+@static if isdefined(Core.Compiler, :constprop_cache_lookup) &&
+    !hasmethod(
+        Core.Compiler.constprop_cache_lookup,
+        Tuple{Any,Any,Vector{Any},BCInfCache,UInt},
+    )
+    # Nightly narrows `constprop_cache_lookup` to `InferenceCache`; mirror the
+    # upstream logic for our plain-vector cache.
+    function Compiler.constprop_cache_lookup(
+        𝕃::Compiler.AbstractLattice,
+        mi::Core.MethodInstance,
+        given_argtypes::Vector{Any},
+        cache::BCInfCache,
+        world::UInt,
+    )
+        nargtypes = length(given_argtypes)
+        found_tombstone = false
+        for cached in cache
+            cached_result = cached isa Core.Compiler.InferenceResult ? cached :
+                cached.result
+            cached_result.linfo === mi || continue
+            cached_result.cache_world == world || continue
+            valid_worlds = cached isa Core.Compiler.InferenceResult ?
+                cached_result.valid_worlds :
+                Compiler.proof_worlds(cached.proof)
+            cache_argtypes = cached_result.argtypes
+            length(cache_argtypes) == nargtypes || continue
+            cache_overridden_by_const = cached_result.overridden_by_const
+            cache_overridden_by_const === nothing && continue
+            ok = true
+            for i in 1:nargtypes
+                if !Compiler.is_argtype_match(
+                    𝕃, given_argtypes[i], cache_argtypes[i], cache_overridden_by_const[i]
+                )
+                    ok = false
+                    break
+                end
+            end
+            ok || continue
+            if cached_result.tombstone
+                found_tombstone = true
+                continue
+            end
+            return cached
+        end
+        return found_tombstone ? missing : nothing
+    end
+end
 Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
 function _cfg_from_tag(
-    ::Type{GeneratedCfgTag{S,MSD,OPT,DBG,DCD}}, tt::Type{<:Tuple}, world::UInt
-) where {S,MSD,OPT,DBG,DCD}
+    ::Type{GeneratedCfgTag{S,MSD,BF,OPT,DBG,DCD}}, tt::Type{<:Tuple}, world::UInt
+) where {S,MSD,BF,OPT,DBG,DCD}
     @nospecialize tt
     scope = S::Symbol
     max_summary_depth = MSD::Int
+    budget_fallback = BF::Symbol
     optimize_until = String(OPT::Symbol)
     debug = DBG::Bool
     debug_callee_depth = DCD::Int
@@ -43,7 +143,13 @@ function _cfg_from_tag(
     end
 
     return Config(
-        optimize_until, max_summary_depth, scope, root_module, debug, debug_callee_depth
+        optimize_until,
+        max_summary_depth,
+        budget_fallback,
+        scope,
+        root_module,
+        debug,
+        debug_callee_depth,
     )
 end
 
@@ -92,7 +198,13 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     else
         Expr(Symbol("with-static-parameters"), lambda, spnames...)
     end
-    ci = Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    # Nightly requires an explicit source location; `nothing` is rejected.
+    loc = LineNumberNode(0, Symbol(@__FILE__))
+    ci = if applicable(Base.generated_body_to_codeinfo, ex, @__MODULE__(), isva, loc)
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva, loc)
+    else
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    end
     @assert ci isa Core.CodeInfo "Failed to create a CodeInfo from the given expression. This might mean it contains a closure or comprehension?\n Offending expression: $e"
     return ci
 end

@@ -18,7 +18,16 @@ Base.@kwdef struct Config
     optimize_until::String = _default_optimize_until()
 
     "Max depth for recursive effect summarization."
-    max_summary_depth::Int = 12
+    max_summary_depth::Int = 24
+
+    """
+    How to treat calls whose summary computation hit the depth budget:
+    `:consume` (default) conservatively assumes they may move/consume their
+    owned arguments (sound for escape detection, but can flag unrelated code
+    in deep third-party call chains); `:write` assumes only mutation, which
+    requires aliasing evidence to violate.
+    """
+    budget_fallback::Symbol = :consume
 
     "Recursively borrow-check callees (call graph) within this scope."
     scope::Symbol = :function
@@ -232,6 +241,18 @@ function _populate_registry!()
         # Misc:
         # `Task(f)` needs special handling because it relies on unsafe operations internally.
         (Base, :Task, (), (), (2,)),
+
+        # Locking primitives. Locks serialize access without consuming or writing
+        # through their arguments' contents, so the conservative unknown-call
+        # fallback misflags locked regions as escapes/consumes; register them
+        # explicitly. This entry covers the bare `lock(l)` / `unlock(l)` forms;
+        # the callback-taking `lock(f, l)` form is modeled as a transparent
+        # higher-order call in `_effects_for_call` (see summaries.jl), which
+        # propagates the callback's effects while granting payload writes.
+        (Base, :lock, (), (), ()),
+        (Base, :unlock, (), (), ()),
+        (Base, :trylock, (), (), ()),
+        (Base, :islocked, (), (), ()),
     ]
 
     for (mod, nm, ret_aliases, writes, consumes) in specs
