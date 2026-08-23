@@ -1,0 +1,134 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  test:
+    name: jl${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-dd=${{ matrix.dispatch_doctor }}-${{ github.event_name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - '1.10'
+          - '1'
+        os:
+          - ubuntu-latest
+        arch:
+          - x64
+        dispatch_doctor:
+          - 'disabled'
+        include:
+          - version: '1'
+            os: ubuntu-latest
+            arch: x64
+            dispatch_doctor: 'enabled'
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Disable DispatchDoctor if needed"
+        if: ${{ matrix.dispatch_doctor == 'disabled' }}
+        run: sed -i 's/dispatch_doctor_mode = "error"/dispatch_doctor_mode = "disable"/' test/Project.toml
+        shell: bash
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: "Run tests + coverage"
+        run: |
+          julia --color=yes -e 'import Pkg; Pkg.add("Coverage")'
+          julia --color=yes --threads=auto --check-bounds=yes --depwarn=yes --code-coverage=user -e 'import Coverage; import Pkg; Pkg.activate("."); Pkg.test(coverage=true)'
+          julia --color=yes coverage.jl
+        shell: bash
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-dd-${{ matrix.dispatch_doctor }}
+          path: lcov.info
+
+  codecov:
+    name: Codecov upload
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-*
+          path: coverage
+      - uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./coverage
+          fail_ci_if_error: true
+          verbose: true
+
+  nightly:
+    name: nightly-ubuntu-x64
+    runs-on: ubuntu-latest
+    # Use an explicit `timeout` around the test command so that if nightly runs long,
+    # the job fails (which we tolerate) rather than the whole workflow being cancelled.
+    timeout-minutes: 70
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: 'nightly'
+          arch: x64
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: "Run tests (nightly)"
+        run: |
+          timeout 60m julia --color=yes --threads=auto --check-bounds=yes --depwarn=yes -e '
+            import Pkg
+            Pkg.activate(".")
+            Pkg.test()'
+        shell: bash
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: Configure doc environment
+        run: |
+          julia --project=docs/ -e '
+            using Pkg
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.instantiate()'
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-docdeploy@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY_CAM: ${{ secrets.DAMTP_DEPLOY_KEY }}
+      - run: |
+          julia --project=docs -e '
+            using Documenter: DocMeta, doctest
+            using BorrowChecker
+            DocMeta.setdocmeta!(BorrowChecker, :DocTestSetup, :(using BorrowChecker); recursive=true)
+            doctest(BorrowChecker)'
