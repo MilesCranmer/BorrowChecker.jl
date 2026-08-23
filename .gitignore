@@ -1,0 +1,9 @@
+*.jl.*.cov
+*.jl.cov
+*.jl.mem
+**/Manifest*.toml
+target
+Cargo.*
+**/*.rs
+**/tmp.jl
+docs/src/index.md
