@@ -45,6 +45,13 @@ function (tt::TypeTracker)(@nospecialize(T))::Bool
     end
     T === Symbol && return false
 
+    # `String` and `SubString` have value semantics (no user-facing in-place
+    # mutation API). Note that on Julia 1.12+, `ismutabletype(String)` is `true`
+    # (memory-based layout), so the generic mutable-type rule below would
+    # misclassify them. Keep the exemption narrow: `AbstractString` is
+    # extensible, and a user-defined mutable string subtype should stay tracked.
+    (T === String || T <: SubString) && return false
+
     # Modules and type objects are globally-shareable handles.
     # Treat them as *not tracked* so they don't participate in move/consume rules.
     (T <: Module) && return false
@@ -129,6 +136,13 @@ function (tt::OwnedTypeTracker)(@nospecialize(T))::Bool
         return tt(Base.unwrap_unionall(T))
     end
     T === Symbol && return false
+
+    # `String` and `SubString` have value semantics (no user-facing in-place
+    # mutation API). Note that on Julia 1.12+, `ismutabletype(String)` is `true`
+    # (memory-based layout), so the generic mutable-type rule below would
+    # misclassify them. Keep the exemption narrow: `AbstractString` is
+    # extensible, and a user-defined mutable string subtype should stay tracked.
+    (T === String || T <: SubString) && return false
 
     # Modules and type objects are globally-shareable handles.
     # Treat them as *not owned* so unknown/dynamic calls don't spuriously consume them.
