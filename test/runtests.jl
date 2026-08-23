@@ -27,10 +27,10 @@ end
 const testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
 const only_auto = lowercase(get(ENV, "BORROWCHECKER_ONLY_AUTO", "")) in ("1", "true", "yes")
 const auto_supported =
-    VERSION >= v"1.12.0-" && VERSION < v"1.13.0-" && isdefined(Base, :code_ircode_by_type)
+    VERSION >= v"1.12.0-" && isdefined(Base, :code_ircode_by_type)
 
 if only_auto && !auto_supported
-    error("BORROWCHECKER_ONLY_AUTO requires Julia 1.12.x with Base.code_ircode_by_type (unsupported on 1.13+)")
+    error("BORROWCHECKER_ONLY_AUTO requires Julia 1.12+ with Base.code_ircode_by_type")
 end
 
 filter = if !isempty(testitem_name_filter)
