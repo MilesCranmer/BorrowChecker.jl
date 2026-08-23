@@ -1840,11 +1840,63 @@
         end
     end
 
-    @testset "Known effects registry only uses Core" begin
+    @testset "lock regions are not opaque consuming calls" begin
+        @safe function _bc_lock_doblock_ok(l::Base.Lockable{Vector{Int}})
+            lock(l) do arr
+                arr[2] += 1
+            end
+            return l.value[2]
+        end
+        l = Base.Lockable([10, 20])
+        @test _bc_lock_doblock_ok(l) == 21
+
+        @safe scope = :module function _bc_lock_doblock_recursive_ok(
+            l::Base.Lockable{Vector{Int}},
+        )
+            lock(l) do arr
+                arr[2] += 1
+            end
+            return l.value[2]
+        end
+        @test _bc_lock_doblock_recursive_ok(l) == 22
+
+        # Blessing locks must not suppress ordinary aliasing detection.
+        @safe function _bc_lock_alias_still_bad(l::Base.Lockable{Vector{Int}})
+            x = [1, 2, 3]
+            y = x
+            lock(l) do arr
+                arr[2] += 1
+            end
+            push!(x, 9)
+            return y
+        end
+        @test_throws BorrowCheckError _bc_lock_alias_still_bad(l)
+
+        # Mutating an aliased captured vector inside the callback is detected:
+        # capture-field writes propagate through the functor argument, while
+        # payload writes remain granted by the lock.
+        @safe scope = :module function _bc_lock_captured_alias_bad(
+            l::Base.Lockable{Vector{Int}},
+        )
+            x = [1, 2, 3]
+            y = x
+            lock(l) do arr
+                push!(x, 9)
+            end
+            push!(y, 1)
+            return length(y)
+        end
+        @test_throws BorrowCheckError _bc_lock_captured_alias_bad(l)
+    end
+
+    @testset "Known effects registry only uses Core and Base locking" begin
         allowed_auto = Set{Any}([BorrowChecker.Config, BorrowChecker.__bc_bind__])
         if isdefined(BorrowChecker, :__bc_assert_safe__)
             push!(allowed_auto, BorrowChecker.__bc_assert_safe__)
         end
+
+        allowed_base =
+            Set{Any}([Base.lock, Base.unlock, Base.trylock, Base.islocked])
 
         bad = Any[]
         for f in BC_BUILTIN_EFFECT_KEYS
@@ -1856,6 +1908,11 @@
 
             if m === BorrowChecker
                 (f in allowed_auto) || push!(bad, (f, m))
+                continue
+            end
+
+            if m === Base
+                (f in allowed_base) || push!(bad, (f, m))
                 continue
             end
 

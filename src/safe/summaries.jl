@@ -691,6 +691,48 @@ function _effects_for_call(
         end
     end
 
+    # `lock(f, l)` invokes `f` synchronously under `l`'s lock (for a
+    # `Base.Lockable`, with the payload passed to `f`; for other locks, with no
+    # arguments). Model it as a transparent higher-order call: include the
+    # callback's effects, grant writes to the payload position (the callback
+    # holds the lock), and drop consumption of both the callback functor (it
+    # does not escape) and the payload. Writes through the functor's captured
+    # fields surface as writes to the functor argument itself, so mutations of
+    # aliased captures remain detected in callers.
+    if f === Base.lock && length(raw_args) >= 3
+        fT = _widenargtype_or_any(raw_args[2], ir)
+        if fT isa DataType && fT <: Function
+            lT = _widenargtype_or_any(raw_args[3], ir)
+            inner_types = Any[fT]
+            if lT isa DataType && lT <: Base.Lockable
+                push!(inner_types, fieldtype(lT, 1))
+            end
+            tt = Core.apply_type(Tuple, inner_types...)
+            s_inner =
+                (
+                    tt !== nothing && depth < cfg.max_summary_depth
+                ) ? _summary_for_tt(
+                    tt, cfg; depth=depth + 1, budget_state=budget_state
+                ) : nothing
+            if s_inner !== nothing
+                writes = BitSet()
+                # Inner position 1 is the functor itself: writing through its
+                # fields mutates captures, i.e. writes raw_args[2]'s referents.
+                # Inner position 2 (the payload) is granted by the lock: drop.
+                for p in s_inner.writes
+                    p == 1 && push!(writes, 2)
+                end
+                ret_aliases = BitSet()
+                for p in s_inner.ret_aliases
+                    p == 1 && push!(ret_aliases, 2)
+                    p == 2 && push!(ret_aliases, 3)
+                end
+                return EffectSummary(;
+                    writes=writes, consumes=BitSet(), ret_aliases=ret_aliases
+                )
+            end
+        end
+    end
     if f !== nothing
         s = _known_effects_get(f)
         s === nothing || return _filter_consumes_for_call(

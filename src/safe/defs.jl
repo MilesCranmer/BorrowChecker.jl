@@ -232,6 +232,18 @@ function _populate_registry!()
         # Misc:
         # `Task(f)` needs special handling because it relies on unsafe operations internally.
         (Base, :Task, (), (), (2,)),
+
+        # Locking primitives. Locks serialize access without consuming or writing
+        # through their arguments' contents, so the conservative unknown-call
+        # fallback misflags locked regions as escapes/consumes; register them
+        # explicitly. This entry covers the bare `lock(l)` / `unlock(l)` forms;
+        # the callback-taking `lock(f, l)` form is modeled as a transparent
+        # higher-order call in `_effects_for_call` (see summaries.jl), which
+        # propagates the callback's effects while granting payload writes.
+        (Base, :lock, (), (), ()),
+        (Base, :unlock, (), (), ()),
+        (Base, :trylock, (), (), ()),
+        (Base, :islocked, (), (), ()),
     ]
 
     for (mod, nm, ret_aliases, writes, consumes) in specs
