@@ -9,7 +9,7 @@ using DispatchDoctor: @unstable
 # check at runtime. This is the entire library.
 export @safe, @unsafe, disable_by_default!
 
-@static if isdefined(Base, :code_ircode_by_type) && v"1.12.0-" <= VERSION
+@static if isdefined(Base, :code_ircode_by_type) && v"1.12.0-" <= VERSION < v"1.14.0-"
     @unstable include("safe/auto_ir.jl")
     # `BorrowCheckError` and friends are defined by safe/auto_ir.jl.
     export BorrowCheckError

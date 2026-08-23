@@ -24,13 +24,27 @@ end
     end
 end
 
+@testitem "Unsupported Julia stubs" begin
+    if VERSION >= v"1.14.0-"
+        using Test
+
+        m = Module(gensym(:BCUnsupported))
+        Core.eval(m, :(import BorrowChecker))
+        @test_logs (:warn, r"not supported") Core.eval(
+            m, :(BorrowChecker.@safe stub_safe(x) = x + 1)
+        )
+        @test Core.eval(m, :(stub_safe(1))) == 2
+        @test Core.eval(m, :(BorrowChecker.@unsafe (1 + 1))) == 2
+    end
+end
+
 const testitem_name_filter = get(ENV, "BORROWCHECKER_TESTITEM", "")
 const only_auto = lowercase(get(ENV, "BORROWCHECKER_ONLY_AUTO", "")) in ("1", "true", "yes")
 const auto_supported =
-    VERSION >= v"1.12.0-" && isdefined(Base, :code_ircode_by_type)
+    v"1.12.0-" <= VERSION < v"1.14.0-" && isdefined(Base, :code_ircode_by_type)
 
 if only_auto && !auto_supported
-    error("BORROWCHECKER_ONLY_AUTO requires Julia 1.12+ with Base.code_ircode_by_type")
+    error("BORROWCHECKER_ONLY_AUTO requires Julia 1.12 or 1.13 with Base.code_ircode_by_type")
 end
 
 filter = if !isempty(testitem_name_filter)
