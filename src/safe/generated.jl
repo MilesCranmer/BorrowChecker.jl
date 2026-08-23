@@ -2,11 +2,24 @@ using Core.Compiler
 using Core.IR
 
 struct BCInterpOwner end
+
+@static if isdefined(Core.Compiler, :InferenceCache)
+    # Julia 1.13+ (post-rc): the local inference cache stores `InferenceCacheEntry`
+    # (`InferenceResult` or `LocalInferenceResult`) and lookup goes through
+    # `get_indices(cache, mi)`.
+    const BCInfCacheEntry =
+        isdefined(Core.Compiler, :InferenceCacheEntry) ?
+        Core.Compiler.InferenceCacheEntry : Core.Compiler.InferenceResult
+    const BCInfCache = Vector{BCInfCacheEntry}
+else
+    const BCInfCache = Vector{Core.Compiler.InferenceResult}
+end
+
 Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
     world::UInt = Base.get_world_counter()
     inf_params::Compiler.InferenceParams = Compiler.InferenceParams()
     opt_params::Compiler.OptimizationParams = Compiler.OptimizationParams()
-    inf_cache::Vector{Compiler.InferenceResult} = Compiler.InferenceResult[]
+    inf_cache::BCInfCache = BCInfCache()
     codegen_cache::IdDict{CodeInstance,CodeInfo} = IdDict{CodeInstance,CodeInfo}()
 end
 Base.Experimental.@MethodTable BCMT
@@ -22,9 +35,7 @@ Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
 # `InferenceCache` with a `get_indices(cache, mi)` index. Our local cache is a
 # plain vector, so provide the lookup directly.
 @static if isdefined(Core.Compiler, :get_indices)
-    function Compiler.get_indices(
-        cache::Vector{Compiler.InferenceResult}, mi::Core.MethodInstance
-    )
+    function Compiler.get_indices(cache::BCInfCache, mi::Core.MethodInstance)
         indices = Int[]
         for i in eachindex(cache)
             cache[i].linfo === mi && push!(indices, i)
