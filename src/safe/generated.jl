@@ -47,6 +47,28 @@ Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
     end
 end
 
+@static if isdefined(Core.Compiler, :lookup_local_inference_result) &&
+    isdefined(Core.Compiler, :InferenceCache)
+    # Nightly's `lookup_local_inference_result` indexes `cache.results`, which
+    # only exists on `InferenceCache`. Provide the vector-cache equivalent.
+    function Compiler.lookup_local_inference_result(
+        interp::BCInterp, mi::Core.MethodInstance
+    )
+        cache = Compiler.get_inference_cache(interp)
+        world = Compiler.get_inference_world(interp)
+        for i in length(cache):-1:1
+            cached = cache[i]
+            cached isa Core.Compiler.LocalInferenceResult || continue
+            result = cached.result
+            result.overridden_by_const === nothing || continue
+            result.cache_world == world || continue
+            world in Compiler.proof_worlds(cached.proof) || continue
+            return cached
+        end
+        return nothing
+    end
+end
+
 @static if isdefined(Core.Compiler, :constprop_cache_lookup) &&
     !hasmethod(
         Core.Compiler.constprop_cache_lookup,
