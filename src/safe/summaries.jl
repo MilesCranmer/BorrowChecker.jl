@@ -1,3 +1,14 @@
+# Maximum fixed-point refinement passes for recursive effect summaries (see
+# `_summary_for_tt`). Effects only grow between passes, so iteration converges;
+# the cap bounds pathological chains.
+const _MAX_SUMMARY_PASSES = 5
+
+# Counts re-entrant summary lookups since the last fixed-point pass started.
+# The multi-pass refinement in `_summary_for_tt`/`_summary_for_mi` only runs
+# additional passes while this counter reports cycles; non-recursive functions
+# therefore pay no extra cost.
+const _SUMMARY_CYCLE_HITS = Threads.Atomic{Int}(0)
+
 struct SummaryCacheEntry
     summary::EffectSummary
     depth::Int
@@ -37,7 +48,7 @@ function _with_reflection_ctx(f::Function, world::UInt)
 
     cache = PER_TASK_REFLECTION_CACHE[]
     entry = get!(cache, world) do
-        (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
+        return (; interp=BCInterp(; world), methods_cache=IdDict{Any,Any}())
     end
     ctx_ref[] = (; world=world, interp=entry.interp, methods_cache=entry.methods_cache)
     try
@@ -62,7 +73,7 @@ function _code_ircode_by_type(tt::Type; optimize_until, world::UInt, cfg::Config
         Base._methods_by_ftype(tt, -1, world)
     else
         get!(methods_cache, tt) do
-            Base._methods_by_ftype(tt, -1, world)
+            return Base._methods_by_ftype(tt, -1, world)
         end
     end
     if isnothing(matches)
@@ -201,7 +212,7 @@ function _normalize_optimize_until_for_ir(optimize_until)
         )
     end
 
-    throw(
+    return throw(
         ArgumentError(
             "BorrowChecker.@safe: optimize_until=\"$optimize_until\" is not a known compiler pass name. " *
             "Known passes: $(join(pass_names, ", "))",
@@ -220,13 +231,15 @@ function _mark_budget_hit!(@nospecialize(budget_state))
 end
 
 function _choose_summary_entry(old::SummaryCacheEntry, new::SummaryCacheEntry)
-    # NOTE: `_choose_summary_entry` is only called when there is an existing cache entry
-    # and we're recomputing because the existing entry was over budget at a deeper
-    # summary depth. Therefore `old.over_budget` is expected to be true here.
-    @assert old.over_budget
+    # Normally the existing entry was over budget at a deeper summary depth, and
+    # a fresh (non-over-budget) computation replaces it. A non-over-budget `old`
+    # is a provisional summary published mid-fixed-point by `_summary_for_tt`/
+    # `_summary_for_mi`; a matching `new` refinement replaces it, while an
+    # over-budget `new` never downgrades a finished entry.
     if !new.over_budget
         return new
     end
+    old.over_budget || return old
     return (new.depth < old.depth) ? new : old
 end
 
@@ -316,12 +329,21 @@ function _summary_cached(
     budget_state !== nothing && budget_state.hit && return nothing
 
     if inprogress_enter(key)
-        _mark_budget_hit!(budget_state)
-        return nothing
+        # Re-entrant summary computation (direct or mutual recursion). Use the
+        # provisional summary published by an earlier fixed-point pass when one
+        # exists, otherwise assume no effects. `_summary_for_tt` and
+        # `_summary_for_mi` iterate over these provisionals until stable, so
+        # effects that reach the recursive call through permuted or transformed
+        # arguments are still discovered. A cycle is not a budget exhaustion, so
+        # do not mark the budget here.
+        Threads.atomic_add!(_SUMMARY_CYCLE_HITS, 1)
+        cached_re = get_cached(key)
+        cached_re === nothing && return EffectSummary()
+        return cached_re.summary
     end
 
-    summ = nothing
     local_budget = BudgetTracker(false)
+    summ = nothing
     try
         summ = compute(local_budget)
     catch e
@@ -445,7 +467,45 @@ function _summary_for_tt(
         codes = _code_ircode_by_type(
             tt; optimize_until=cfg.optimize_until, world=world, cfg
         )
-        return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+        # Iterate to a fixed point over recursive-call summaries: pass 1 treats
+        # re-entrant calls optimistically as effect-free; each later pass reads
+        # the provisional summaries published by the previous pass, so effects
+        # that flow through permuted/transformed arguments around a cycle are
+        # discovered. Effects only grow between passes, so this converges; the
+        # pass cap bounds pathological chains.
+        summ = _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+        # Only refine when pass 1 actually encountered a recursive re-entry
+        # (tracked by the global counter incremented in `_summary_cached`) and a
+        # summary exists at all; non-recursive functions converge immediately at
+        # zero extra cost. Effects only grow between passes, so iteration
+        # converges; the pass cap bounds pathological chains.
+        passes = 1
+        while summ !== nothing &&
+              passes < _MAX_SUMMARY_PASSES &&
+              Threads.atomic_xchg!(_SUMMARY_CYCLE_HITS, 0) > 0
+            # Publish directly (not through `_choose_summary_entry`): the entry
+            # being replaced is our own provisional from the previous pass.
+            Base.@lock SUMMARY_STATE begin
+                SUMMARY_STATE[].tt_summary_cache[key] = SummaryCacheEntry(
+                    summ, depth, false
+                )
+            end
+            next = _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+            converged =
+                next.writes == summ.writes &&
+                next.consumes == summ.consumes &&
+                next.ret_aliases == summ.ret_aliases
+            summ = next
+            passes += 1
+            converged && break
+        end
+        if passes >= _MAX_SUMMARY_PASSES && summ !== nothing
+            # Refinement hit its pass cap without converging: effects may still
+            # be missing from the returned summary. Mark the budget so callers
+            # treat downstream unresolved calls conservatively.
+            _mark_budget_hit!(budget_state)
+        end
+        return summ
     end
 end
 
@@ -463,7 +523,6 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
 
     world = _reflection_world()
     key = (mi, UInt(world), cfg)
-
     return _summary_cached_mi(
         key, cfg; depth=depth, budget_state=budget_state
     ) do local_budget
@@ -471,7 +530,31 @@ function _summary_for_mi(mi, cfg::Config; depth::Int, budget_state=nothing)
         codes = _code_ircode_by_type(
             tt; optimize_until=cfg.optimize_until, world=world, cfg
         )
-        return _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+        # Same fixed-point iteration over recursive-call summaries as
+        # `_summary_for_tt` (see the comment there).
+        summ = _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+        passes = 1
+        while summ !== nothing &&
+              passes < _MAX_SUMMARY_PASSES &&
+              Threads.atomic_xchg!(_SUMMARY_CYCLE_HITS, 0) > 0
+            # Publish directly (not through `_choose_summary_entry`): the entry
+            # being replaced is our own provisional from the previous pass.
+            Base.@lock SUMMARY_STATE begin
+                SUMMARY_STATE[].summary_cache[key] = SummaryCacheEntry(summ, depth, false)
+            end
+            next = _summarize_entries(codes, cfg; depth=depth, budget_state=local_budget)
+            converged =
+                next.writes == summ.writes &&
+                next.consumes == summ.consumes &&
+                next.ret_aliases == summ.ret_aliases
+            summ = next
+            passes += 1
+            converged && break
+        end
+        if passes >= _MAX_SUMMARY_PASSES && summ !== nothing
+            _mark_budget_hit!(budget_state)
+        end
+        return summ
     end
 end
 
@@ -562,7 +645,7 @@ function _effects_for_call(
     # NOTE: include the callee expression itself. This matters for functors/closures
     # where `f()` can mutate/alias through captured state or `f`'s own fields.
     @inbounds for v in raw_args
-        _handle_index(v, nargs, track_arg, track_ssa) != 0 && (any_tracked = true; break)
+        _handle_index(v, nargs, track_arg, track_ssa) != 0 && (any_tracked=true; break)
     end
     any_tracked || return EffectSummary()
     f = _resolve_callee(stmt, ir)
@@ -810,6 +893,27 @@ function _effects_for_call(
         end
     end
 
+    if budget_state !== nothing && budget_state.hit
+        # The summary computation ran out of depth/budget for this call. That is
+        # an analysis resource limit rather than resolved effects. By default
+        # (`:consume`) assume the call may move/consume its owned arguments,
+        # which is sound for escape detection; `budget_fallback = :write`
+        # instead assumes only mutation, which requires aliasing evidence to
+        # violate but avoids flagging unrelated code in deep third-party chains.
+        effects = Int[]
+        for p in 2:length(raw_args)
+            v = raw_args[p]
+            h = _handle_index(v, nargs, track_arg, track_ssa)
+            h == 0 && continue
+            Tv = _widenargtype_or_any(v, ir)
+            is_owned_type(Tv) || continue
+            push!(effects, p)
+        end
+        if cfg.budget_fallback === :write
+            return EffectSummary(; writes=effects)
+        end
+        return EffectSummary(; consumes=effects)
+    end
     consumes = Int[]
     # `raw_args[1]` is the function value. Calling a function does not (by itself)
     # consume/move the function object, so treat only user arguments as candidates.

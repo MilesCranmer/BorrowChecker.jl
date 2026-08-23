@@ -24,7 +24,7 @@ Base.@kwdef struct BCInterp <: Compiler.AbstractInterpreter
 end
 Base.Experimental.@MethodTable BCMT
 
-struct GeneratedCfgTag{S,MSD,OPT,DBG,DCD} end
+struct GeneratedCfgTag{S,MSD,BF,OPT,DBG,DCD} end
 
 Compiler.InferenceParams(interp::BCInterp) = interp.inf_params
 Compiler.OptimizationParams(interp::BCInterp) = interp.opt_params
@@ -121,11 +121,12 @@ Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
 
 function _cfg_from_tag(
-    ::Type{GeneratedCfgTag{S,MSD,OPT,DBG,DCD}}, tt::Type{<:Tuple}, world::UInt
-) where {S,MSD,OPT,DBG,DCD}
+    ::Type{GeneratedCfgTag{S,MSD,BF,OPT,DBG,DCD}}, tt::Type{<:Tuple}, world::UInt
+) where {S,MSD,BF,OPT,DBG,DCD}
     @nospecialize tt
     scope = S::Symbol
     max_summary_depth = MSD::Int
+    budget_fallback = BF::Symbol
     optimize_until = String(OPT::Symbol)
     debug = DBG::Bool
     debug_callee_depth = DCD::Int
@@ -142,7 +143,13 @@ function _cfg_from_tag(
     end
 
     return Config(
-        optimize_until, max_summary_depth, scope, root_module, debug, debug_callee_depth
+        optimize_until,
+        max_summary_depth,
+        budget_fallback,
+        scope,
+        root_module,
+        debug,
+        debug_callee_depth,
     )
 end
 

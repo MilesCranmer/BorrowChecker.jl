@@ -18,7 +18,16 @@ Base.@kwdef struct Config
     optimize_until::String = _default_optimize_until()
 
     "Max depth for recursive effect summarization."
-    max_summary_depth::Int = 12
+    max_summary_depth::Int = 24
+
+    """
+    How to treat calls whose summary computation hit the depth budget:
+    `:consume` (default) conservatively assumes they may move/consume their
+    owned arguments (sound for escape detection, but can flag unrelated code
+    in deep third-party call chains); `:write` assumes only mutation, which
+    requires aliasing evidence to violate.
+    """
+    budget_fallback::Symbol = :consume
 
     "Recursively borrow-check callees (call graph) within this scope."
     scope::Symbol = :function

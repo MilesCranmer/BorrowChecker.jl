@@ -112,7 +112,9 @@ function _compute_liveness(
     return live_in, live_out
 end
 
-function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
+function check_ir(
+    ir::CC.IRCode, cfg::Config; budget_state::Union{Nothing,BudgetTracker}=nothing
+)::Vector{BorrowViolation}
     nargs = length(ir.argtypes)
     nstmts = length(ir.stmts)
 
@@ -153,6 +155,10 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
             union!(live_during, uses)
 
             if !in_unsafe
+                # Each top-level call site gets an isolated depth budget: one deep
+                # call chain must not change how unrelated statements are treated
+                # (the walk is in reverse source order, so sharing a tracker would
+                # let a later-deeper statement affect an earlier shallower one).
                 _check_stmt!(
                     viols,
                     ir,
@@ -166,6 +172,7 @@ function check_ir(ir::CC.IRCode, cfg::Config)::Vector{BorrowViolation}
                     track_ssa,
                     live,
                     live_during,
+                    BudgetTracker(false),
                 )
             end
 
@@ -249,6 +256,7 @@ function _check_stmt!(
     track_ssa,
     live_after::BitSet,
     live_during::BitSet,
+    budget_state::Union{Nothing,BudgetTracker},
 )
     if stmt isa Expr && stmt.head === :foreigncall
         name_sym, ccall_args, _gc_roots, _nccallargs = _foreigncall_parts(stmt)
@@ -331,7 +339,9 @@ function _check_stmt!(
     kw_vals = (f === Core.kwcall) ? _kwcall_value_exprs(stmt, ir) : nothing
     (kw_vals === nothing || isempty(kw_vals)) && (kw_vals = nothing)
 
-    eff = _effects_for_call(stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx)
+    eff = _effects_for_call(
+        stmt, ir, cfg, track_arg, track_ssa, nargs; idx=idx, budget_state=budget_state
+    )
     moved_positions = _moved_positions_for_eval_order_check(f, raw_args, eff, ir)
     _check_call_eval_order_moves!(
         viols, ir, idx, stmt, uf, moved_positions, raw_args, nargs, track_arg, track_ssa

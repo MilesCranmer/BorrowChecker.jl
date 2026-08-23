@@ -3,12 +3,13 @@ Run BorrowCheck on a concrete specialization `tt::Type{<:Tuple}`.
 
 Returns `true` on success; throws `BorrowCheckError` on failure.
 """
-const CheckedCacheSig = Tuple{String,Int,Symbol,Module,Bool,Int}
+const CheckedCacheSig = Tuple{String,Int,Symbol,Symbol,Module,Bool,Int}
 
 @inline function _checked_cache_sig(cfg::Config)
     return (
         cfg.optimize_until,
         cfg.max_summary_depth,
+        cfg.budget_fallback,
         cfg.scope,
         cfg.root_module,
         cfg.debug,
@@ -63,7 +64,7 @@ function _scope_allows_module(m::Module, cfg::Config)::Bool
         # "user" means: only recurse into user code (no Core/Base, including submodules).
         return !(_module_is_under(m, Base) || _module_is_under(m, Core))
     end
-    throw(ArgumentError("unknown scope: $(cfg.scope)"))
+    return throw(ArgumentError("unknown scope: $(cfg.scope)"))
 end
 
 function _scope_allows_tt(tt::Type{<:Tuple}, cfg::Config)::Bool
@@ -561,6 +562,7 @@ function parse_config(options, calling_module)::Config
     cfg0 = Config()
     scope = cfg0.scope
     max_summary_depth = cfg0.max_summary_depth
+    budget_fallback = cfg0.budget_fallback
     optimize_until = cfg0.optimize_until
     debug = cfg0.debug
     debug_callee_depth = cfg0.debug_callee_depth
@@ -576,6 +578,9 @@ function parse_config(options, calling_module)::Config
             elseif k === :max_summary_depth
                 max_summary_depth = _parse_cfg_value(v, calling_module)::Int
                 continue
+            elseif k === :budget_fallback
+                budget_fallback = _parse_cfg_value(v, calling_module)::Symbol
+                continue
             elseif k === :optimize_until
                 optimize_until = _parse_cfg_value(v, calling_module)::String
                 continue
@@ -588,19 +593,31 @@ function parse_config(options, calling_module)::Config
             end
         end
         error(
-            "@safe only supports `scope=...`, `max_summary_depth=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
+            "@safe only supports `scope=...`, `max_summary_depth=...`, `budget_fallback=...`, `optimize_until=...`, `debug=...`, `debug_callee_depth=...`; got: $option",
         )
     end
 
+    budget_fallback ∈ (:consume, :write) || error(
+        "invalid `budget_fallback` for @safe: $budget_fallback (expected :consume or :write)",
+    )
     scope ∈ (:none, :function, :module, :user, :all) || error(
         "invalid `scope` for @safe: $scope (expected :none, :function, :module, :user, or :all)",
+    )
+    budget_fallback ∈ (:consume, :write) || error(
+        "invalid `budget_fallback` for @safe: $budget_fallback (expected :consume or :write)",
     )
 
     root_module = (scope === :module) ? calling_module : cfg0.root_module
     debug_callee_depth >= 0 ||
         error("`debug_callee_depth` must be >= 0; got: $debug_callee_depth")
     return Config(
-        optimize_until, max_summary_depth, scope, root_module, debug, debug_callee_depth
+        optimize_until,
+        max_summary_depth,
+        budget_fallback,
+        scope,
+        root_module,
+        debug,
+        debug_callee_depth,
     )
 end
 
@@ -623,13 +640,13 @@ function _auto(args...; calling_module, source_info=nothing)
             tag_ref,
             QuoteNode(cfg.scope),
             cfg.max_summary_depth,
+            QuoteNode(cfg.budget_fallback),
             QuoteNode(Symbol(cfg.optimize_until)),
             cfg.debug,
             cfg.debug_callee_depth,
         )
     end
 
-    # Function form
     if ex isa Expr && ex.head === :function
         sig = ex.args[1]
         body = ex.args[2]
@@ -672,7 +689,7 @@ part of the checked-cache key).
   - `:module`: recursively check callees whose defining module matches the module where `@safe` is used.
   - `:user`: recursively check callees, but ignore `Core` and `Base` (including their submodules).
   - `:all`: recursively check callees across all modules (very aggressive).
-- `max_summary_depth` (default: `12`): limits recursive effect summarization depth used
+- `max_summary_depth` (default: `24`): limits recursive effect summarization depth used
   when the checker cannot directly resolve effects.
 - `debug` (default: `false`): enable best-effort debug logging to a JSONL file
   (path controlled by `BORROWCHECKER_AUTO_DEBUG_PATH`).

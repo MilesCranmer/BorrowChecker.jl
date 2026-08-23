@@ -22,11 +22,12 @@
 
         @test_throws BorrowCheckError bat(x1 + x2 * 3.2)
 
-        # MWE: `copy(::Expression)` currently triggers a spurious "consume" violation when
-        # analyzed under `@safe` (likely via the compiler-generated keyword wrapper).
-        # This should not be a move/escape: `copy` is expected to produce a fresh object.
+        # `copy(::Expression)` produces a fresh object and must not be flagged as a
+        # move/escape. (It used to trigger a spurious "consume" violation via the
+        # compiler-generated keyword wrapper; fixed by treating recursive summary
+        # re-entry optimistically instead of poisoning callers with consumes.)
         BorrowChecker.@safe bc_copy_ok(ex) = copy(ex)
-        @test_broken try
+        @test try
             bc_copy_ok(x1)
             true
         catch e
