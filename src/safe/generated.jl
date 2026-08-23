@@ -43,6 +43,54 @@ Compiler.get_inference_cache(interp::BCInterp) = interp.inf_cache
         return indices
     end
 end
+
+@static if isdefined(Core.Compiler, :constprop_cache_lookup) &&
+    !hasmethod(
+        Core.Compiler.constprop_cache_lookup,
+        Tuple{Any,Any,Vector{Any},BCInfCache,UInt},
+    )
+    # Nightly narrows `constprop_cache_lookup` to `InferenceCache`; mirror the
+    # upstream logic for our plain-vector cache.
+    function Compiler.constprop_cache_lookup(
+        𝕃::Compiler.AbstractLattice,
+        mi::Core.MethodInstance,
+        given_argtypes::Vector{Any},
+        cache::BCInfCache,
+        world::UInt,
+    )
+        nargtypes = length(given_argtypes)
+        found_tombstone = false
+        for cached in cache
+            cached_result = cached isa Core.Compiler.InferenceResult ? cached :
+                cached.result
+            cached_result.linfo === mi || continue
+            cached_result.cache_world == world || continue
+            valid_worlds = cached isa Core.Compiler.InferenceResult ?
+                cached_result.valid_worlds : proof_worlds(cached.proof)
+            world in valid_worlds || continue
+            cache_argtypes = cached_result.argtypes
+            length(cache_argtypes) == nargtypes || continue
+            cache_overridden_by_const = cached_result.overridden_by_const
+            cache_overridden_by_const === nothing && continue
+            ok = true
+            for i in 1:nargtypes
+                if !Compiler.is_argtype_match(
+                    𝕃, given_argtypes[i], cache_argtypes[i], cache_overridden_by_const[i]
+                )
+                    ok = false
+                    break
+                end
+            end
+            ok || continue
+            if cached_result.tombstone
+                found_tombstone = true
+                continue
+            end
+            return cached
+        end
+        return found_tombstone ? missing : nothing
+    end
+end
 Compiler.cache_owner(::BCInterp) = BCInterpOwner()
 Compiler.codegen_cache(interp::BCInterp) = interp.codegen_cache
 Compiler.method_table(interp::BCInterp) = Compiler.OverlayMethodTable(interp.world, BCMT)
@@ -118,7 +166,11 @@ function _expr_to_codeinfo(m::Module, argnames, spnames, e::Expr, isva)
     else
         Expr(Symbol("with-static-parameters"), lambda, spnames...)
     end
-    ci = Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    ci = if applicable(Base.generated_body_to_codeinfo, ex, @__MODULE__(), isva, LineNumberNode(0))
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva, LineNumberNode(0))
+    else
+        Base.generated_body_to_codeinfo(ex, @__MODULE__(), isva)
+    end
     @assert ci isa Core.CodeInfo "Failed to create a CodeInfo from the given expression. This might mean it contains a closure or comprehension?\n Offending expression: $e"
     return ci
 end
