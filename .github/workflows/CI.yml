@@ -83,19 +83,21 @@ jobs:
   nightly:
     name: nightly-ubuntu-x64
     runs-on: ubuntu-latest
-    # Use an explicit `timeout` around the test command so that if nightly runs long,
-    # the job fails (which we tolerate) rather than the whole workflow being cancelled.
+    # Keep failures local to individual steps so the nightly check run stays green.
+    # Job-level `continue-on-error` still produces a failed check run.
     timeout-minutes: 70
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
+        continue-on-error: true
         with:
           version: 'nightly'
           arch: x64
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
+        continue-on-error: true
       - name: "Run tests (nightly)"
+        continue-on-error: true
         run: |
           timeout 60m julia --color=yes --threads=auto --check-bounds=yes --depwarn=yes -e '
             import Pkg
